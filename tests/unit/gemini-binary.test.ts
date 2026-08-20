@@ -28,7 +28,7 @@ describe("Gemini binary probe", () => {
         approvalMode: true,
       },
     });
-    if (result.ok) expect(result.binaryPath).toBe(fakeAgent);
+    if (result.ok) expect(result.binaryPath).toBe(await realpath(fakeAgent));
   });
 
   it("returns a renderer-safe failure for a missing binary", async () => {

@@ -274,7 +274,12 @@ function createManager(
   extraEnvironment: NodeJS.ProcessEnv = {},
 ): GeminiSessionManager {
   const manager = new GeminiSessionManager({
-    binaryPath: fakeAgent,
+    // Mirrors the production wiring (CapabilityService forwards the probed
+    // executablePath/executableArgs): a JavaScript entry point is started via
+    // node instead of its shebang. Windows has no shebang support and rejects
+    // a direct spawn of the .mjs agent with EFTYPE.
+    binaryPath: process.execPath,
+    binaryArgs: [fakeAgent],
     environment: {
       ...process.env,
       FAKE_ACP_TRACE_FILE: fixture.traceFile,

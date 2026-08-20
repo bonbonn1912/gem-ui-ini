@@ -170,8 +170,10 @@ export async function resolveGeminiLaunch(
   if (platform !== "win32" || !/\.(?:cmd|bat)$/i.test(binaryPath)) {
     // npm's POSIX launcher is a symlink to a JavaScript file. Finder-launched
     // apps do not inherit Homebrew's PATH, so relying on `#!/usr/bin/env node`
-    // would still fail after we found Gemini in /opt/homebrew/bin.
-    if (/\.js$/i.test(binaryPath)) {
+    // would still fail after we found Gemini in /opt/homebrew/bin. Windows has
+    // no shebang support at all: spawning a .js/.mjs/.cjs entry point directly
+    // fails with EFTYPE, so every JavaScript entry point is launched via node.
+    if (/\.(?:c|m)?js$/i.test(binaryPath)) {
       return {
         executablePath: await resolveExecutable("node", environment, platform),
         executableArgs: [binaryPath],

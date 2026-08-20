@@ -52,12 +52,47 @@ npm run test:gemini
 
 ## Paket erzeugen
 
+macOS (auf einem Mac):
+
 ```bash
-npm run package
+npm ci
 npm run make
 ```
 
-Forge legt die Ergebnisse unter `out/` ab. Lokale Entwicklungsartefakte sind nicht notarisiert beziehungsweise für eine öffentliche Verteilung signiert.
+Das ZIP liegt anschließend unter
+`out/make/zip/darwin/arm64/GeminUI-darwin-arm64-0.1.0.zip` (auf Intel
+entsprechend `x64`). `npm run package` erzeugt nur das lokale `.app`-Bundle.
+
+Windows (in PowerShell auf Windows 10/11):
+
+```powershell
+npm ci
+npm run make
+```
+
+Der Squirrel-Installer liegt anschließend unter
+`out\make\squirrel.windows\x64\`. Windows-Artefakte sollten wegen Electron und
+der nativen SQLite-Binary auf Windows gebaut werden. Alternativ erzeugt der
+Workflow `.github/workflows/windows.yml` das Artefakt auf `windows-2022`.
+
+Forge legt alle Ergebnisse unter `out/` ab. Lokale Entwicklungsartefakte sind
+nicht notarisiert beziehungsweise für eine öffentliche Verteilung signiert.
+Für einen Firmen-PC ist keine Microsoft-Store-Veröffentlichung nötig; eine
+Unternehmensrichtlinie kann unsignierte Installer jedoch blockieren. Für eine
+öffentliche oder breite interne Verteilung sollte der Windows-Workflow um
+Authenticode/Artifact Signing und der macOS-Build um Developer-ID-Signierung
+und Notarisierung ergänzt werden.
+
+### macOS-Ordnerzugriff nach einem Neubau
+
+macOS ordnet Datenschutzfreigaben der signierten App-Identität zu. Lokale
+GeminUI-Builds sind ohne Developer-ID-Zertifikat nur ad-hoc signiert; nach einem
+Neubau kann macOS deshalb den Zugriff auf einen bereits gespeicherten Ordner in
+`Dokumente`, `Schreibtisch` oder `Downloads` erneut verlangen. Öffne in diesem
+Fall die Projekteinstellungen und klicke beim betroffenen Root auf `Zugriff`.
+Wähle exakt denselben Ordner erneut aus. GeminUI verändert dabei weder das
+Projekt noch die Session-Historie. Ein stabil signiertes und notarisiertes
+Release behält eine verlässliche App-Identität über Versionen hinweg.
 
 ## Funktionsumfang
 
