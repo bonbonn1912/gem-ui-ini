@@ -3,6 +3,7 @@ import { Icon } from "../../components/Icon";
 import type {
   AppProject,
   ProjectApprovalPolicy,
+  ProjectRoot,
   ProjectRootCandidate,
 } from "../../types";
 import { createClientRequestId } from "../../utils/client-request-id";
@@ -52,6 +53,12 @@ export function ProjectSettingsDialog({
   const [selectedModeId, setSelectedModeId] = useState("");
   const [approvalLoading, setApprovalLoading] = useState(false);
   const [unrestrictedConfirmed, setUnrestrictedConfirmed] = useState(false);
+  const [reauthorizingRootId, setReauthorizingRootId] = useState<string | null>(
+    null,
+  );
+  const [authorizedRootIds, setAuthorizedRootIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const primary = useMemo(
     () => project?.roots.find((root) => root.kind === "primary") ?? null,
@@ -67,6 +74,7 @@ export function ProjectSettingsDialog({
         .map((root) => ({ path: root.path, label: root.label })),
     );
     setError(null);
+    setAuthorizedRootIds(new Set());
   }, [open, project]);
 
   useEffect(() => {
@@ -123,6 +131,25 @@ export function ProjectSettingsDialog({
       setError(errorText(pickError));
     } finally {
       setPicking(false);
+    }
+  };
+
+  const reauthorizeRoot = async (root: ProjectRoot) => {
+    if (reauthorizingRootId) return;
+    setReauthorizingRootId(root.id);
+    setError(null);
+    try {
+      const result = await window.gemUi.projects.reauthorizeRoot({
+        projectId: project.id,
+        rootId: root.id,
+      });
+      if (result.status === "authorized") {
+        setAuthorizedRootIds((current) => new Set(current).add(root.id));
+      }
+    } catch (reauthorizeError) {
+      setError(errorText(reauthorizeError));
+    } finally {
+      setReauthorizingRootId(null);
     }
   };
 
@@ -311,7 +338,26 @@ export function ProjectSettingsDialog({
             <div className="selected-folder selected-folder--primary">
               <span className="folder-tile"><Icon name="folder" size={19} /></span>
               <div><strong>{displayName(primary)}</strong><span>{primary.path}</span></div>
-              <span className="primary-badge">Primär</span>
+              <div className="selected-folder-actions">
+                <span className="primary-badge">Primär</span>
+                <button
+                  className="folder-reauthorize-button"
+                  type="button"
+                  onClick={() => void reauthorizeRoot(primary)}
+                  disabled={Boolean(reauthorizingRootId)}
+                  title="Ordnerzugriff über macOS erneut erteilen"
+                  aria-label={`Zugriff auf ${displayName(primary)} erneut erteilen`}
+                >
+                  {reauthorizingRootId === primary.id ? (
+                    <span className="mini-spinner" />
+                  ) : authorizedRootIds.has(primary.id) ? (
+                    <Icon name="check" size={14} />
+                  ) : (
+                    <Icon name="refresh" size={14} />
+                  )}
+                  {authorizedRootIds.has(primary.id) ? "Erlaubt" : "Zugriff"}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -332,23 +378,51 @@ export function ProjectSettingsDialog({
             </div>
             {additional.length > 0 ? (
               <div className="additional-folder-list">
-                {additional.map((candidate) => (
-                  <div className="selected-folder" key={candidate.path}>
-                    <span className="folder-tile"><Icon name="folder" size={17} /></span>
-                    <div><strong>{displayName(candidate)}</strong><span>{candidate.path}</span></div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setAdditional((current) =>
-                          current.filter((root) => root.path !== candidate.path),
-                        )
-                      }
-                      aria-label={`${displayName(candidate)} entfernen`}
-                    >
-                      <Icon name="x" size={15} />
-                    </button>
-                  </div>
-                ))}
+                {additional.map((candidate) => {
+                  const storedRoot = project.roots.find(
+                    (root) =>
+                      root.kind === "additional" && root.path === candidate.path,
+                  );
+                  return (
+                    <div className="selected-folder" key={candidate.path}>
+                      <span className="folder-tile"><Icon name="folder" size={17} /></span>
+                      <div><strong>{displayName(candidate)}</strong><span>{candidate.path}</span></div>
+                      <div className="selected-folder-actions">
+                        {storedRoot && (
+                          <button
+                            className="folder-reauthorize-button"
+                            type="button"
+                            onClick={() => void reauthorizeRoot(storedRoot)}
+                            disabled={Boolean(reauthorizingRootId)}
+                            title="Ordnerzugriff über macOS erneut erteilen"
+                            aria-label={`Zugriff auf ${displayName(candidate)} erneut erteilen`}
+                          >
+                            {reauthorizingRootId === storedRoot.id ? (
+                              <span className="mini-spinner" />
+                            ) : authorizedRootIds.has(storedRoot.id) ? (
+                              <Icon name="check" size={14} />
+                            ) : (
+                              <Icon name="refresh" size={14} />
+                            )}
+                            {authorizedRootIds.has(storedRoot.id) ? "Erlaubt" : "Zugriff"}
+                          </button>
+                        )}
+                        <button
+                          className="folder-remove-button"
+                          type="button"
+                          onClick={() =>
+                            setAdditional((current) =>
+                              current.filter((root) => root.path !== candidate.path),
+                            )
+                          }
+                          aria-label={`${displayName(candidate)} entfernen`}
+                        >
+                          <Icon name="x" size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <button
@@ -363,12 +437,13 @@ export function ProjectSettingsDialog({
           </div>
 
           <div className="access-note">
-            <Icon name="warning" size={18} />
+            <Icon name="refresh" size={18} />
             <p>
-              <strong>Root-Änderungen starten Sessions neu</strong>
+              <strong>Ordnerzugriff nach einem macOS-Neustart</strong>
               <span>
-                Laufende Anfragen müssen beendet sein. Die nächste Nachricht lädt die
-                Session mit dem aktuellen Root-Satz erneut.
+                Falls macOS einen gespeicherten Ordner blockiert, klicke beim betroffenen
+                Root auf „Zugriff“ und wähle exakt denselben Ordner erneut aus. Der Root-Satz
+                und bestehende Sessions bleiben dabei unverändert.
               </span>
             </p>
           </div>

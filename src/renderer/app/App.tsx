@@ -21,6 +21,15 @@ function messageFrom(error: unknown): string {
   return error instanceof Error ? error.message : "Eine unerwartete Aktion ist fehlgeschlagen.";
 }
 
+function isProjectRootAccessError(error: unknown): boolean {
+  const message = messageFrom(error);
+  return (
+    message.includes("ProjectRootValidationError") ||
+    message.includes("keinen Zugriff auf den Projektordner") ||
+    message.includes("root_not_accessible")
+  );
+}
+
 function sessionStatusFromEvents(events: StreamEnvelope[]): AppSession["status"] | null {
   for (const { event } of [...events].reverse()) {
     switch (event.type) {
@@ -301,6 +310,7 @@ export function App() {
       setActiveSessionId(session.id);
       setSidebarOpen(false);
     } catch (error) {
+      if (isProjectRootAccessError(error)) setProjectSettingsOpen(true);
       showError("Session konnte nicht angelegt werden", error, () => void createSession());
     }
   };
@@ -433,6 +443,7 @@ export function App() {
       const message = messageFrom(error);
       dispatch({ type: "prompt-failed", clientRequestId, message });
       setSessions((current) => current.map((session) => session.id === activeSession.id ? { ...session, status: "error" } : session));
+      if (isProjectRootAccessError(error)) setProjectSettingsOpen(true);
       showError("Nachricht konnte nicht gesendet werden", error);
       throw error;
     }

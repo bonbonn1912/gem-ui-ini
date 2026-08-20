@@ -376,4 +376,35 @@ describe("Renderer UI", () => {
       }),
     );
   });
+
+  it("erteilt einem gespeicherten Projekt-Root den macOS-Zugriff erneut", async () => {
+    const user = userEvent.setup();
+    const { api } = createApi();
+    vi.mocked(api.projects.reauthorizeRoot).mockResolvedValue({
+      status: "authorized",
+      root: project.roots[0]!,
+    });
+    window.gemUi = api;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Login reparieren" });
+    await user.click(screen.getByRole("button", { name: "Projekt bearbeiten" }));
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "Projekt bearbeiten",
+    });
+    await user.click(
+      within(dialog).getByRole("button", {
+        name: "Zugriff auf portal erneut erteilen",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(api.projects.reauthorizeRoot).toHaveBeenCalledWith({
+        projectId: "project-1",
+        rootId: "root-1",
+      }),
+    );
+    expect(within(dialog).getByText("Erlaubt")).toBeVisible();
+  });
 });
