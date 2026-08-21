@@ -126,6 +126,10 @@ export const SendPromptInputSchema = z
       .array(EntityIdSchema)
       .max(MAX_CONTEXT_ATTACHMENTS_PER_PROMPT)
       .default([]),
+    projectFiles: z
+      .array(ProjectFileReferenceInputSchema)
+      .max(MAX_PROJECT_FILE_REFERENCES_PER_PROMPT)
+      .default([]),
     externalContextRefs: z
       .array(ExternalPromptContextRefSchema)
       .max(5)
@@ -136,8 +140,12 @@ export const SendPromptInputSchema = z
     (input) =>
       input.text.trim().length > 0 ||
       input.attachmentIds.length > 0 ||
+      (input.projectFiles && input.projectFiles.length > 0) ||
       (input.externalContextRefs && input.externalContextRefs.length > 0),
-    { message: "A prompt requires text, at least one attachment, or an external context" },
+    {
+      message:
+        "A prompt requires text, at least one attachment, a project file reference, or an external context",
+    },
   );
 
 export const CancelTurnInputSchema = z

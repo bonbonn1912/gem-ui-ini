@@ -88,6 +88,7 @@ describe("chatReducer", () => {
           text: "Analysiere das Bild",
           attachmentIds: ["image-1"],
           contextAttachments: [],
+          projectFiles: [],
           externalContexts: [],
         }),
       ],

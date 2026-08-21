@@ -212,6 +212,20 @@ function TimelineEntry({
             ))}
           </div>
         )}
+        {item.projectFiles && item.projectFiles.length > 0 && (
+          <div className="sent-project-files" aria-label="Referenzierte Projektdateien">
+            {item.projectFiles.map((file) => (
+              <span
+                className="sent-project-file"
+                key={`${file.rootId}:${file.relativePath}`}
+                title={`${file.rootLabel ? `${file.rootLabel}/` : ""}${file.relativePath}`}
+              >
+                <Icon name="file-text" size={13} />
+                <span>{file.displayName ?? file.relativePath.split("/").pop() ?? file.relativePath}</span>
+              </span>
+            ))}
+          </div>
+        )}
         {item.externalContexts && item.externalContexts.length > 0 && (
           <div className="sent-context-attachments" aria-label="Verwendeter GitLab-Kontext">
             {item.externalContexts.map((ctx) => (

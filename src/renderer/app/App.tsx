@@ -694,6 +694,7 @@ export function App() {
   const sendPrompt = async (
     text: string,
     attachments: ComposerAttachment[] = [],
+    projectFiles: ProjectFileSearchEntry[] = [],
     externalContextRefs: ExternalPromptContextRef[] = [],
   ) => {
     if (!activeSession) return;
@@ -719,6 +720,7 @@ export function App() {
         text,
         attachmentIds: attachments.map((attachment) => attachment.id),
         contextAttachmentIds: contextAttachments.included.map((attachment) => attachment.id),
+        projectFiles: projectFiles.map(({ rootId, relativePath }) => ({ rootId, relativePath })),
         externalContextRefs,
         expectedRootRevision: activeProject?.rootRevision ?? 1,
         clientRequestId,
@@ -1006,6 +1008,7 @@ export function App() {
                   if (!activeSession) return;
                   await sendPrompt(
                     "Bitte bearbeite das Review-Feedback zu dieser Stelle.",
+                    [],
                     [],
                     [ref],
                   );

@@ -41,6 +41,7 @@ export type MessageItem = TimelineBase & {
   text: string;
   attachments: Array<{ id: string; name: string; mimeType?: string }>;
   contextAttachments: Array<{ id: string; kind: "file" | "link"; title: string }>;
+  projectFiles?: Array<{ rootId: string; relativePath: string; rootLabel?: string; displayName?: string }>;
   externalContexts?: Array<{
     kind: "gitlab_review";
     id: string;
@@ -259,6 +260,7 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
         text: eventText(event),
         attachments: eventAttachments,
         contextAttachments: event.contextAttachments,
+        projectFiles: event.projectFiles,
         externalContexts: event.externalContexts,
         clientRequestId: optimistic?.clientRequestId,
         turnId: envelope.turnId,
@@ -277,6 +279,9 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
           contextAttachments: message.contextAttachments.length
             ? message.contextAttachments
             : optimisticMessage.contextAttachments,
+          projectFiles: message.projectFiles?.length
+            ? message.projectFiles
+            : optimisticMessage.projectFiles,
           externalContexts: message.externalContexts?.length
             ? message.externalContexts
             : optimisticMessage.externalContexts,

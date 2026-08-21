@@ -247,6 +247,11 @@ export class AppController implements ProjectRuntimeCoordinator {
       input.attachmentIds.length > 0
         ? await this.#attachmentService.getPromptImages(input.attachmentIds)
         : [];
+    const projectFilesContext = await this.#projectFiles.buildPromptContext({
+      projectId: session.projectId,
+      expectedRootRevision: input.expectedRootRevision,
+      references: input.projectFiles ?? [],
+    });
     const context = await this.#contextAttachments.buildPromptContext({
       projectId: session.projectId,
       sessionId: session.id,
@@ -257,7 +262,11 @@ export class AppController implements ProjectRuntimeCoordinator {
       ? await this.#externalContextRegistry.resolve(input.externalContextRefs ?? [])
       : { parts: [], snapshots: [] };
 
-    const parts: PromptPart[] = [...external.parts, ...context.parts];
+    const parts: PromptPart[] = [
+      ...external.parts,
+      ...projectFilesContext.parts,
+      ...context.parts,
+    ];
     for (const image of images) {
       parts.push({
         type: "image",
@@ -285,6 +294,7 @@ export class AppController implements ProjectRuntimeCoordinator {
         text: input.text,
         attachmentIds: input.attachmentIds,
         contextAttachments: context.snapshots,
+        projectFiles: projectFilesContext.snapshots,
         externalContexts: external.snapshots,
       },
       timestamp,

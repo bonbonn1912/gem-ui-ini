@@ -56,6 +56,11 @@ const UserMessageEventSchema = z
       kind: ContextAttachmentKindSchema,
       title: DisplayNameSchema,
     }).strict()).max(MAX_CONTEXT_ATTACHMENTS_PER_PROMPT).optional().default([]),
+    projectFiles: z
+      .array(ProjectFilePromptSnapshotSchema)
+      .max(MAX_PROJECT_FILE_REFERENCES_PER_PROMPT)
+      .optional()
+      .default([]),
     externalContexts: z
       .array(ExternalPromptContextSnapshotSchema)
       .max(5)
