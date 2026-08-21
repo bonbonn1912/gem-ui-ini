@@ -5,10 +5,15 @@ import path from "node:path";
 import { AppController } from "./app-controller";
 import { AttachmentService } from "./attachments/attachment-service";
 import { GeminiCapabilityService } from "./capability-service";
+import {
+  ContextAttachmentService,
+  ContextAttachmentSubscriptionHub,
+} from "./context-attachments";
 import { GitService, GitStatusSubscriptionHub } from "./git";
 import { SessionEventHub } from "./ipc/event-hub";
 import { registerAppIpc } from "./ipc/register-app-ipc";
 import { ProjectService } from "./projects";
+import { LinkMetadataFetcher } from "./links";
 import {
   createMainWindow,
   installApplicationMenu,
@@ -18,6 +23,7 @@ import {
 import {
   AttachmentRepository,
   ClientRequestRepository,
+  ContextAttachmentRepository,
   EventRepository,
   ProjectRepository,
   SessionRepository,
@@ -39,6 +45,8 @@ let database: SqliteDatabase | null = null;
 let controller: AppController | null = null;
 let eventHub: SessionEventHub | null = null;
 let gitStatusHub: GitStatusSubscriptionHub | null = null;
+let contextAttachmentHub: ContextAttachmentSubscriptionHub | null = null;
+let contextAttachmentService: ContextAttachmentService | null = null;
 let runtimeServices: Omit<
   Parameters<typeof registerAppIpc>[0],
   "mainWindow"
@@ -92,6 +100,7 @@ async function bootstrap(): Promise<void> {
   const sessionRepository = new SessionRepository(database);
   const eventRepository = new EventRepository(database);
   const attachmentRepository = new AttachmentRepository(database);
+  const contextAttachmentRepository = new ContextAttachmentRepository(database);
   const settingsRepository = new SettingsRepository(database);
   const clientRequestRepository = new ClientRequestRepository(database);
   const usageRepository = new UsageRepository(database);
@@ -111,6 +120,17 @@ async function bootstrap(): Promise<void> {
   );
   await attachmentService.initialize();
 
+  const linkMetadataFetcher = new LinkMetadataFetcher();
+  contextAttachmentService = new ContextAttachmentService(
+    app.getPath("userData"),
+    contextAttachmentRepository,
+    projectService,
+    sessionRepository,
+    linkMetadataFetcher,
+  );
+  await contextAttachmentService.initialize();
+  contextAttachmentHub = new ContextAttachmentSubscriptionHub(contextAttachmentService);
+
   const gitService = new GitService(projectService, capabilityService);
   gitStatusHub = new GitStatusSubscriptionHub(gitService);
 
@@ -125,6 +145,7 @@ async function bootstrap(): Promise<void> {
     events: eventRepository,
     attachmentRepository,
     attachmentService,
+    contextAttachments: contextAttachmentService,
     capabilities: capabilityService,
     usage: usageService,
     publishEvents: (events) => eventHub?.publish(events),
@@ -136,6 +157,9 @@ async function bootstrap(): Promise<void> {
     controller,
     capabilities: capabilityService,
     attachments: attachmentService,
+    contextAttachments: contextAttachmentService,
+    contextAttachmentHub,
+    linkMetadataFetcher,
     clientRequests: clientRequestRepository,
     eventHub,
     git: gitService,
@@ -164,10 +188,14 @@ async function cleanup(): Promise<void> {
     unregisterIpc = null;
     eventHub?.close();
     gitStatusHub?.close();
+    contextAttachmentHub?.close();
+    contextAttachmentService?.dispose();
     await controller?.dispose();
     controller = null;
     eventHub = null;
     gitStatusHub = null;
+    contextAttachmentHub = null;
+    contextAttachmentService = null;
     runtimeServices = null;
     if (database?.open) database.close();
     database = null;

@@ -6,6 +6,11 @@ import {
   IsoTimestampSchema,
   JsonValueSchema,
 } from "./common";
+import {
+  ContextAttachmentKindSchema,
+  MAX_CONTEXT_ATTACHMENTS_PER_PROMPT,
+} from "./context-attachments";
+import { DisplayNameSchema } from "./common";
 
 const SessionStartedEventSchema = z
   .object({
@@ -28,6 +33,11 @@ const UserMessageEventSchema = z
     messageId: EntityIdSchema,
     text: z.string().max(200_000),
     attachmentIds: z.array(EntityIdSchema).max(4),
+    contextAttachments: z.array(z.object({
+      id: EntityIdSchema,
+      kind: ContextAttachmentKindSchema,
+      title: DisplayNameSchema,
+    }).strict()).max(MAX_CONTEXT_ATTACHMENTS_PER_PROMPT).default([]),
   })
   .strict();
 

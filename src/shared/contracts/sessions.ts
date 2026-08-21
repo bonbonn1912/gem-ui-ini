@@ -8,6 +8,7 @@ import {
   RootFingerprintSchema,
   RootRevisionSchema,
 } from "./common";
+import { MAX_CONTEXT_ATTACHMENTS_PER_PROMPT } from "./context-attachments";
 
 export const SessionStatusSchema = z.enum([
   "idle",
@@ -19,6 +20,19 @@ export const SessionStatusSchema = z.enum([
   "error",
   "disconnected",
 ]);
+
+/**
+ * One entry of a picker the agent offers for a session — a model or an
+ * approval mode. `id` is what travels back over ACP, `name` is what the user
+ * reads.
+ */
+export const SessionOptionSchema = z
+  .object({
+    id: z.string().trim().min(1).max(200),
+    name: z.string().trim().min(1).max(200),
+    description: z.string().trim().min(1).max(500).optional(),
+  })
+  .strict();
 
 export const AppSessionSchema = z
   .object({
@@ -32,6 +46,13 @@ export const AppSessionSchema = z
     status: SessionStatusSchema,
     model: z.string().trim().min(1).max(200).nullable(),
     mode: z.string().trim().min(1).max(100).nullable(),
+    /**
+     * The choices the agent last offered for this session. Cached because an
+     * ACP process only starts on demand: without it both pickers would stay
+     * empty from app start until the first prompt of every session.
+     */
+    availableModels: z.array(SessionOptionSchema).max(50).default([]),
+    availableModes: z.array(SessionOptionSchema).max(50).default([]),
     pinned: z.boolean(),
     archived: z.boolean(),
     createdAt: IsoTimestampSchema,
@@ -90,6 +111,10 @@ export const SendPromptInputSchema = z
     expectedRootRevision: RootRevisionSchema,
     text: z.string().max(200_000),
     attachmentIds: z.array(EntityIdSchema).max(4),
+    contextAttachmentIds: z
+      .array(EntityIdSchema)
+      .max(MAX_CONTEXT_ATTACHMENTS_PER_PROMPT)
+      .default([]),
   })
   .strict()
   .refine(
@@ -131,6 +156,7 @@ export const SetSessionModelInputSchema = z
   .strict();
 
 export type SessionStatus = z.infer<typeof SessionStatusSchema>;
+export type SessionOption = z.infer<typeof SessionOptionSchema>;
 export type AppSession = z.infer<typeof AppSessionSchema>;
 export type CreateSessionInput = z.input<typeof CreateSessionInputSchema>;
 export type ListSessionsInput = z.input<typeof ListSessionsInputSchema>;

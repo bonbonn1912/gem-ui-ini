@@ -4,6 +4,8 @@ import {
   IPC_CHANNELS,
   JsonValueSchema,
   type ArchiveProjectInput,
+  type AddContextFilesInput,
+  type AddContextLinkInput,
   type AttachmentPreviewInput,
   type CancelTurnInput,
   type ClipboardImageInput,
@@ -11,15 +13,21 @@ import {
   type CreateSessionInput,
   type DeleteProjectInput,
   type DeleteSessionInput,
+  type ContextAttachmentBytesInput,
   type GetProjectInput,
   type GetProjectApprovalPolicyInput,
   type GetGitFileDiffInput,
   type GetGitProjectStatusInput,
   type ListProjectsInput,
   type ListSessionsInput,
+  type ListContextAttachmentsInput,
+  type OpenContextAttachmentInput,
+  type OpenLinkPreviewInput,
   type PermissionResponse,
   type PickImagesInput,
   type RemoveAttachmentInput,
+  type RemoveContextAttachmentInput,
+  type RefreshLinkPreviewInput,
   type ReauthorizeProjectRootInput,
   type RenameProjectInput,
   type SendPromptInput,
@@ -27,18 +35,26 @@ import {
   type SetProjectApprovalPolicyInput,
   type SetSessionModeInput,
   type SetSessionModelInput,
+  type SetContextInclusionInput,
+  type SetLinkPreviewBoundsInput,
   type StageDroppedPathInput,
   type SubscribeSessionEventsInput,
   type SubscribeGitProjectStatusInput,
   type UpdateSessionInput,
+  type UpdateContextAttachmentInput,
 } from "../../shared/contracts";
 import type { AppController } from "../app-controller";
 import type { AttachmentService } from "../attachments/attachment-service";
+import type {
+  ContextAttachmentService,
+  ContextAttachmentSubscriptionHub,
+} from "../context-attachments";
 import type { GeminiCapabilityService } from "../capability-service";
 import type { GitService, GitStatusSubscriptionHub } from "../git";
 import type { ProjectService } from "../projects";
+import { LinkPreviewViewHost, type LinkMetadataFetcher } from "../links";
 import type { ClientRequestRepository } from "../storage";
-import { openExternalHttps } from "../security/main-window";
+import { openExternalHttps, openStoredFile } from "../security/main-window";
 import type { SessionEventHub } from "./event-hub";
 import { registerValidatedIpcHandler } from "./register-handler";
 
@@ -48,6 +64,9 @@ export type RegisterAppIpcOptions = {
   controller: AppController;
   capabilities: GeminiCapabilityService;
   attachments: AttachmentService;
+  contextAttachments: ContextAttachmentService;
+  contextAttachmentHub: ContextAttachmentSubscriptionHub;
+  linkMetadataFetcher: LinkMetadataFetcher;
   clientRequests: ClientRequestRepository;
   eventHub: SessionEventHub;
   git: GitService;
@@ -58,6 +77,11 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
   const cleanups: Array<() => void> = [];
   const latestGitStatus = new Map<number, AbortController>();
   const latestGitDiff = new Map<number, AbortController>();
+  const linkPreview = new LinkPreviewViewHost(
+    options.mainWindow,
+    options.contextAttachments,
+    options.linkMetadataFetcher.previewSession,
+  );
   const register = (
     channel: Parameters<typeof registerValidatedIpcHandler>[0],
     handler: Parameters<typeof registerValidatedIpcHandler>[2],
@@ -369,6 +393,125 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
     ),
   );
 
+  register(IPC_CHANNELS.listContextAttachments, (input) =>
+    options.contextAttachments.list(input as ListContextAttachmentsInput),
+  );
+  register(IPC_CHANNELS.addContextFiles, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as AddContextFilesInput,
+      "context-attachments.add-files",
+      async () => {
+        const value = input as AddContextFilesInput;
+        let paths = value.paths ?? [];
+        if (paths.length === 0) {
+          const result = await dialog.showOpenDialog(options.mainWindow, {
+            title: "Dateien als dauerhafte Anhänge hinzufügen",
+            buttonLabel: "Anhängen",
+            properties: ["openFile", "multiSelections"],
+          });
+          if (result.canceled) return options.contextAttachments.list({
+            projectId: value.projectId,
+            sessionId: value.sessionId,
+          });
+          paths = result.filePaths;
+        }
+        if (paths.some((filePath) => !path.isAbsolute(filePath))) {
+          throw new Error("Anhangspfade müssen absolut sein.");
+        }
+        return options.contextAttachments.addFiles({ ...value, paths });
+      },
+    ),
+  );
+  register(IPC_CHANNELS.addContextLink, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as AddContextLinkInput,
+      "context-attachments.add-link",
+      () => options.contextAttachments.addLink(input as AddContextLinkInput),
+    ),
+  );
+  register(IPC_CHANNELS.updateContextAttachment, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as UpdateContextAttachmentInput,
+      "context-attachments.update",
+      () => options.contextAttachments.update(input as UpdateContextAttachmentInput),
+    ),
+  );
+  register(IPC_CHANNELS.setContextInclusion, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as SetContextInclusionInput,
+      "context-attachments.set-inclusion",
+      () => options.contextAttachments.setInclusion(input as SetContextInclusionInput),
+    ),
+  );
+  register(IPC_CHANNELS.removeContextAttachment, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as RemoveContextAttachmentInput,
+      "context-attachments.remove",
+      () => options.contextAttachments.remove(input as RemoveContextAttachmentInput),
+    ),
+  );
+  register(IPC_CHANNELS.refreshLinkPreview, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as RefreshLinkPreviewInput,
+      "context-attachments.refresh-link-preview",
+      () => options.contextAttachments.refreshLinkPreview(
+        (input as RefreshLinkPreviewInput).attachmentId,
+      ),
+    ),
+  );
+  register(IPC_CHANNELS.getContextAttachmentBytes, (input) =>
+    options.contextAttachments.getBytes(input as ContextAttachmentBytesInput),
+  );
+  register(IPC_CHANNELS.subscribeContextAttachments, (input, event) =>
+    options.contextAttachmentHub.subscribe({
+      value: input as ListContextAttachmentsInput,
+      webContents: event.sender,
+    }),
+  );
+  register(IPC_CHANNELS.unsubscribeContextAttachments, (input, event) => {
+    options.contextAttachmentHub.unsubscribe(
+      (input as { subscriptionId: string }).subscriptionId,
+      event.sender,
+    );
+    return { ok: true };
+  });
+  register(IPC_CHANNELS.openContextAttachment, async (input) => {
+    await openStoredFile(
+      await options.contextAttachments.getOriginalPath(
+        (input as OpenContextAttachmentInput).attachmentId,
+      ),
+    );
+    return { ok: true };
+  });
+  register(IPC_CHANNELS.openLinkPreviewView, (input) =>
+    linkPreview.open((input as OpenLinkPreviewInput).attachmentId),
+  );
+  register(IPC_CHANNELS.setLinkPreviewBounds, (input) => {
+    linkPreview.setBounds(input as SetLinkPreviewBoundsInput);
+    return { ok: true };
+  });
+  register(IPC_CHANNELS.closeLinkPreviewView, () => {
+    linkPreview.close();
+    return { ok: true };
+  });
+  register(IPC_CHANNELS.clearLinkPreviewStorage, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as { clientRequestId: string },
+      "link-preview.clear-storage",
+      async () => {
+        await linkPreview.clearStorage();
+        return { ok: true as const };
+      },
+    ),
+  );
+
   register(IPC_CHANNELS.subscribeSessionEvents, (input, event) => {
     const value = input as SubscribeSessionEventsInput;
     return options.eventHub.subscribe({
@@ -420,6 +563,7 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
   });
 
   return () => {
+    linkPreview.dispose();
     for (const controller of latestGitStatus.values()) controller.abort();
     for (const controller of latestGitDiff.values()) controller.abort();
     latestGitStatus.clear();

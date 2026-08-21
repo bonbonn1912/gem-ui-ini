@@ -192,6 +192,97 @@ const migrations: readonly Migration[] = [
       ) STRICT;
     `,
   },
+  {
+    version: 5,
+    name: "persistent_context_attachments",
+    sql: `
+      CREATE TABLE context_attachments (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        scope TEXT NOT NULL CHECK(scope IN ('project', 'session')),
+        session_id TEXT,
+        session_key TEXT NOT NULL CHECK(length(session_key) > 0),
+        kind TEXT NOT NULL CHECK(kind IN ('file', 'link')),
+        title TEXT NOT NULL CHECK(length(trim(title)) BETWEEN 1 AND 200),
+        note TEXT CHECK(note IS NULL OR length(note) <= 2000),
+        dedupe_key TEXT NOT NULL CHECK(length(dedupe_key) BETWEEN 1 AND 2048),
+        sort_order INTEGER NOT NULL CHECK(sort_order >= 0),
+        default_include INTEGER NOT NULL DEFAULT 0 CHECK(default_include IN (0, 1)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK(
+          (scope = 'project' AND session_id IS NULL AND session_key = '-') OR
+          (scope = 'session' AND session_id IS NOT NULL AND session_key = session_id)
+        ),
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+        UNIQUE(project_id, session_key, dedupe_key)
+      ) STRICT;
+
+      CREATE INDEX context_attachments_scope
+        ON context_attachments(project_id, session_key, sort_order);
+
+      CREATE TABLE context_attachment_files (
+        attachment_id TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL CHECK(length(trim(display_name)) BETWEEN 1 AND 200),
+        mime_type TEXT NOT NULL CHECK(length(mime_type) BETWEEN 3 AND 200),
+        size INTEGER NOT NULL CHECK(size BETWEEN 1 AND 52428800),
+        sha256 TEXT NOT NULL
+          CHECK(length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
+        storage_dir TEXT NOT NULL CHECK(length(storage_dir) > 0),
+        file_name TEXT NOT NULL CHECK(length(file_name) > 0),
+        extraction_state TEXT NOT NULL DEFAULT 'pending' CHECK(extraction_state IN (
+          'pending', 'running', 'ready', 'empty', 'unsupported', 'too_large', 'failed'
+        )),
+        extracted_chars INTEGER CHECK(extracted_chars IS NULL OR extracted_chars >= 0),
+        page_count INTEGER CHECK(page_count IS NULL OR page_count >= 0),
+        extraction_error TEXT CHECK(extraction_error IS NULL OR length(extraction_error) <= 500),
+        FOREIGN KEY (attachment_id) REFERENCES context_attachments(id) ON DELETE CASCADE
+      ) STRICT;
+
+      CREATE INDEX context_attachment_files_sha256
+        ON context_attachment_files(sha256);
+
+      CREATE TABLE context_attachment_links (
+        attachment_id TEXT PRIMARY KEY,
+        url TEXT NOT NULL CHECK(length(url) BETWEEN 8 AND 2048),
+        host TEXT NOT NULL CHECK(length(host) > 0),
+        preview_state TEXT NOT NULL DEFAULT 'pending' CHECK(preview_state IN (
+          'pending', 'ready', 'unauthorized', 'blocked', 'failed', 'disabled'
+        )),
+        preview_title TEXT CHECK(preview_title IS NULL OR length(preview_title) <= 300),
+        preview_description TEXT
+          CHECK(preview_description IS NULL OR length(preview_description) <= 1000),
+        preview_site_name TEXT
+          CHECK(preview_site_name IS NULL OR length(preview_site_name) <= 200),
+        preview_image_file TEXT
+          CHECK(preview_image_file IS NULL OR length(preview_image_file) > 0),
+        preview_error TEXT CHECK(preview_error IS NULL OR length(preview_error) <= 500),
+        fetched_at TEXT,
+        FOREIGN KEY (attachment_id) REFERENCES context_attachments(id) ON DELETE CASCADE
+      ) STRICT;
+
+      CREATE TABLE context_attachment_selections (
+        session_id TEXT NOT NULL,
+        attachment_id TEXT NOT NULL,
+        included INTEGER NOT NULL CHECK(included IN (0, 1)),
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (session_id, attachment_id),
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+        FOREIGN KEY (attachment_id) REFERENCES context_attachments(id) ON DELETE CASCADE
+      ) STRICT;
+    `,
+  },
+  {
+    version: 6,
+    name: "session_option_cache",
+    sql: `
+      ALTER TABLE sessions ADD COLUMN available_models_json TEXT NOT NULL DEFAULT '[]'
+        CHECK(json_valid(available_models_json));
+      ALTER TABLE sessions ADD COLUMN available_modes_json TEXT NOT NULL DEFAULT '[]'
+        CHECK(json_valid(available_modes_json));
+    `,
+  },
 ];
 
 export function runMigrations(database: SqliteDatabase): void {

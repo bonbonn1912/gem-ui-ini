@@ -97,12 +97,36 @@ export interface SessionModel {
   readonly description?: string;
 }
 
-export interface SessionModelSnapshot {
-  /** ACP session config option ID used for session/set_config_option. */
-  readonly configId: string;
+/**
+ * How the connected agent exposes its model list.
+ *
+ * `config_option` is stable ACP v1: models arrive as a `select` entry in
+ * `configOptions` and are switched with `session/set_config_option`.
+ *
+ * `legacy_models` is the dedicated models API that ACP removed on the way to
+ * v2 ("Remove dedicated session modes and models apis from v2"). Gemini CLI
+ * still ships it: `session/new` and `session/load` answer with a `models`
+ * object and the switch is `session/set_model`. Without this branch GeminUI
+ * sees no models at all when talking to a real Gemini CLI.
+ */
+export type SessionModelTransport = "config_option" | "legacy_models";
+
+interface SessionModelSnapshotBase {
   readonly currentModelId: string;
   readonly availableModels: readonly SessionModel[];
 }
+
+export type SessionModelSnapshot =
+  | (SessionModelSnapshotBase & {
+      readonly transport: "config_option";
+      /** ACP config option ID used for session/set_config_option. */
+      readonly configId: string;
+    })
+  | (SessionModelSnapshotBase & {
+      readonly transport: "legacy_models";
+      /** The legacy API addresses the model directly, without a config ID. */
+      readonly configId: null;
+    });
 
 export type PromptPart =
   | {

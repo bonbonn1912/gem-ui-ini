@@ -14,6 +14,7 @@ import {
   type ProjectWithRoots,
   type PermissionResponse as UiPermissionResponse,
   type SendPromptInput,
+  type SessionOption,
   type SetSessionModeInput,
   type SetSessionModelInput,
   SetProjectApprovalPolicyInputSchema,
@@ -23,6 +24,7 @@ import {
   type UsageSnapshot,
 } from "../shared/contracts";
 import type { AttachmentService } from "./attachments/attachment-service";
+import type { ContextAttachmentService } from "./context-attachments";
 import type { GeminiCapabilityService } from "./capability-service";
 import {
   type NormalizedAgentEvent,
@@ -32,6 +34,7 @@ import {
   type PromptPart,
   type SessionMode,
   type SessionModeSnapshot,
+  type SessionModelSnapshot,
 } from "./gemini";
 import type { ProjectService, ProjectRuntimeCoordinator } from "./projects";
 import { runCapturedCommand } from "./processes/run-command";
@@ -66,6 +69,7 @@ export type AppControllerOptions = {
   events: EventRepository;
   attachmentRepository: AttachmentRepository;
   attachmentService: AttachmentService;
+  contextAttachments: ContextAttachmentService;
   capabilities: GeminiCapabilityService;
   usage: UsageService;
   publishEvents: (events: StreamEnvelope[]) => void | Promise<void>;
@@ -77,6 +81,7 @@ export class AppController implements ProjectRuntimeCoordinator {
   readonly #events: EventRepository;
   readonly #attachmentRepository: AttachmentRepository;
   readonly #attachmentService: AttachmentService;
+  readonly #contextAttachments: ContextAttachmentService;
   readonly #capabilities: GeminiCapabilityService;
   readonly #usage: UsageService;
   readonly #publishEvents: AppControllerOptions["publishEvents"];
@@ -92,6 +97,7 @@ export class AppController implements ProjectRuntimeCoordinator {
     this.#events = options.events;
     this.#attachmentRepository = options.attachmentRepository;
     this.#attachmentService = options.attachmentService;
+    this.#contextAttachments = options.contextAttachments;
     this.#capabilities = options.capabilities;
     this.#usage = options.usage;
     this.#publishEvents = options.publishEvents;
@@ -144,6 +150,8 @@ export class AppController implements ProjectRuntimeCoordinator {
         providerSessionId: snapshot.providerSessionId,
         status: "idle",
         mode: appliedMode,
+        model: snapshot.models?.currentModelId ?? null,
+        ...toCachedSessionOptions(snapshot),
         updatedAt: new Date().toISOString(),
       });
     } catch (error) {
@@ -199,6 +207,7 @@ export class AppController implements ProjectRuntimeCoordinator {
     )) {
       await this.#attachmentService.remove(attachment.id);
     }
+    await this.#contextAttachments.removeSessionAttachments(input.sessionId);
     this.#sessions.delete(input.sessionId);
   }
 
@@ -229,8 +238,13 @@ export class AppController implements ProjectRuntimeCoordinator {
       input.attachmentIds.length > 0
         ? await this.#attachmentService.getPromptImages(input.attachmentIds)
         : [];
-    const parts: PromptPart[] = [];
-    if (input.text.trim()) parts.push({ type: "text", text: input.text });
+    const context = await this.#contextAttachments.buildPromptContext({
+      projectId: session.projectId,
+      sessionId: session.id,
+      attachmentIds: input.contextAttachmentIds ?? [],
+      imagesSupported: this.#capabilities.snapshot().gemini.images,
+    });
+    const parts: PromptPart[] = [...context.parts];
     for (const image of images) {
       parts.push({
         type: "image",
@@ -238,6 +252,7 @@ export class AppController implements ProjectRuntimeCoordinator {
         data: image.data,
       });
     }
+    if (input.text.trim()) parts.push({ type: "text", text: input.text });
 
     const turnId = randomUUID();
     const activeTurn: ActiveTurn = {
@@ -256,6 +271,7 @@ export class AppController implements ProjectRuntimeCoordinator {
         messageId: randomUUID(),
         text: input.text,
         attachmentIds: input.attachmentIds,
+        contextAttachments: context.snapshots,
       },
       timestamp,
     });
@@ -444,6 +460,7 @@ export class AppController implements ProjectRuntimeCoordinator {
         await this.#attachmentService.remove(attachment.id);
       }
     }
+    await this.#contextAttachments.removeProjectAttachments(projectId);
   }
 
   assertCanSwitchGeminiBinary(): void {
@@ -543,6 +560,7 @@ export class AppController implements ProjectRuntimeCoordinator {
         status: "idle",
         mode: appliedMode,
         model: snapshot.models?.currentModelId ?? null,
+        ...toCachedSessionOptions(snapshot),
         updatedAt: now,
       });
       this.#sessions.recordRootSnapshot({
@@ -637,6 +655,7 @@ export class AppController implements ProjectRuntimeCoordinator {
           providerSessionId: event.providerSessionId,
           mode: event.payload.modes?.currentModeId ?? null,
           model: event.payload.models?.currentModelId ?? null,
+          ...toCachedSessionOptions(event.payload),
         });
         break;
       case "session.failed":
@@ -841,6 +860,37 @@ export class AppController implements ProjectRuntimeCoordinator {
     const envelopes = this.#events.appendBatch(buffer.events);
     void this.#publishEvents(envelopes);
   }
+}
+
+/**
+ * The picker contents of a live ACP session, in the shape the session cache
+ * stores. A list the agent did not report is left out rather than emptied —
+ * silence about models says nothing about what an earlier session learned.
+ */
+function toCachedSessionOptions(snapshot: {
+  readonly modes?: SessionModeSnapshot;
+  readonly models?: SessionModelSnapshot;
+}): Pick<SessionUpdate, "availableModels" | "availableModes"> {
+  return {
+    ...(snapshot.models
+      ? { availableModels: snapshot.models.availableModels.map(toSessionOption) }
+      : {}),
+    ...(snapshot.modes
+      ? { availableModes: snapshot.modes.availableModes.map(toSessionOption) }
+      : {}),
+  };
+}
+
+function toSessionOption(option: {
+  readonly id: string;
+  readonly name: string;
+  readonly description?: string;
+}): SessionOption {
+  return {
+    id: option.id,
+    name: option.name,
+    ...(option.description ? { description: option.description } : {}),
+  };
 }
 
 function toGeminiAccess(

@@ -15,6 +15,39 @@ import {
   type StageDroppedPathInput,
 } from "./attachments";
 import {
+  AddContextFilesInputSchema,
+  AddContextLinkInputSchema,
+  ClearLinkPreviewStorageInputSchema,
+  ContextAttachmentBytesInputSchema,
+  ContextAttachmentListSchema,
+  ContextAttachmentSubscriptionResultSchema,
+  LinkPreviewViewStateSchema,
+  ListContextAttachmentsInputSchema,
+  OpenContextAttachmentInputSchema,
+  OpenLinkPreviewInputSchema,
+  RefreshLinkPreviewInputSchema,
+  RemoveContextAttachmentInputSchema,
+  SetContextInclusionInputSchema,
+  SetLinkPreviewBoundsInputSchema,
+  UnsubscribeContextAttachmentsInputSchema,
+  UpdateContextAttachmentInputSchema,
+  type AddContextFilesInput,
+  type AddContextLinkInput,
+  type ClearLinkPreviewStorageInput,
+  type ContextAttachmentBytesInput,
+  type ContextAttachmentList,
+  type ContextTarget,
+  type LinkPreviewViewState,
+  type ListContextAttachmentsInput,
+  type OpenContextAttachmentInput,
+  type OpenLinkPreviewInput,
+  type RefreshLinkPreviewInput,
+  type RemoveContextAttachmentInput,
+  type SetContextInclusionInput,
+  type SetLinkPreviewBoundsInput,
+  type UpdateContextAttachmentInput,
+} from "./context-attachments";
+import {
   EntityIdSchema,
   FileSystemPathSchema,
   VoidResultSchema,
@@ -201,6 +234,22 @@ export const IPC_CHANNELS = {
   stageClipboardImage: "attachments:stage-clipboard-image",
   getAttachmentPreview: "attachments:get-preview",
   removeAttachment: "attachments:remove",
+  listContextAttachments: "context-attachments:list",
+  addContextFiles: "context-attachments:add-files",
+  addContextLink: "context-attachments:add-link",
+  updateContextAttachment: "context-attachments:update",
+  setContextInclusion: "context-attachments:set-inclusion",
+  removeContextAttachment: "context-attachments:remove",
+  refreshLinkPreview: "context-attachments:refresh-link-preview",
+  getContextAttachmentBytes: "context-attachments:get-bytes",
+  subscribeContextAttachments: "context-attachments:subscribe",
+  unsubscribeContextAttachments: "context-attachments:unsubscribe",
+  contextAttachmentsChanged: "context-attachments:changed",
+  openContextAttachment: "context-attachments:open-file",
+  openLinkPreviewView: "link-preview:open",
+  setLinkPreviewBounds: "link-preview:set-bounds",
+  closeLinkPreviewView: "link-preview:close",
+  clearLinkPreviewStorage: "link-preview:clear-storage",
   subscribeSessionEvents: "events:subscribe-session",
   unsubscribeSessionEvents: "events:unsubscribe-session",
   sessionEventBatch: "events:session-batch",
@@ -242,6 +291,21 @@ export const IpcRequestSchemas = {
   [IPC_CHANNELS.stageClipboardImage]: ClipboardImageInputSchema,
   [IPC_CHANNELS.getAttachmentPreview]: AttachmentPreviewInputSchema,
   [IPC_CHANNELS.removeAttachment]: RemoveAttachmentInputSchema,
+  [IPC_CHANNELS.listContextAttachments]: ListContextAttachmentsInputSchema,
+  [IPC_CHANNELS.addContextFiles]: AddContextFilesInputSchema,
+  [IPC_CHANNELS.addContextLink]: AddContextLinkInputSchema,
+  [IPC_CHANNELS.updateContextAttachment]: UpdateContextAttachmentInputSchema,
+  [IPC_CHANNELS.setContextInclusion]: SetContextInclusionInputSchema,
+  [IPC_CHANNELS.removeContextAttachment]: RemoveContextAttachmentInputSchema,
+  [IPC_CHANNELS.refreshLinkPreview]: RefreshLinkPreviewInputSchema,
+  [IPC_CHANNELS.getContextAttachmentBytes]: ContextAttachmentBytesInputSchema,
+  [IPC_CHANNELS.subscribeContextAttachments]: ListContextAttachmentsInputSchema,
+  [IPC_CHANNELS.unsubscribeContextAttachments]: UnsubscribeContextAttachmentsInputSchema,
+  [IPC_CHANNELS.openContextAttachment]: OpenContextAttachmentInputSchema,
+  [IPC_CHANNELS.openLinkPreviewView]: OpenLinkPreviewInputSchema,
+  [IPC_CHANNELS.setLinkPreviewBounds]: SetLinkPreviewBoundsInputSchema,
+  [IPC_CHANNELS.closeLinkPreviewView]: EmptyInputSchema,
+  [IPC_CHANNELS.clearLinkPreviewStorage]: ClearLinkPreviewStorageInputSchema,
   [IPC_CHANNELS.subscribeSessionEvents]: SubscribeSessionEventsInputSchema,
   [IPC_CHANNELS.unsubscribeSessionEvents]: UnsubscribeSessionEventsInputSchema,
   [IPC_CHANNELS.listGitProjectRepositories]: ListGitProjectRepositoriesInputSchema,
@@ -281,6 +345,21 @@ export const IpcResponseSchemas = {
   [IPC_CHANNELS.stageClipboardImage]: AttachmentSchema,
   [IPC_CHANNELS.getAttachmentPreview]: z.instanceof(Uint8Array),
   [IPC_CHANNELS.removeAttachment]: VoidResultSchema,
+  [IPC_CHANNELS.listContextAttachments]: ContextAttachmentListSchema,
+  [IPC_CHANNELS.addContextFiles]: ContextAttachmentListSchema,
+  [IPC_CHANNELS.addContextLink]: ContextAttachmentListSchema,
+  [IPC_CHANNELS.updateContextAttachment]: ContextAttachmentListSchema,
+  [IPC_CHANNELS.setContextInclusion]: ContextAttachmentListSchema,
+  [IPC_CHANNELS.removeContextAttachment]: ContextAttachmentListSchema,
+  [IPC_CHANNELS.refreshLinkPreview]: ContextAttachmentListSchema,
+  [IPC_CHANNELS.getContextAttachmentBytes]: z.instanceof(Uint8Array),
+  [IPC_CHANNELS.subscribeContextAttachments]: ContextAttachmentSubscriptionResultSchema,
+  [IPC_CHANNELS.unsubscribeContextAttachments]: VoidResultSchema,
+  [IPC_CHANNELS.openContextAttachment]: VoidResultSchema,
+  [IPC_CHANNELS.openLinkPreviewView]: LinkPreviewViewStateSchema,
+  [IPC_CHANNELS.setLinkPreviewBounds]: VoidResultSchema,
+  [IPC_CHANNELS.closeLinkPreviewView]: VoidResultSchema,
+  [IPC_CHANNELS.clearLinkPreviewStorage]: VoidResultSchema,
   [IPC_CHANNELS.subscribeSessionEvents]: EventSubscriptionResultSchema,
   [IPC_CHANNELS.unsubscribeSessionEvents]: VoidResultSchema,
   [IPC_CHANNELS.listGitProjectRepositories]: GitRepositoryListSchema,
@@ -346,6 +425,28 @@ export interface GemUiDesktopApi {
     stageClipboardImage(input: ClipboardImageInput): Promise<Attachment>;
     getPreviewBytes(input: AttachmentPreviewInput): Promise<Uint8Array>;
     remove(input: RemoveAttachmentInput): Promise<VoidResult>;
+  };
+  contextAttachments: {
+    list(input: ListContextAttachmentsInput): Promise<ContextAttachmentList>;
+    addFiles(input: AddContextFilesInput): Promise<ContextAttachmentList>;
+    addDroppedFiles(files: File[], target: ContextTarget): Promise<ContextAttachmentList>;
+    addLink(input: AddContextLinkInput): Promise<ContextAttachmentList>;
+    update(input: UpdateContextAttachmentInput): Promise<ContextAttachmentList>;
+    setInclusion(input: SetContextInclusionInput): Promise<ContextAttachmentList>;
+    remove(input: RemoveContextAttachmentInput): Promise<ContextAttachmentList>;
+    refreshLinkPreview(input: RefreshLinkPreviewInput): Promise<ContextAttachmentList>;
+    getBytes(input: ContextAttachmentBytesInput): Promise<Uint8Array>;
+    openFile(input: OpenContextAttachmentInput): Promise<VoidResult>;
+    subscribe(
+      input: ListContextAttachmentsInput,
+      callback: (list: ContextAttachmentList) => void,
+    ): Promise<() => void>;
+  };
+  linkPreview: {
+    open(input: OpenLinkPreviewInput): Promise<LinkPreviewViewState>;
+    setBounds(input: SetLinkPreviewBoundsInput): Promise<VoidResult>;
+    close(): Promise<VoidResult>;
+    clearStorage(input: ClearLinkPreviewStorageInput): Promise<VoidResult>;
   };
   git: {
     listProjectRepositories(

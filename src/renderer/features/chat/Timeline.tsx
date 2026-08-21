@@ -202,6 +202,16 @@ function TimelineEntry({
             ))}
           </div>
         )}
+        {item.contextAttachments.length > 0 && (
+          <div className="sent-context-attachments" aria-label="Verwendeter Anhangskontext">
+            {item.contextAttachments.map((attachment) => (
+              <span className="sent-context-attachment" key={attachment.id}>
+                <Icon name={attachment.kind === "link" ? "link" : "file-text"} size={13} />
+                {attachment.title}
+              </span>
+            ))}
+          </div>
+        )}
         {item.text && <p>{item.text}</p>}
         {item.failed && <span className="message-error-label">Nicht gesendet</span>}
       </article>

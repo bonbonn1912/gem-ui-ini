@@ -14,7 +14,11 @@ export type IconName =
   | "copy"
   | "folder"
   | "folder-plus"
+  | "external"
+  | "file-text"
+  | "globe"
   | "image"
+  | "link"
   | "menu"
   | "more"
   | "paperclip"
@@ -137,12 +141,40 @@ export function Icon({ name, size = 18, ...props }: IconProps) {
           <path d="M12 10v6m-3-3h6" />
         </svg>
       );
+    case "external":
+      return (
+        <svg {...common}>
+          <path d="M14 4h6v6M20 4l-9 9" />
+          <path d="M18 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5" />
+        </svg>
+      );
+    case "file-text":
+      return (
+        <svg {...common}>
+          <path d="M6 3.5h8l4 4V20H6Z" />
+          <path d="M14 3.5V8h4M9 12h6m-6 3h6" />
+        </svg>
+      );
+    case "globe":
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="8.5" />
+          <path d="M3.8 12h16.4M12 3.5c2.3 2.3 3.3 5.1 3.3 8.5S14.3 18.2 12 20.5C9.7 18.2 8.7 15.4 8.7 12S9.7 5.8 12 3.5Z" />
+        </svg>
+      );
     case "image":
       return (
         <svg {...common}>
           <rect x="3.5" y="4" width="17" height="16" rx="2.5" />
           <circle cx="9" cy="9.5" r="1.5" />
           <path d="m5.5 18 4.7-4.7 2.7 2.7 2-2 3.6 4" />
+        </svg>
+      );
+    case "link":
+      return (
+        <svg {...common}>
+          <path d="m10 13.8 4-4" />
+          <path d="M7.8 16H6.5a4 4 0 0 1 0-8H10m6.2 0h1.3a4 4 0 0 1 0 8H14" />
         </svg>
       );
     case "menu":

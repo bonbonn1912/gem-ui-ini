@@ -280,6 +280,42 @@ describe("GeminiSessionManager ACP contract", () => {
     ).rejects.toMatchObject({ code: "capability_unsupported" });
   });
 
+  it("reads and switches models on an agent that still speaks the legacy models API", async () => {
+    // Gemini CLI pins @agentclientprotocol/sdk 0.16.x: session/new answers with
+    // a dedicated `models` object instead of `configOptions`, and the switch is
+    // session/set_model. Reading configOptions alone left the model picker
+    // permanently empty against the real CLI.
+    const fixture = await workspaceFixture();
+    const manager = createManager(fixture, { FAKE_ACP_LEGACY_MODELS: "1" });
+
+    const snapshot = await manager.createSession({
+      appSessionId: "legacy-models",
+      access: fixture.access,
+    });
+    expect(snapshot.models).toEqual({
+      transport: "legacy_models",
+      configId: null,
+      currentModelId: "gemini-2.5-pro",
+      availableModels: [
+        { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro" },
+        { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
+      ],
+    });
+
+    await manager.setModel("legacy-models", "gemini-2.5-flash");
+    expect(manager.getSession("legacy-models")?.models?.currentModelId).toBe(
+      "gemini-2.5-flash",
+    );
+    const trace = await readTrace(fixture.traceFile);
+    expect(
+      trace.some((entry) => JSON.stringify(entry.message ?? {}).includes("session/set_model")),
+    ).toBe(true);
+
+    await expect(
+      manager.setModel("legacy-models", "gemini-1.0-nonexistent"),
+    ).rejects.toMatchObject({ code: "capability_unsupported" });
+  });
+
   it("reports an early CLI startup failure instead of waiting for initialize timeout", async () => {
     const fixture = await workspaceFixture();
     const manager = createManager(fixture, {

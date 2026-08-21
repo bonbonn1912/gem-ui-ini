@@ -11,6 +11,7 @@ import {
   RootRevisionSchema,
   type AppSession,
   type ProjectRoot,
+  type SessionOption,
   type SessionStatus,
 } from "../../../shared";
 import type { SqliteDatabase } from "../database";
@@ -52,6 +53,8 @@ type SessionRow = {
   status: SessionStatus;
   model: string | null;
   mode: string | null;
+  available_models_json: string;
+  available_modes_json: string;
   pinned: number;
   archived: number;
   created_at: string;
@@ -88,6 +91,8 @@ export type SessionUpdate = {
   status?: SessionStatus;
   model?: string | null;
   mode?: string | null;
+  availableModels?: readonly SessionOption[];
+  availableModes?: readonly SessionOption[];
   pinned?: boolean;
   archived?: boolean;
   updatedAt: string;
@@ -97,7 +102,9 @@ export class SessionRepository {
   constructor(private readonly database: SqliteDatabase) {}
 
   create(
-    session: AppSession,
+    // Schema input, not AppSession: fields with defaults (the cached picker
+    // lists) may be omitted by a caller that has nothing to say about them.
+    session: z.input<typeof AppSessionSchema>,
     rootSnapshot?: readonly ProjectRoot[],
   ): AppSession {
     const parsed = AppSessionSchema.parse(session);
@@ -108,8 +115,9 @@ export class SessionRepository {
           `INSERT INTO sessions (
              id, provider, provider_session_id, project_id,
              last_root_revision, last_root_fingerprint, title, status,
-             model, mode, pinned, archived, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             model, mode, available_models_json, available_modes_json,
+             pinned, archived, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           parsed.id,
@@ -122,6 +130,8 @@ export class SessionRepository {
           parsed.status,
           parsed.model,
           parsed.mode,
+          JSON.stringify(parsed.availableModels),
+          JSON.stringify(parsed.availableModes),
           parsed.pinned ? 1 : 0,
           parsed.archived ? 1 : 0,
           parsed.createdAt,
@@ -147,7 +157,8 @@ export class SessionRepository {
       .prepare(
         `SELECT id, provider, provider_session_id, project_id,
                 last_root_revision, last_root_fingerprint, title, status,
-                model, mode, pinned, archived, created_at, updated_at
+                model, mode, available_models_json, available_modes_json,
+                pinned, archived, created_at, updated_at
          FROM sessions WHERE id = ?`,
       )
       .get(sessionId) as SessionRow | undefined;
@@ -169,7 +180,8 @@ export class SessionRepository {
       .prepare(
         `SELECT id, provider, provider_session_id, project_id,
                 last_root_revision, last_root_fingerprint, title, status,
-                model, mode, pinned, archived, created_at, updated_at
+                model, mode, available_models_json, available_modes_json,
+                pinned, archived, created_at, updated_at
          FROM sessions
          WHERE project_id = ? AND (archived = 0 OR ? = 1)
          ORDER BY pinned DESC, updated_at DESC`,
@@ -193,6 +205,10 @@ export class SessionRepository {
       status: update.status ?? existing.status,
       model: update.model === undefined ? existing.model : update.model,
       mode: update.mode === undefined ? existing.mode : update.mode,
+      // An update that says nothing about the pickers keeps the cached lists:
+      // a status change must never wipe what the agent last offered.
+      availableModels: update.availableModels ?? existing.availableModels,
+      availableModes: update.availableModes ?? existing.availableModes,
       pinned: update.pinned ?? existing.pinned,
       archived: update.archived ?? existing.archived,
       updatedAt: update.updatedAt,
@@ -203,7 +219,8 @@ export class SessionRepository {
         `UPDATE sessions SET
            provider_session_id = ?, last_root_revision = ?,
            last_root_fingerprint = ?, title = ?, status = ?, model = ?,
-           mode = ?, pinned = ?, archived = ?, updated_at = ?
+           mode = ?, available_models_json = ?, available_modes_json = ?,
+           pinned = ?, archived = ?, updated_at = ?
          WHERE id = ?`,
       )
       .run(
@@ -214,6 +231,8 @@ export class SessionRepository {
         next.status,
         next.model,
         next.mode,
+        JSON.stringify(next.availableModels),
+        JSON.stringify(next.availableModes),
         next.pinned ? 1 : 0,
         next.archived ? 1 : 0,
         next.updatedAt,
@@ -348,6 +367,8 @@ function parseSession(row: SessionRow): AppSession {
       status: row.status,
       model: row.model,
       mode: row.mode,
+      availableModels: JSON.parse(row.available_models_json),
+      availableModes: JSON.parse(row.available_modes_json),
       pinned: row.pinned === 1,
       archived: row.archived === 1,
       createdAt: row.created_at,

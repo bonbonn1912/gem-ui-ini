@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
 import { Composer, type ComposerAttachment } from "../features/attachments/Composer";
+import { AttachmentsPanel } from "../features/attachments/AttachmentsPanel";
+import { useContextAttachments } from "../features/attachments/useContextAttachments";
 import { ChatHeader } from "../features/chat/ChatHeader";
 import { Timeline } from "../features/chat/Timeline";
 import { chatReducer, createChatState, type TurnPhase } from "../features/chat/reducer";
@@ -156,13 +158,17 @@ function EmptyWorkspace({ onCreateProject }: { onCreateProject: () => void }) {
 function EmptyProject({
   project,
   changesCount,
+  attachmentsCount,
   onCreateSession,
   onToggleChanges,
+  onToggleAttachments,
 }: {
   project: AppProject;
   changesCount: number;
+  attachmentsCount: number;
   onCreateSession: () => void;
   onToggleChanges: () => void;
+  onToggleAttachments: () => void;
 }) {
   return (
     <main className="project-empty">
@@ -177,6 +183,7 @@ function EmptyProject({
       </div>
       <div className="project-empty-actions">
         <button className="primary-button" type="button" onClick={onCreateSession}><Icon name="plus" size={17} /> Neue Session</button>
+        <button className="secondary-button" type="button" onClick={onToggleAttachments}><Icon name="paperclip" size={16} /> Anhänge{attachmentsCount > 0 ? ` (${attachmentsCount})` : ""}</button>
         <button className="secondary-button" type="button" onClick={onToggleChanges}><Icon name="changes" size={16} /> Änderungen{changesCount > 0 ? ` (${changesCount})` : ""}</button>
       </div>
     </main>
@@ -192,11 +199,15 @@ function RootChangeBanner() {
   );
 }
 
-function initialChangesPanelOpen(): boolean {
+type RightPanel = "none" | "changes" | "attachments";
+
+function initialRightPanel(): RightPanel {
   try {
-    return window.localStorage.getItem("geminui.changes-panel.open") === "true";
+    const stored = window.localStorage.getItem("geminui.right-panel");
+    if (stored === "changes" || stored === "attachments") return stored;
+    return window.localStorage.getItem("geminui.changes-panel.open") === "true" ? "changes" : "none";
   } catch {
-    return false;
+    return "none";
   }
 }
 
@@ -217,7 +228,7 @@ export function App() {
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [changesOpen, setChangesOpen] = useState(initialChangesPanelOpen);
+  const [rightPanel, setRightPanel] = useState<RightPanel>(initialRightPanel);
   const [gitSelection, setGitSelection] = useState<DiffSelection | null>(null);
   const [gitRefreshToken, setGitRefreshToken] = useState(0);
   const [gitPreviewTrigger, setGitPreviewTrigger] = useState<GitPreviewTrigger | null>(null);
@@ -230,6 +241,12 @@ export function App() {
 
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? null;
   const activeSession = sessions.find((session) => session.id === activeSessionId) ?? null;
+  const changesOpen = rightPanel === "changes";
+  const attachmentsOpen = rightPanel === "attachments";
+  const contextAttachments = useContextAttachments({
+    project: activeProject,
+    sessionId: activeSessionId,
+  });
   const gitState = useGitProjectStatus({
     project: activeProject,
     refreshToken: gitRefreshToken,
@@ -285,11 +302,18 @@ export function App() {
 
   useEffect(() => {
     try {
+      window.localStorage.setItem("geminui.right-panel", rightPanel);
       window.localStorage.setItem("geminui.changes-panel.open", String(changesOpen));
     } catch {
       // A disabled preference store must not disable the viewer itself.
     }
-  }, [changesOpen]);
+  }, [changesOpen, rightPanel]);
+
+  useLayoutEffect(() => {
+    if (rightPanel !== "attachments" || projectDialogOpen || projectSettingsOpen) {
+      void window.gemUi?.linkPreview.close();
+    }
+  }, [activeProjectId, activeSessionId, projectDialogOpen, projectSettingsOpen, rightPanel]);
 
   useEffect(() => {
     if (!activeProjectId) {
@@ -533,6 +557,7 @@ export function App() {
       clientRequestId,
       text,
       attachments,
+      contextAttachments: contextAttachments.included.map(({ id, kind, title }) => ({ id, kind, title })),
       timestamp: new Date().toISOString(),
     });
     setSessions((current) => current.map((session) => session.id === activeSession.id ? { ...session, status: "running" } : session));
@@ -541,6 +566,7 @@ export function App() {
         sessionId: activeSession.id,
         text,
         attachmentIds: attachments.map((attachment) => attachment.id),
+        contextAttachmentIds: contextAttachments.included.map((attachment) => attachment.id),
         expectedRootRevision: activeProject?.rootRevision ?? 1,
         clientRequestId,
       });
@@ -592,7 +618,7 @@ export function App() {
     );
     if (!change) {
       setGitSelection(null);
-      setChangesOpen(true);
+      setRightPanel("changes");
       return;
     }
     const area = supportsGitArea(change, selection.area)
@@ -606,7 +632,7 @@ export function App() {
       path: change.path,
       area,
     });
-    setChangesOpen(true);
+    setRightPanel("changes");
   }, [gitState.status]);
 
   const effectivePhase: TurnPhase = useMemo(() => {
@@ -674,17 +700,19 @@ export function App() {
         {!projects.length ? (
           <EmptyWorkspace onCreateProject={() => setProjectDialogOpen(true)} />
         ) : activeProject && !activeSession ? (
-          <div className={`chat-workspace ${changesOpen ? "chat-workspace--changes" : ""}`}>
+          <div className={`chat-workspace ${rightPanel !== "none" ? "chat-workspace--panel" : ""}`}>
             <div className="project-empty-host">
               <button type="button" className="icon-button mobile-empty-menu" onClick={() => setSidebarOpen(true)} aria-label="Seitenleiste öffnen"><Icon name="menu" size={19} /></button>
               <EmptyProject
                 project={activeProject}
                 changesCount={changesCount}
+                attachmentsCount={contextAttachments.all.length}
                 onCreateSession={() => void createSession()}
-                onToggleChanges={() => setChangesOpen((current) => !current)}
+                onToggleAttachments={() => setRightPanel((current) => current === "attachments" ? "none" : "attachments")}
+                onToggleChanges={() => setRightPanel((current) => current === "changes" ? "none" : "changes")}
               />
             </div>
-            <ChangesPanel
+            {changesOpen ? <ChangesPanel
               key={`${activeProject.id}:${activeProject.rootRevision}`}
               open={changesOpen}
               project={activeProject}
@@ -694,23 +722,40 @@ export function App() {
               choosingGit={gitState.choosingGit}
               error={gitState.error}
               selection={gitSelection}
-              onClose={() => setChangesOpen(false)}
+              onClose={() => setRightPanel("none")}
               onSelectionChange={setGitSelection}
               onRefresh={() => void gitState.refresh()}
               onChooseGit={() => void gitState.chooseGit()}
-            />
+            /> : <AttachmentsPanel
+              open={attachmentsOpen}
+              project={activeProject}
+              sessionId={null}
+              list={contextAttachments.list}
+              loading={contextAttachments.loading}
+              refreshing={contextAttachments.refreshing}
+              error={contextAttachments.error}
+              onClose={() => setRightPanel("none")}
+              onRefresh={contextAttachments.refresh}
+              onApply={contextAttachments.apply}
+              onError={(error) => showError("Anhang konnte nicht verarbeitet werden", error)}
+              onOpenExternal={openExternal}
+            />}
           </div>
         ) : activeProject && activeSession ? (
-          <div className={`chat-workspace ${changesOpen ? "chat-workspace--changes" : ""}`}>
+          <div className={`chat-workspace ${rightPanel !== "none" ? "chat-workspace--panel" : ""}`}>
             <div className="chat-view">
               <ChatHeader
                 project={activeProject}
                 session={activeSession}
                 chat={{ ...chat, phase: effectivePhase }}
                 modelsSupported={capabilities.gemini.models}
+                attachmentsOpen={attachmentsOpen}
+                attachmentsCount={contextAttachments.all.length}
+                attachmentsIncludedCount={contextAttachments.included.length}
+                onToggleAttachments={() => setRightPanel((current) => current === "attachments" ? "none" : "attachments")}
                 changesOpen={changesOpen}
                 changesCount={changesCount}
-                onToggleChanges={() => setChangesOpen((current) => !current)}
+                onToggleChanges={() => setRightPanel((current) => current === "changes" ? "none" : "changes")}
                 onOpenSidebar={() => setSidebarOpen(true)}
                 onEditProject={() => setProjectSettingsOpen(true)}
                 onSetMode={(mode) => void setSessionMode(activeSession.id, mode)}
@@ -730,12 +775,16 @@ export function App() {
                 sessionId={activeSession.id}
                 phase={effectivePhase}
                 imagesSupported={capabilities.gemini.images}
+                contextAttachmentCount={contextAttachments.included.length}
+                contextEstimatedTokens={contextAttachments.list?.estimatedTotalTokens ?? 0}
+                contextOverBudget={contextAttachments.list?.overBudget ?? false}
+                onOpenContextAttachments={() => setRightPanel("attachments")}
                 onSend={sendPrompt}
                 onCancel={cancelTurn}
                 onError={(error) => showError("Anhang konnte nicht verarbeitet werden", new Error(error))}
               />
             </div>
-            <ChangesPanel
+            {changesOpen ? <ChangesPanel
               key={`${activeProject.id}:${activeProject.rootRevision}`}
               open={changesOpen}
               project={activeProject}
@@ -745,11 +794,24 @@ export function App() {
               choosingGit={gitState.choosingGit}
               error={gitState.error}
               selection={gitSelection}
-              onClose={() => setChangesOpen(false)}
+              onClose={() => setRightPanel("none")}
               onSelectionChange={setGitSelection}
               onRefresh={() => void gitState.refresh()}
               onChooseGit={() => void gitState.chooseGit()}
-            />
+            /> : <AttachmentsPanel
+              open={attachmentsOpen}
+              project={activeProject}
+              sessionId={activeSession.id}
+              list={contextAttachments.list}
+              loading={contextAttachments.loading}
+              refreshing={contextAttachments.refreshing}
+              error={contextAttachments.error}
+              onClose={() => setRightPanel("none")}
+              onRefresh={contextAttachments.refresh}
+              onApply={contextAttachments.apply}
+              onError={(error) => showError("Anhang konnte nicht verarbeitet werden", error)}
+              onOpenExternal={openExternal}
+            />}
           </div>
         ) : null}
       </section>

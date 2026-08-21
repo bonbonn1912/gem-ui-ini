@@ -6,6 +6,7 @@ import {
   AgentEventSchema,
   AppProjectSchema,
   ClipboardImageInputSchema,
+  ContextAttachmentSchema,
   CreateProjectInputSchema,
   GEMINI_SETTINGS_KEY,
   GIT_SETTINGS_KEY,
@@ -13,6 +14,7 @@ import {
   GeminiSettingsSchema,
   IPC_CHANNELS,
   MAX_ADDITIONAL_ROOTS,
+  OpenLinkPreviewInputSchema,
   ProjectWithRootsSchema,
   ProjectRootReauthorizationResultSchema,
   ReauthorizeProjectRootInputSchema,
@@ -100,6 +102,51 @@ describe("shared Zod contracts", () => {
         attachmentIds: [randomUUID()],
       }).success,
     ).toBe(true);
+    expect(SendPromptInputSchema.safeParse({
+      ...base,
+      contextAttachmentIds: [randomUUID()],
+    }).success).toBe(false);
+  });
+
+  it("verknüpft Anhangstyp, Nutzlast und Ebene strikt", () => {
+    const base = {
+      id: randomUUID(),
+      projectId: randomUUID(),
+      scope: "project" as const,
+      sessionId: null,
+      kind: "link" as const,
+      title: "Ticket",
+      note: null,
+      sortOrder: 0,
+      includedInContext: false,
+      estimatedTokens: 10,
+      file: null,
+      link: {
+        url: "https://example.com/ticket",
+        host: "example.com",
+        previewState: "ready" as const,
+        previewTitle: "Ticket",
+        previewDescription: null,
+        previewSiteName: null,
+        hasPreviewImage: false,
+        previewError: null,
+        fetchedAt: timestamp,
+      },
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    expect(ContextAttachmentSchema.parse(base).kind).toBe("link");
+    expect(ContextAttachmentSchema.safeParse({ ...base, kind: "file" }).success).toBe(false);
+    expect(ContextAttachmentSchema.safeParse({ ...base, scope: "session" }).success).toBe(false);
+  });
+
+  it("öffnet eine Live-Vorschau nur über eine opaque Anhang-ID", () => {
+    const attachmentId = randomUUID();
+    expect(OpenLinkPreviewInputSchema.parse({ attachmentId })).toEqual({ attachmentId });
+    expect(OpenLinkPreviewInputSchema.safeParse({
+      attachmentId,
+      url: "file:///tmp/secret",
+    }).success).toBe(false);
   });
 
   it("validates normalized events and stream envelopes strictly", () => {

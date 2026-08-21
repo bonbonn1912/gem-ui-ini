@@ -1,5 +1,6 @@
 export * from "./attachments";
 export * from "./common";
+export * from "./context-attachments";
 export * from "./events";
 export * from "./git";
 export * from "./ipc";

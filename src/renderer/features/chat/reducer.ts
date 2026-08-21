@@ -40,6 +40,7 @@ export type MessageItem = TimelineBase & {
   role: "user" | "assistant";
   text: string;
   attachments: Array<{ id: string; name: string; mimeType?: string }>;
+  contextAttachments: Array<{ id: string; kind: "file" | "link"; title: string }>;
   clientRequestId?: string;
   streaming?: boolean;
   failed?: boolean;
@@ -115,6 +116,7 @@ export type ChatAction =
       clientRequestId: string;
       text: string;
       attachments: Attachment[];
+      contextAttachments: Array<{ id: string; kind: "file" | "link"; title: string }>;
       timestamp: string;
     }
   | { type: "prompt-failed"; clientRequestId: string; message: string }
@@ -244,6 +246,7 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
         role: "user",
         text: eventText(event),
         attachments: eventAttachments,
+        contextAttachments: event.contextAttachments,
         clientRequestId: optimistic?.clientRequestId,
         turnId: envelope.turnId,
         timestamp: envelope.timestamp,
@@ -258,6 +261,9 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
           attachments: message.attachments.length
             ? message.attachments
             : optimisticMessage.attachments,
+          contextAttachments: message.contextAttachments.length
+            ? message.contextAttachments
+            : optimisticMessage.contextAttachments,
         };
         return {
           ...next,
@@ -303,6 +309,7 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
             role: "assistant",
             text: delta,
             attachments: [],
+            contextAttachments: [],
             streaming: true,
             turnId: envelope.turnId,
             timestamp: envelope.timestamp,
@@ -502,6 +509,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
               name: displayName,
               mimeType,
             })),
+            contextAttachments: action.contextAttachments,
             clientRequestId: action.clientRequestId,
             timestamp: action.timestamp,
             turnId: null,

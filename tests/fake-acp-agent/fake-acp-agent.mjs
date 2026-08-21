@@ -103,7 +103,7 @@ async function handleMessage(message) {
       respond(message.id, {
         sessionId: process.env.FAKE_ACP_SESSION_ID ?? "fake-session-1",
         modes: modes("default"),
-        configOptions: modelOptions("gemini-2.5-pro"),
+        ...modelPayload(),
       });
       return;
     }
@@ -126,7 +126,7 @@ async function handleMessage(message) {
       });
       respond(message.id, {
         modes: modes("default"),
-        configOptions: modelOptions("gemini-2.5-pro"),
+        ...modelPayload(),
       });
       return;
     }
@@ -190,11 +190,21 @@ async function handleMessage(message) {
       });
       return;
     }
+    case "session/set_model": {
+      // Legacy dialect only: an agent that speaks configOptions must not
+      // answer here, so a client taking the wrong branch fails loudly.
+      if (!LEGACY_MODELS) return methodNotFound(message);
+      currentModelId = params.modelId;
+      respond(message.id, {});
+      return;
+    }
     case "session/set_config_option": {
+      if (LEGACY_MODELS) return methodNotFound(message);
       if (params.configId !== "model") {
-        respond(message.id, { configOptions: modelOptions("gemini-2.5-pro") });
+        respond(message.id, { configOptions: modelOptions(currentModelId) });
         return;
       }
+      currentModelId = params.value;
       respond(message.id, { configOptions: modelOptions(params.value) });
       notify("session/update", {
         sessionId: params.sessionId,
@@ -210,14 +220,47 @@ async function handleMessage(message) {
       return;
     }
     default:
-      if (message.id !== undefined) {
-        write({
-          jsonrpc: "2.0",
-          id: message.id,
-          error: { code: -32601, message: `Unknown method ${message.method}` },
-        });
-      }
+      methodNotFound(message);
   }
+}
+
+function methodNotFound(message) {
+  if (message.id !== undefined) {
+    write({
+      jsonrpc: "2.0",
+      id: message.id,
+      error: { code: -32601, message: `Unknown method ${message.method}` },
+    });
+  }
+}
+
+const MODEL_CATALOG = [
+  { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro" },
+  { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
+];
+
+/**
+ * Real Gemini CLI still answers with the dedicated `models` object and takes
+ * `session/set_model`; stable ACP v1 uses `configOptions` and
+ * `session/set_config_option`. FAKE_ACP_LEGACY_MODELS=1 picks the Gemini
+ * dialect so both wire formats stay covered.
+ */
+const LEGACY_MODELS = process.env.FAKE_ACP_LEGACY_MODELS === "1";
+let currentModelId = "gemini-2.5-pro";
+
+function modelPayload() {
+  if (LEGACY_MODELS) {
+    return {
+      models: {
+        currentModelId,
+        availableModels: MODEL_CATALOG.map((model) => ({
+          modelId: model.id,
+          name: model.name,
+        })),
+      },
+    };
+  }
+  return { configOptions: modelOptions(currentModelId) };
 }
 
 function modelOptions(currentValue) {
@@ -227,10 +270,10 @@ function modelOptions(currentValue) {
     name: "Model",
     category: "model",
     currentValue,
-    options: [
-      { value: "gemini-2.5-pro", name: "Gemini 2.5 Pro" },
-      { value: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
-    ],
+    options: MODEL_CATALOG.map((model) => ({
+      value: model.id,
+      name: model.name,
+    })),
   }];
 }
 

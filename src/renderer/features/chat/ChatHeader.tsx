@@ -14,12 +14,47 @@ type ChatHeaderProps = {
   modelsSupported: boolean;
   onOpenSidebar: () => void;
   onEditProject: () => void;
+  attachmentsOpen: boolean;
+  attachmentsCount: number;
+  attachmentsIncludedCount: number;
+  onToggleAttachments: () => void;
   changesOpen: boolean;
   changesCount: number;
   onToggleChanges: () => void;
   onSetMode: (mode: string) => void;
   onSetModel: (model: string) => void;
 };
+
+function optionLabel(id: string): string {
+  return id.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+/**
+ * Merges the cached picker list with the IDs of the running session, keeping
+ * the cached order and never dropping the current selection. `label` names an
+ * entry that exists only as an ID: mode IDs read well once prettified, model
+ * IDs are shown verbatim rather than dressed up into something Gemini never
+ * said.
+ */
+function mergeOptions(
+  cached: readonly SessionMode[] | undefined,
+  live: readonly string[],
+  current: string | null,
+  label: (id: string) => string,
+): SessionMode[] {
+  const merged: SessionMode[] = [];
+  const seen = new Set<string>();
+  const add = (option: SessionMode) => {
+    if (seen.has(option.id)) return;
+    seen.add(option.id);
+    merged.push(option);
+  };
+
+  for (const option of cached ?? []) add(option);
+  for (const id of live) add({ id, name: label(id) });
+  if (current) add({ id: current, name: label(current) });
+  return merged;
+}
 
 function stateLabel(session: AppSession, chat: ChatState): string {
   const status = chat.phase === "idle" ? session.status : chat.phase;
@@ -197,20 +232,22 @@ export function ChatHeader({
   modelsSupported,
   onOpenSidebar,
   onEditProject,
+  attachmentsOpen,
+  attachmentsCount,
+  attachmentsIncludedCount,
+  onToggleAttachments,
   changesOpen,
   changesCount,
   onToggleChanges,
   onSetMode,
   onSetModel,
 }: ChatHeaderProps) {
-  const modes: SessionMode[] = session.availableModes ?? chat.modes.map((mode) => ({
-    id: mode,
-    name: mode.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()),
-  }));
-  const models = Array.from(new Set([
-    ...chat.models,
-    ...(session.model ? [session.model] : []),
-  ]));
+  // Two sources, both incomplete on their own: the cached lists carry display
+  // names and are there from app start, the live event carries only IDs but is
+  // the fresher one once a session runs. The current selection is appended so
+  // it can never be missing from its own picker.
+  const modes = mergeOptions(session.availableModes, chat.modes, session.mode, optionLabel);
+  const models = mergeOptions(session.availableModels, chat.models, session.model, (id) => id);
   const working = ["running", "awaiting_permission", "cancelling"].includes(chat.phase);
   const usage = usagePresentation(chat, working);
 
@@ -250,6 +287,20 @@ export function ChatHeader({
             ))
           )}
         </span>
+        <button
+          className={`attachments-toggle ${attachmentsOpen ? "attachments-toggle--active" : ""}`}
+          type="button"
+          onClick={onToggleAttachments}
+          aria-pressed={attachmentsOpen}
+          aria-label={`Anhänge ${attachmentsOpen ? "schließen" : "öffnen"}${
+            attachmentsCount > 0 ? `, ${attachmentsCount} Anhänge, ${attachmentsIncludedCount} im Kontext` : ""
+          }`}
+        >
+          <Icon name="paperclip" size={15} />
+          <span>Anhänge</span>
+          {attachmentsCount > 0 && <i>{attachmentsCount > 99 ? "99+" : attachmentsCount}</i>}
+          {attachmentsIncludedCount > 0 && <em>{attachmentsIncludedCount}</em>}
+        </button>
         <button
           className={`changes-toggle ${changesOpen ? "changes-toggle--active" : ""}`}
           type="button"
@@ -292,7 +343,9 @@ export function ChatHeader({
           <label className="mode-select">
             <span className="sr-only">Gemini-Modus</span>
             <select value={session.mode ?? modes[0]?.id ?? ""} onChange={(event) => onSetMode(event.target.value)} disabled={working}>
-              {modes.map((mode) => <option key={mode.id} value={mode.id}>{mode.name}</option>)}
+              {modes.map((mode) => (
+                <option key={mode.id} value={mode.id} title={mode.description}>{mode.name}</option>
+              ))}
             </select>
             <Icon name="chevron-down" size={13} />
           </label>
@@ -300,12 +353,17 @@ export function ChatHeader({
           <span className="mode-pill">{session.mode}</span>
         ) : null}
 
-        {modelsSupported && chat.models.length ? (
+        {/* One entry means the merge only recovered the current model — a
+            dropdown that cannot change anything would promise a choice that
+            does not exist, so the pill states the model instead. */}
+        {modelsSupported && models.length > 1 ? (
           <label className="model-select">
             <span className="sr-only">Gemini-Modell</span>
             <select value={session.model ?? ""} onChange={(event) => onSetModel(event.target.value)} disabled={working} aria-label="Gemini-Modell">
               {!session.model && <option value="" disabled>Modell wählen</option>}
-              {models.map((model) => <option key={model} value={model}>{model}</option>)}
+              {models.map((model) => (
+                <option key={model.id} value={model.id} title={model.description}>{model.name}</option>
+              ))}
             </select>
             <Icon name="chevron-down" size={13} />
           </label>

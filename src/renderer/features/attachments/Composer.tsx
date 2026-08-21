@@ -17,7 +17,11 @@ type ComposerProps = {
   sessionId: string;
   phase: TurnPhase;
   imagesSupported: boolean;
+  contextAttachmentCount: number;
+  contextEstimatedTokens: number;
+  contextOverBudget: boolean;
   disabled?: boolean;
+  onOpenContextAttachments: () => void;
   onSend: (text: string, attachments: ComposerAttachment[]) => Promise<void>;
   onCancel: () => Promise<void>;
   onError: (message: string) => void;
@@ -43,7 +47,11 @@ export function Composer({
   sessionId,
   phase,
   imagesSupported,
+  contextAttachmentCount,
+  contextEstimatedTokens,
+  contextOverBudget,
   disabled = false,
+  onOpenContextAttachments,
   onSend,
   onCancel,
   onError,
@@ -60,7 +68,7 @@ export function Composer({
   attachmentsRef.current = attachments;
 
   const running = ["running", "awaiting_permission", "cancelling"].includes(phase);
-  const canSend = !disabled && !running && !sending && !staging && Boolean(text.trim() || attachments.length);
+  const canSend = !disabled && !contextOverBudget && !running && !sending && !staging && Boolean(text.trim() || attachments.length);
 
   const hydrate = useCallback(async (staged: Attachment[]): Promise<ComposerAttachment[]> => {
     return Promise.all(
@@ -267,13 +275,31 @@ export function Composer({
                 {running ? "Antwort läuft · Entwurf bleibt erhalten" : "Kontext: alle Projektordner"}
               </span>
             </div>
+            {contextAttachmentCount > 0 && (
+              <button
+                className={`composer-context-attachments ${contextOverBudget ? "composer-context-attachments--warning" : ""}`}
+                type="button"
+                onClick={onOpenContextAttachments}
+                title={contextOverBudget ? "Der ausgewählte Anhangskontext überschreitet das Limit. Wähle Anhänge ab, bevor du sendest." : "Anhänge im Kontext anzeigen"}
+              >
+                <Icon name={contextOverBudget ? "warning" : "paperclip"} size={14} />
+                {contextAttachmentCount} {contextAttachmentCount === 1 ? "Anhang" : "Anhänge"} im Kontext · ~{contextEstimatedTokens.toLocaleString("de-DE")} Token
+              </button>
+            )}
             {running ? (
               <button className="stop-button" type="button" onClick={() => void stop()} disabled={stopping || phase === "cancelling"} aria-label="Antwort stoppen">
                 {stopping || phase === "cancelling" ? <span className="mini-spinner" /> : <Icon name="stop" size={16} />}
                 <span>Stoppen</span>
               </button>
             ) : (
-              <button className="send-button" type="button" disabled={!canSend} onClick={() => void submit()} aria-label="Nachricht senden">
+              <button
+                className="send-button"
+                type="button"
+                disabled={!canSend}
+                onClick={() => void submit()}
+                aria-label="Nachricht senden"
+                title={contextOverBudget ? "Der ausgewählte Anhangskontext überschreitet das Limit. Wähle zuerst Anhänge ab." : undefined}
+              >
                 {sending ? <span className="mini-spinner" /> : <Icon name="arrow-up" size={19} />}
               </button>
             )}

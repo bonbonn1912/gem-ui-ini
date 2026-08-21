@@ -154,6 +154,12 @@ export async function openExternalHttps(value: string): Promise<void> {
   await shell.openExternal(url.toString(), { activate: true });
 }
 
+export async function openStoredFile(filePath: string): Promise<void> {
+  if (!path.isAbsolute(filePath)) throw new TypeError("Stored file path must be absolute");
+  const error = await shell.openPath(filePath);
+  if (error) throw new Error(error);
+}
+
 function isInsideDirectory(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);
   return (

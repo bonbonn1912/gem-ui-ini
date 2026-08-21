@@ -17,6 +17,7 @@ import {
 } from "../processes/index.js";
 import {
   normalizeCapabilities,
+  normalizeLegacyModels,
   normalizeModes,
   normalizeModels,
 } from "./capabilities.js";
@@ -34,7 +35,19 @@ import type {
   ProjectAccess,
   PromptPart,
   SessionModeSnapshot,
+  SessionModelSnapshot,
 } from "./types.js";
+
+/**
+ * Pre-configOptions model API, still spoken by Gemini CLI. The SDK no longer
+ * types either side of it, so the payloads are read and written structurally.
+ */
+const LEGACY_SET_MODEL_METHOD = "session/set_model";
+
+function readLegacyModels(response: unknown): SessionModelSnapshot | undefined {
+  if (typeof response !== "object" || response === null) return undefined;
+  return normalizeLegacyModels((response as { models?: unknown }).models);
+}
 
 export type GeminiProcessSpawner = (
   input: SpawnGeminiProcessInput,
@@ -77,7 +90,7 @@ export class GeminiAcpSession {
   private connection?: ClientConnection;
   private capabilitiesValue!: NormalizedAcpCapabilities;
   private modesValue?: SessionModeSnapshot;
-  private modelsValue?: import("./types.js").SessionModelSnapshot;
+  private modelsValue?: SessionModelSnapshot;
   private providerSessionIdValue: string | null;
   private stateValue: SessionState = "idle";
   private activeTurn?: Promise<GeminiTurnResult>;
@@ -153,7 +166,8 @@ export class GeminiAcpSession {
       );
       session.providerSessionIdValue = response.sessionId;
       session.modesValue = normalizeModes(response.modes);
-      session.modelsValue = normalizeModels(response.configOptions);
+      session.modelsValue =
+        normalizeModels(response.configOptions) ?? readLegacyModels(response);
       return session;
     } catch (error) {
       await session.dispose();
@@ -180,7 +194,8 @@ export class GeminiAcpSession {
         "session/load",
       );
       session.modesValue = normalizeModes(response?.modes);
-      session.modelsValue = normalizeModels(response?.configOptions);
+      session.modelsValue =
+        normalizeModels(response?.configOptions) ?? readLegacyModels(response);
       return session;
     } catch (error) {
       await session.dispose();
@@ -305,6 +320,21 @@ export class GeminiAcpSession {
         "capability_unsupported",
         `Gemini did not advertise session model ${modelId}`,
       );
+    }
+
+    if (models.transport === "legacy_models") {
+      await this.withRequestTimeout(
+        this.agent.request(LEGACY_SET_MODEL_METHOD, {
+          sessionId: this.providerSessionId,
+          modelId,
+        }),
+        LEGACY_SET_MODEL_METHOD,
+      );
+      // The legacy API answers with an empty object and sends no follow-up
+      // notification, so a successful response is the only confirmation there
+      // is. Record the choice locally instead of waiting for an echo.
+      this.modelsValue = { ...models, currentModelId: modelId };
+      return;
     }
 
     const response = await this.withRequestTimeout(
@@ -512,7 +542,13 @@ export class GeminiAcpSession {
       };
     }
     if (notification.update.sessionUpdate === "config_option_update") {
-      this.modelsValue = normalizeModels(notification.update.configOptions);
+      const updated = normalizeModels(notification.update.configOptions);
+      // A config option update that carries no model selector says nothing
+      // about the models an agent reported through the legacy API, so it must
+      // not erase them.
+      if (updated || this.modelsValue?.transport === "config_option") {
+        this.modelsValue = updated;
+      }
     }
     for (const event of normalizeSessionNotification(notification, {
       appSessionId: this.appSessionId,

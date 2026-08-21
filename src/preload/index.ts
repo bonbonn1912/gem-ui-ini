@@ -1,11 +1,14 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import {
   EventSubscriptionResultSchema,
+  ContextAttachmentPushSchema,
+  ContextAttachmentSubscriptionResultSchema,
   GitStatusPushSchema,
   GitStatusSubscriptionResultSchema,
   IPC_CHANNELS,
   StreamEnvelopeBatchSchema,
   type GemUiDesktopApi,
+  type ContextAttachmentList,
   type GitProjectStatus,
   type StreamEnvelope,
   type UsageSnapshot,
@@ -22,6 +25,8 @@ const callbacks = new Map<string, EventCallback>();
 const pendingBatches = new Map<string, StreamEnvelope[][]>();
 const gitCallbacks = new Map<string, (status: GitProjectStatus) => void>();
 const pendingGitStatuses = new Map<string, GitProjectStatus[]>();
+const contextAttachmentCallbacks = new Map<string, (list: ContextAttachmentList) => void>();
+const pendingContextAttachmentLists = new Map<string, ContextAttachmentList[]>();
 
 ipcRenderer.on(IPC_CHANNELS.sessionEventBatch, (_event, payload: unknown) => {
   const parsed = parseEventBatch(payload);
@@ -50,6 +55,22 @@ ipcRenderer.on(
     const queued = pendingGitStatuses.get(parsed.data.subscriptionId) ?? [];
     if (queued.length < 10) queued.push(parsed.data.status);
     pendingGitStatuses.set(parsed.data.subscriptionId, queued);
+  },
+);
+
+ipcRenderer.on(
+  IPC_CHANNELS.contextAttachmentsChanged,
+  (_event, payload: unknown) => {
+    const parsed = ContextAttachmentPushSchema.safeParse(payload);
+    if (!parsed.success) return;
+    const callback = contextAttachmentCallbacks.get(parsed.data.subscriptionId);
+    if (callback) {
+      callback(parsed.data.list);
+      return;
+    }
+    const queued = pendingContextAttachmentLists.get(parsed.data.subscriptionId) ?? [];
+    if (queued.length < 20) queued.push(parsed.data.list);
+    pendingContextAttachmentLists.set(parsed.data.subscriptionId, queued);
   },
 );
 
@@ -118,6 +139,52 @@ const desktopApi: GemUiDesktopApi = {
     remove: (input) => ipcRenderer.invoke(IPC_CHANNELS.removeAttachment, input),
   },
 
+  contextAttachments: {
+    list: (input) => ipcRenderer.invoke(IPC_CHANNELS.listContextAttachments, input),
+    addFiles: (input) => ipcRenderer.invoke(IPC_CHANNELS.addContextFiles, input),
+    addDroppedFiles: (files, target) => {
+      const paths = files
+        .map((file) => webUtils.getPathForFile(file))
+        .filter((filePath) => filePath.length > 0);
+      return ipcRenderer.invoke(IPC_CHANNELS.addContextFiles, {
+        ...target,
+        clientRequestId: globalThis.crypto.randomUUID(),
+        paths,
+      });
+    },
+    addLink: (input) => ipcRenderer.invoke(IPC_CHANNELS.addContextLink, input),
+    update: (input) => ipcRenderer.invoke(IPC_CHANNELS.updateContextAttachment, input),
+    setInclusion: (input) => ipcRenderer.invoke(IPC_CHANNELS.setContextInclusion, input),
+    remove: (input) => ipcRenderer.invoke(IPC_CHANNELS.removeContextAttachment, input),
+    refreshLinkPreview: (input) => ipcRenderer.invoke(IPC_CHANNELS.refreshLinkPreview, input),
+    getBytes: (input) => ipcRenderer.invoke(IPC_CHANNELS.getContextAttachmentBytes, input),
+    openFile: (input) => ipcRenderer.invoke(IPC_CHANNELS.openContextAttachment, input),
+    subscribe: async (input, callback) => {
+      const result = ContextAttachmentSubscriptionResultSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.subscribeContextAttachments, input),
+      );
+      contextAttachmentCallbacks.set(result.subscriptionId, callback);
+      callback(result.list);
+      const queued = pendingContextAttachmentLists.get(result.subscriptionId) ?? [];
+      pendingContextAttachmentLists.delete(result.subscriptionId);
+      for (const list of queued) callback(list);
+      return () => {
+        contextAttachmentCallbacks.delete(result.subscriptionId);
+        pendingContextAttachmentLists.delete(result.subscriptionId);
+        void ipcRenderer.invoke(IPC_CHANNELS.unsubscribeContextAttachments, {
+          subscriptionId: result.subscriptionId,
+        });
+      };
+    },
+  },
+
+  linkPreview: {
+    open: (input) => ipcRenderer.invoke(IPC_CHANNELS.openLinkPreviewView, input),
+    setBounds: (input) => ipcRenderer.invoke(IPC_CHANNELS.setLinkPreviewBounds, input),
+    close: () => ipcRenderer.invoke(IPC_CHANNELS.closeLinkPreviewView, {}),
+    clearStorage: (input) => ipcRenderer.invoke(IPC_CHANNELS.clearLinkPreviewStorage, input),
+  },
+
   git: {
     listProjectRepositories: (input) =>
       ipcRenderer.invoke(IPC_CHANNELS.listGitProjectRepositories, input),
@@ -178,7 +245,9 @@ const desktopApi: GemUiDesktopApi = {
 Object.freeze(desktopApi.projects);
 Object.freeze(desktopApi.sessions);
 Object.freeze(desktopApi.attachments);
+Object.freeze(desktopApi.contextAttachments);
 Object.freeze(desktopApi.git);
+Object.freeze(desktopApi.linkPreview);
 Object.freeze(desktopApi.settings);
 contextBridge.exposeInMainWorld("gemUi", Object.freeze(desktopApi));
 

@@ -7,6 +7,7 @@ import type {
 import type {
   NormalizedAcpCapabilities,
   NormalizedAuthMethod,
+  SessionModel,
   SessionModeSnapshot,
   SessionModelSnapshot,
 } from "./types.js";
@@ -83,10 +84,63 @@ export function normalizeModels(
     return undefined;
   }
   return {
+    transport: "config_option",
     configId: modelOption.id,
     currentModelId: modelOption.currentValue,
     availableModels,
   };
+}
+
+/**
+ * The pre-configOptions models payload of `session/new` and `session/load`.
+ * Not part of the SDK's typed surface any more, so it is read structurally
+ * from the raw response.
+ */
+export function normalizeLegacyModels(
+  models: unknown,
+): SessionModelSnapshot | undefined {
+  if (!isRecord(models)) return undefined;
+  const currentModelId = models["currentModelId"];
+  const entries = models["availableModels"];
+  if (typeof currentModelId !== "string" || !currentModelId) return undefined;
+  if (!Array.isArray(entries)) return undefined;
+
+  const availableModels: SessionModel[] = [];
+  for (const entry of entries) {
+    if (!isRecord(entry)) continue;
+    // Gemini CLI keys the identifier `modelId`; `id` is accepted so an agent
+    // that follows the newer naming is not rejected over a field name.
+    const id = firstString(entry["modelId"], entry["id"]);
+    const name = firstString(entry["name"], entry["title"]) ?? id;
+    if (!id || !name) continue;
+    const description = firstString(entry["description"]);
+    availableModels.push({
+      id,
+      name,
+      ...(description ? { description } : {}),
+    });
+  }
+
+  if (!availableModels.some((model) => model.id === currentModelId)) {
+    return undefined;
+  }
+  return {
+    transport: "legacy_models",
+    configId: null,
+    currentModelId,
+    availableModels,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function firstString(...values: readonly unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return undefined;
 }
 
 function normalizeAuthMethod(

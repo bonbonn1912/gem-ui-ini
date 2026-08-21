@@ -5,11 +5,13 @@ import { act, cleanup, render, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/renderer/app/App";
+import { LinkPreviewSurface } from "../../src/renderer/features/attachments/LinkPreviewSurface";
 import type {
   AppCapabilities,
   AppProject,
   AppSession,
   GemUiDesktopApi,
+  ContextAttachmentList,
   StreamEnvelope,
 } from "../../src/renderer/types";
 
@@ -63,13 +65,26 @@ const session: AppSession = {
   model: null,
   mode: "default",
   availableModes: [{ id: "default", name: "Default" }, { id: "auto_edit", name: "Auto Edit" }],
+  availableModels: [],
   pinned: false,
   archived: false,
   createdAt: "2026-08-20T10:00:00.000Z",
   updatedAt: "2026-08-20T10:00:00.000Z",
 };
 
-function createApi(options: { projects?: AppProject[]; sessions?: AppSession[] } = {}) {
+function emptyContextList(sessionId: string | null): ContextAttachmentList {
+  return {
+    projectId: project.id,
+    sessionId,
+    projectAttachments: [],
+    sessionAttachments: [],
+    includedCount: 0,
+    estimatedTotalTokens: 0,
+    overBudget: false,
+  };
+}
+
+function createApi(options: { projects?: AppProject[]; sessions?: AppSession[]; contextList?: ContextAttachmentList } = {}) {
   let subscriber: ((events: StreamEnvelope[]) => void) | undefined;
   const api: GemUiDesktopApi = {
     getCapabilities: vi.fn().mockResolvedValue(capabilities),
@@ -126,6 +141,32 @@ function createApi(options: { projects?: AppProject[]; sessions?: AppSession[] }
       getPreviewBytes: vi.fn().mockResolvedValue(new Uint8Array()),
       remove: vi.fn().mockResolvedValue(undefined),
     },
+    contextAttachments: {
+      list: vi.fn().mockImplementation(async (input) => options.contextList
+        ? { ...options.contextList, sessionId: input.sessionId ?? null }
+        : emptyContextList(input.sessionId ?? null)),
+      addFiles: vi.fn(),
+      addDroppedFiles: vi.fn(),
+      addLink: vi.fn(),
+      update: vi.fn(),
+      setInclusion: vi.fn(),
+      remove: vi.fn(),
+      refreshLinkPreview: vi.fn(),
+      getBytes: vi.fn(),
+      openFile: vi.fn().mockResolvedValue({ ok: true }),
+      subscribe: vi.fn().mockImplementation(async (input, callback) => {
+        callback(options.contextList
+          ? { ...options.contextList, sessionId: input.sessionId ?? null }
+          : emptyContextList(input.sessionId ?? null));
+        return () => undefined;
+      }),
+    },
+    linkPreview: {
+      open: vi.fn(),
+      setBounds: vi.fn().mockResolvedValue({ ok: true }),
+      close: vi.fn().mockResolvedValue({ ok: true }),
+      clearStorage: vi.fn().mockResolvedValue({ ok: true }),
+    },
     git: {
       listProjectRepositories: vi.fn().mockResolvedValue({
         projectId: project.id,
@@ -166,7 +207,168 @@ beforeEach(() => {
   window.localStorage.clear?.();
 });
 
+function populatedContextList(overBudget = false): ContextAttachmentList {
+  const createdAt = "2026-08-21T09:00:00.000Z";
+  return {
+    projectId: project.id,
+    sessionId: session.id,
+    projectAttachments: [
+      {
+        id: "41000000-0000-4000-8000-000000000001",
+        projectId: project.id,
+        scope: "project",
+        sessionId: null,
+        kind: "file",
+        title: "Architektur.md",
+        note: null,
+        sortOrder: 0,
+        includedInContext: true,
+        estimatedTokens: 1_250,
+        file: {
+          displayName: "Architektur.md",
+          mimeType: "text/markdown",
+          size: 4_096,
+          sha256: "a".repeat(64),
+          extractionState: "ready",
+          extractedChars: 5_000,
+          pageCount: null,
+          extractionError: null,
+          renderable: false,
+        },
+        link: null,
+        createdAt,
+        updatedAt: createdAt,
+      },
+      {
+        id: "41000000-0000-4000-8000-000000000002",
+        projectId: project.id,
+        scope: "project",
+        sessionId: null,
+        kind: "link",
+        title: "Jira LOGIN-42",
+        note: null,
+        sortOrder: 1,
+        includedInContext: false,
+        estimatedTokens: 80,
+        file: null,
+        link: {
+          url: "https://jira.example.com/browse/LOGIN-42",
+          host: "jira.example.com",
+          previewState: "unauthorized",
+          previewTitle: null,
+          previewDescription: null,
+          previewSiteName: null,
+          hasPreviewImage: false,
+          previewError: null,
+          fetchedAt: createdAt,
+        },
+        createdAt,
+        updatedAt: createdAt,
+      },
+    ],
+    sessionAttachments: [],
+    includedCount: 1,
+    estimatedTotalTokens: overBudget ? 80_000 : 1_250,
+    overBudget,
+  };
+}
+
 describe("Renderer UI", () => {
+  it("zeigt Anhangszähler und schaltet Anhänge und Änderungen gegenseitig aus", async () => {
+    const user = userEvent.setup();
+    const contextList = populatedContextList();
+    const { api } = createApi({ contextList });
+    window.gemUi = api;
+
+    render(<App />);
+    const toggle = await screen.findByRole("button", { name: "Anhänge öffnen, 2 Anhänge, 1 im Kontext" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await user.click(toggle);
+    expect(await screen.findByRole("complementary", { name: "Anhänge" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Anhänge schließen, 2 Anhänge, 1 im Kontext" })).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(screen.getByRole("button", { name: /^Änderungen öffnen/ }));
+    expect(screen.queryByRole("complementary", { name: "Anhänge" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("complementary", { name: "Git-Änderungen" })).toBeVisible();
+  });
+
+  it("zeigt gemischte Gruppenauswahl und wählt bei Klick alle Anhänge aus", async () => {
+    const user = userEvent.setup();
+    const contextList = populatedContextList();
+    const { api } = createApi({ contextList });
+    vi.mocked(api.contextAttachments.setInclusion).mockResolvedValue({
+      ...contextList,
+      projectAttachments: contextList.projectAttachments.map((attachment) => ({ ...attachment, includedInContext: true })),
+      includedCount: 2,
+      estimatedTotalTokens: 1_330,
+    });
+    window.gemUi = api;
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Anhänge öffnen, 2 Anhänge, 1 im Kontext" }));
+    const selectAll = await screen.findByRole("checkbox", { name: "Projekt: alle im Kontext" });
+    expect(selectAll).toHaveAttribute("aria-checked", "mixed");
+    await user.click(selectAll);
+    expect(api.contextAttachments.setInclusion).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: session.id,
+      attachmentIds: contextList.projectAttachments.map(({ id }) => id),
+      included: true,
+    }));
+  });
+
+  it("sperrt das Senden, wenn der ausgewählte Anhangskontext das Budget überschreitet", async () => {
+    const user = userEvent.setup();
+    const { api } = createApi({ contextList: populatedContextList(true) });
+    window.gemUi = api;
+
+    render(<App />);
+    const composer = await screen.findByRole("textbox", { name: "Nachricht an Gemini" });
+    await user.type(composer, "Fasse den Kontext zusammen");
+    const send = screen.getByRole("button", { name: "Nachricht senden" });
+    expect(send).toBeDisabled();
+    expect(send).toHaveAttribute("title", expect.stringContaining("überschreitet"));
+  });
+
+  it("sendet die effektive Kontextauswahl als Momentaufnahme und zeigt sie im Verlauf", async () => {
+    const user = userEvent.setup();
+    const contextList = populatedContextList();
+    const { api } = createApi({ contextList });
+    window.gemUi = api;
+
+    render(<App />);
+    const composer = await screen.findByRole("textbox", { name: "Nachricht an Gemini" });
+    await screen.findByRole("button", { name: "Anhänge öffnen, 2 Anhänge, 1 im Kontext" });
+    await user.type(composer, "Nutze die Architektur{Enter}");
+    await waitFor(() => expect(api.sessions.sendPrompt).toHaveBeenCalledTimes(1));
+    expect(api.sessions.sendPrompt).toHaveBeenCalledWith(expect.objectContaining({
+      contextAttachmentIds: [contextList.projectAttachments[0]!.id],
+    }));
+    expect(screen.getByText("Architektur.md", { selector: ".sent-context-attachment" })).toBeVisible();
+  });
+
+  it("schließt die native Linkvorschau beim Abbauen zuverlässig", async () => {
+    const { api } = createApi();
+    vi.mocked(api.linkPreview.open).mockResolvedValue({
+      attachmentId: "41000000-0000-4000-8000-000000000002",
+      host: "jira.example.com",
+      loading: false,
+    });
+    window.gemUi = api;
+    const rendered = render(
+      <LinkPreviewSurface
+        attachmentId="41000000-0000-4000-8000-000000000002"
+        host="jira.example.com"
+        url="https://jira.example.com/browse/LOGIN-42"
+        onOpenExternal={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(api.linkPreview.open).toHaveBeenCalledTimes(1));
+    vi.mocked(api.linkPreview.close).mockClear();
+    rendered.unmount();
+    expect(api.linkPreview.close).toHaveBeenCalledTimes(1);
+  });
+
   it("macht Git-Änderungen auch ohne angelegte Chat-Session erreichbar", async () => {
     const user = userEvent.setup();
     const { api } = createApi({ sessions: [] });
@@ -564,6 +766,40 @@ describe("Renderer UI", () => {
     expect(screen.getByText("25 %").closest(".usage-pill")?.getAttribute("title")).toContain(
       "2.048 von 8.192 Token belegt",
     );
+
+    await user.selectOptions(modelSelect, "gemini-2.5-pro");
+    await waitFor(() => expect(api.sessions.setModel).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: "session-1",
+      modelId: "gemini-2.5-pro",
+    })));
+  });
+
+  it("füllt die Modellauswahl aus der gespeicherten Liste, bevor ein Event eintrifft", async () => {
+    // Ein ACP-Prozess startet erst beim ersten Prompt. Ohne gespeicherte Liste
+    // bliebe die Auswahl nach jedem Neustart leer, bis die Session läuft.
+    const user = userEvent.setup();
+    const cachedSession: AppSession = {
+      ...session,
+      model: "gemini-2.5-flash",
+      availableModels: [
+        { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", description: "Für schwierige Aufgaben" },
+        { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
+      ],
+    };
+    const { api } = createApi({ sessions: [cachedSession] });
+    vi.mocked(api.getCapabilities).mockResolvedValue({
+      ...capabilities,
+      gemini: { ...capabilities.gemini, models: true },
+    });
+    window.gemUi = api;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Login reparieren" });
+
+    const modelSelect = await screen.findByRole("combobox", { name: "Gemini-Modell" });
+    expect(modelSelect).toHaveValue("gemini-2.5-flash");
+    // Die gespeicherte Liste bringt lesbare Namen mit, nicht nur IDs.
+    expect(within(modelSelect).getByRole("option", { name: "Gemini 2.5 Pro" })).toBeInTheDocument();
 
     await user.selectOptions(modelSelect, "gemini-2.5-pro");
     await waitFor(() => expect(api.sessions.setModel).toHaveBeenCalledWith(expect.objectContaining({

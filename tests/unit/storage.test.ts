@@ -9,6 +9,7 @@ import { ProjectService } from "../../src/main/projects";
 import {
   AttachmentRepository,
   ClientRequestRepository,
+  ContextAttachmentRepository,
   EventRepository,
   getAppDatabasePath,
   getLatestSchemaVersion,
@@ -39,8 +40,8 @@ describe("SQLite setup and migrations", () => {
       const versions = database
         .prepare("SELECT version FROM schema_migrations ORDER BY version")
         .all() as Array<{ version: number }>;
-      expect(versions.map(({ version }) => version)).toEqual([1, 2, 3, 4]);
-      expect(getLatestSchemaVersion()).toBe(4);
+      expect(versions.map(({ version }) => version)).toEqual([1, 2, 3, 4, 5, 6]);
+      expect(getLatestSchemaVersion()).toBe(6);
       const clientRequests = database
         .prepare(
           "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'client_requests'",
@@ -94,6 +95,87 @@ describe("SQLite setup and migrations", () => {
 });
 
 describe("repositories", () => {
+  it("trennt Projekt- und Sessionanhänge und hält die Auswahl je Session", async () => {
+    const fixture = await createProjectFixture();
+    try {
+      const sessions = new SessionRepository(fixture.database);
+      const sessionId = randomUUID();
+      sessions.create({
+        id: sessionId,
+        provider: "gemini-cli",
+        providerSessionId: null,
+        projectId: fixture.project.id,
+        lastRootRevision: fixture.project.rootRevision,
+        lastRootFingerprint: fixture.project.rootFingerprint,
+        title: "Kontexttest",
+        status: "idle",
+        model: null,
+        mode: null,
+        pinned: false,
+        archived: false,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+      const attachments = new ContextAttachmentRepository(fixture.database);
+      const sha256 = "b".repeat(64);
+      const projectAttachment = attachments.insertFile({
+        id: randomUUID(),
+        projectId: fixture.project.id,
+        scope: "project",
+        sessionId: null,
+        title: "Konzept.txt",
+        displayName: "Konzept.txt",
+        mimeType: "text/plain",
+        size: 12,
+        sha256,
+        storageDir: "/internal/blobs/bb",
+        fileName: sha256,
+        defaultInclude: false,
+        createdAt: timestamp,
+      });
+      const sessionAttachment = attachments.insertFile({
+        id: randomUUID(),
+        projectId: fixture.project.id,
+        scope: "session",
+        sessionId,
+        title: "Konzept-Kopie.txt",
+        displayName: "Konzept-Kopie.txt",
+        mimeType: "text/plain",
+        size: 12,
+        sha256,
+        storageDir: "/internal/blobs/bb",
+        fileName: sha256,
+        defaultInclude: true,
+        createdAt: timestamp,
+      });
+
+      let list = attachments.list(fixture.project.id, sessionId);
+      expect(list.projectAttachments.map(({ id }) => id)).toEqual([projectAttachment.id]);
+      expect(list.sessionAttachments.map(({ id }) => id)).toEqual([sessionAttachment.id]);
+      expect(list.projectAttachments[0]?.includedInContext).toBe(false);
+      expect(list.sessionAttachments[0]?.includedInContext).toBe(true);
+      expect(attachments.countFileReferences(sha256)).toBe(2);
+
+      attachments.setInclusion(sessionId, [projectAttachment.id], true, timestamp);
+      list = attachments.list(fixture.project.id, sessionId);
+      expect(list.projectAttachments[0]?.includedInContext).toBe(true);
+
+      expect(() => fixture.database.prepare(
+        `INSERT INTO context_attachments (
+          id, project_id, scope, session_id, session_key, kind, title, dedupe_key,
+          sort_order, default_include, created_at, updated_at
+        ) VALUES (?, ?, 'project', ?, ?, 'link', 'Ungültig', 'https://invalid.example', 3, 0, ?, ?)`,
+      ).run(randomUUID(), fixture.project.id, sessionId, sessionId, timestamp, timestamp)).toThrow(/CHECK/i);
+
+      sessions.delete(sessionId);
+      expect(() => attachments.getInternal(sessionAttachment.id)).toThrow();
+      expect(attachments.getInternal(projectAttachment.id).id).toBe(projectAttachment.id);
+      expect(attachments.countFileReferences(sha256)).toBe(1);
+    } finally {
+      fixture.database.close();
+    }
+  });
+
   it("persists sessions, historical root audit and sequenced events", async () => {
     const fixture = await createProjectFixture();
     try {
@@ -149,6 +231,58 @@ describe("repositories", () => {
       expect([first.seq, second.seq]).toEqual([1, 2]);
       expect(events.latestSequence(sessionId)).toBe(2);
       expect(events.listAfter(sessionId, 1)).toEqual([second]);
+    } finally {
+      fixture.database.close();
+    }
+  });
+
+  it("keeps the model and mode lists a session last reported", async () => {
+    const fixture = await createProjectFixture();
+    try {
+      const sessions = new SessionRepository(fixture.database);
+      const sessionId = randomUUID();
+      sessions.create({
+        id: sessionId,
+        provider: "gemini-cli",
+        providerSessionId: null,
+        projectId: fixture.project.id,
+        lastRootRevision: fixture.project.rootRevision,
+        lastRootFingerprint: fixture.project.rootFingerprint,
+        title: "Picker session",
+        status: "starting",
+        model: null,
+        mode: null,
+        pinned: false,
+        archived: false,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+
+      const availableModels = [
+        { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", description: "Für schwierige Aufgaben" },
+        { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
+      ];
+      sessions.update(sessionId, {
+        status: "idle",
+        model: "gemini-2.5-pro",
+        availableModels,
+        availableModes: [{ id: "default", name: "Default" }],
+        updatedAt: timestamp,
+      });
+
+      // The lists must survive the trip through SQLite exactly as reported,
+      // names and descriptions included — that is what fills the picker after
+      // a restart, before any ACP process runs.
+      expect(sessions.getById(sessionId)).toMatchObject({
+        model: "gemini-2.5-pro",
+        availableModels,
+        availableModes: [{ id: "default", name: "Default" }],
+      });
+
+      // A plain status update says nothing about the pickers and must not
+      // clear them.
+      sessions.update(sessionId, { status: "running", updatedAt: timestamp });
+      expect(sessions.getById(sessionId).availableModels).toEqual(availableModels);
     } finally {
       fixture.database.close();
     }

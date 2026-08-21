@@ -71,6 +71,11 @@ const config: ForgeConfig = {
           config: "vite.preload.config.ts",
           target: "preload",
         },
+        {
+          entry: "src/main/context-attachments/extraction-worker.ts",
+          config: "vite.worker.config.ts",
+          target: "main",
+        },
       ],
       renderer: [
         {

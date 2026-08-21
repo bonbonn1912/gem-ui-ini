@@ -74,6 +74,7 @@ describe("chatReducer", () => {
         status: "staged",
         createdAt: "2026-08-20T12:00:00.000Z",
       }],
+      contextAttachments: [],
       timestamp: "2026-08-20T12:00:00.000Z",
     });
 
@@ -85,6 +86,7 @@ describe("chatReducer", () => {
           messageId: "message-1",
           text: "Analysiere das Bild",
           attachmentIds: ["image-1"],
+          contextAttachments: [],
         }),
       ],
     });
