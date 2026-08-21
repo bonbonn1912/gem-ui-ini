@@ -160,6 +160,10 @@ afterEach(() => cleanup());
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.stubGlobal("confirm", vi.fn(() => true));
+  // The changes panel remembers its open state in localStorage, and jsdom keeps
+  // that store alive across the tests in this file. Without clearing it a test
+  // that opens the panel would leave the next one mounted with it already open.
+  window.localStorage.clear();
 });
 
 describe("Renderer UI", () => {
@@ -264,7 +268,9 @@ describe("Renderer UI", () => {
 
     render(<App />);
     const composer = await screen.findByRole("textbox", { name: "Nachricht an Gemini" });
-    await user.click(screen.getByRole("button", { name: "Änderungen öffnen" }));
+    // The accessible name gains a ", N Dateien" suffix as soon as the git status
+    // arrives, so match the prefix instead of racing the subscription.
+    await user.click(screen.getByRole("button", { name: /^Änderungen öffnen/ }));
 
     expect(await screen.findByRole("complementary", { name: "Git-Änderungen" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Vorgemerkt: Diff für src/auth.ts" })).toBeVisible();
