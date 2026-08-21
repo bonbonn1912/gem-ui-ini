@@ -454,8 +454,9 @@ export class AppController implements ProjectRuntimeCoordinator {
     const session = this.#sessions.getById(input.sessionId);
     const access = await this.#projects.getCurrentAccess(session.projectId);
     await this.#ensureManagedSession(session, access);
-    const models = this.#manager?.getSession(input.sessionId)?.models;
-    if (!models?.availableModels.some((model) => model.id === input.modelId)) {
+    const managedSession = this.#manager?.getSession(input.sessionId);
+    const available = managedSession?.models?.availableModels ?? session.availableModels;
+    if (available && available.length > 0 && !available.some((model) => model.id === input.modelId)) {
       throw new Error(
         "Dieses Modell wurde von der aktuellen Gemini-Session nicht angeboten.",
       );

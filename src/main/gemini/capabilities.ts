@@ -80,13 +80,13 @@ export function normalizeModels(
     name: option.name,
     ...(option.description ? { description: option.description } : {}),
   }));
-  if (!availableModels.some((model) => model.id === modelOption.currentValue)) {
+  if (availableModels.length === 0) {
     return undefined;
   }
   return {
     transport: "config_option",
     configId: modelOption.id,
-    currentModelId: modelOption.currentValue,
+    currentModelId: modelOption.currentValue ?? availableModels[0]?.id ?? "",
     availableModels,
   };
 }
@@ -102,7 +102,6 @@ export function normalizeLegacyModels(
   if (!isRecord(models)) return undefined;
   const currentModelId = models["currentModelId"];
   const entries = models["availableModels"];
-  if (typeof currentModelId !== "string" || !currentModelId) return undefined;
   if (!Array.isArray(entries)) return undefined;
 
   const availableModels: SessionModel[] = [];
@@ -121,13 +120,16 @@ export function normalizeLegacyModels(
     });
   }
 
-  if (!availableModels.some((model) => model.id === currentModelId)) {
+  if (availableModels.length === 0) {
     return undefined;
   }
   return {
     transport: "legacy_models",
     configId: null,
-    currentModelId,
+    currentModelId:
+      typeof currentModelId === "string" && currentModelId
+        ? currentModelId
+        : (availableModels[0]?.id ?? ""),
     availableModels,
   };
 }

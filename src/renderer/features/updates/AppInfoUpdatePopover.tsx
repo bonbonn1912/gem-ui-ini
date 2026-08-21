@@ -116,11 +116,6 @@ export function AppInfoUpdatePopover({ capabilities }: AppInfoUpdatePopoverProps
     }
   };
 
-  const handleOpenReleaseUrl = (url?: string | null) => {
-    if (!url) return;
-    void window.gemUi.openExternalHttpsUrl(url);
-  };
-
   const geminiAvailable = capabilities.gemini.available && capabilities.gemini.acp;
   const currentAppVersion = capabilities.appVersion || updateInfo?.currentVersion || "0.5.0";
 
@@ -231,17 +226,9 @@ export function AppInfoUpdatePopover({ capabilities }: AppInfoUpdatePopoverProps
                       type="button"
                       className="primary-button update-action-button"
                       onClick={handleDownloadUpdate}
-                      disabled={downloading}
+                      disabled={downloading || !updateInfo?.downloadUrl}
                     >
                       <Icon name="download" size={13} /> Update herunterladen & installieren
-                    </button>
-                    <button
-                      type="button"
-                      className="subtle-link update-browser-fallback-button"
-                      onClick={() => handleOpenReleaseUrl(updateInfo.downloadUrl || updateInfo.htmlUrl)}
-                      title="Release im Webbrowser herunterladen"
-                    >
-                      <Icon name="external" size={11} /> Im Browser herunterladen
                     </button>
                   </div>
                 )}
