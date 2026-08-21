@@ -161,6 +161,37 @@ const migrations: readonly Migration[] = [
         CHECK(approval_mode_state IN ('gemini_default', 'available', 'unavailable'));
     `,
   },
+  {
+    version: 4,
+    name: "token_usage_tracking",
+    sql: `
+      CREATE TABLE turn_usage (
+        session_id TEXT NOT NULL,
+        turn_id TEXT NOT NULL,
+        source TEXT NOT NULL CHECK(source IN ('acp_prompt_usage', 'gemini_meta_quota')),
+        input_tokens INTEGER CHECK(input_tokens IS NULL OR input_tokens >= 0),
+        output_tokens INTEGER CHECK(output_tokens IS NULL OR output_tokens >= 0),
+        total_tokens INTEGER CHECK(total_tokens IS NULL OR total_tokens >= 0),
+        thought_tokens INTEGER CHECK(thought_tokens IS NULL OR thought_tokens >= 0),
+        cached_read_tokens INTEGER CHECK(cached_read_tokens IS NULL OR cached_read_tokens >= 0),
+        cached_write_tokens INTEGER CHECK(cached_write_tokens IS NULL OR cached_write_tokens >= 0),
+        tool_tokens INTEGER CHECK(tool_tokens IS NULL OR tool_tokens >= 0),
+        total_kind TEXT CHECK(total_kind IS NULL OR total_kind IN ('provider', 'derived_input_plus_output')),
+        model_usage_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(model_usage_json)),
+        observed_at TEXT NOT NULL,
+        PRIMARY KEY (session_id, turn_id),
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      ) STRICT;
+
+      CREATE TABLE session_usage (
+        session_id TEXT PRIMARY KEY,
+        revision INTEGER NOT NULL CHECK(revision >= 0),
+        snapshot_json TEXT NOT NULL CHECK(json_valid(snapshot_json)),
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      ) STRICT;
+    `,
+  },
 ];
 
 export function runMigrations(database: SqliteDatabase): void {

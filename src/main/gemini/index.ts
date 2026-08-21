@@ -5,3 +5,4 @@ export * from "./errors.js";
 export * from "./event-normalizer.js";
 export * from "./permission-broker.js";
 export * from "./types.js";
+export * from "./usage.js";

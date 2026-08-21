@@ -276,23 +276,104 @@ describe("Renderer UI", () => {
           timestamp: "2026-08-20T12:00:02.000Z",
           event: {
             type: "usage.updated",
-            used: 2_048,
-            size: 8_192,
-            cost: { amount: 0.01, currency: "USD" },
+            snapshot: {
+              revision: 3,
+              lastTurn: null,
+              session: null,
+              context: { used: 2_048, size: 8_192, source: "acp_usage_update" },
+              cost: { amount: 0.01, currency: "USD", source: "acp_usage_update" },
+              updatedAt: "2026-08-20T12:00:02.000Z",
+            },
           },
-        } as unknown as StreamEnvelope,
+        } satisfies StreamEnvelope,
       ]);
     });
 
     const modelSelect = await screen.findByRole("combobox", { name: "Gemini-Modell" });
     expect(modelSelect).toHaveValue("gemini-2.5-flash");
-    expect(screen.getByText("2.048 / 8.192 · 25 %")).toBeVisible();
+    expect(screen.getByText("Kontext 2.048 / 8.192 · 25 %")).toBeVisible();
 
     await user.selectOptions(modelSelect, "gemini-2.5-pro");
     await waitFor(() => expect(api.sessions.setModel).toHaveBeenCalledWith(expect.objectContaining({
       sessionId: "session-1",
       modelId: "gemini-2.5-pro",
     })));
+  });
+
+  it("zeigt einen ehrlichen Platzhalter, solange Gemini keine Nutzung gemeldet hat", async () => {
+    const { api } = createApi();
+    window.gemUi = api;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Login reparieren" });
+
+    // The pill stays visible: nothing reported is not the same as broken.
+    expect(screen.getByText("Token: –")).toBeVisible();
+    expect(screen.getByTitle(/noch keine Nutzung gemeldet/)).toBeVisible();
+  });
+
+  it("zeigt Sessionverbrauch ohne erfundene Kontextgröße und markiert Teilerfassung", async () => {
+    const { api, emit } = createApi();
+    window.gemUi = api;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Login reparieren" });
+
+    act(() => {
+      emit([
+        {
+          seq: 1,
+          sessionId: "session-1",
+          turnId: "turn-1",
+          timestamp: "2026-08-20T12:00:02.000Z",
+          event: {
+            type: "usage.updated",
+            snapshot: {
+              revision: 1,
+              lastTurn: {
+                turnId: "turn-1",
+                tokens: {
+                  input: 1_234,
+                  output: 567,
+                  total: 1_801,
+                  thought: null,
+                  cachedRead: null,
+                  cachedWrite: null,
+                  tool: null,
+                  totalKind: "derived_input_plus_output",
+                },
+                byModel: [{ model: "gemini-2.5-pro", input: 1_234, output: 567 }],
+                source: "gemini_meta_quota",
+              },
+              session: {
+                tokens: {
+                  input: 12_000,
+                  output: 6_400,
+                  total: 18_400,
+                  thought: null,
+                  cachedRead: null,
+                  cachedWrite: null,
+                  tool: null,
+                  totalKind: "derived_input_plus_output",
+                },
+                coverage: "partial",
+                source: "geminui_aggregate",
+              },
+              context: null,
+              cost: null,
+              updatedAt: "2026-08-20T12:00:02.000Z",
+            },
+          },
+        } satisfies StreamEnvelope,
+      ]);
+    });
+
+    expect(await screen.findByText("Seit Erfassung 18.400 Token")).toBeVisible();
+    const pill = screen.getByText("Seit Erfassung 18.400 Token").parentElement;
+    expect(pill?.getAttribute("title")).toContain("keinen Prozentwert");
+    expect(pill?.getAttribute("title")).toContain("Erfasst seit Aktivierung der Zählung");
+    expect(pill?.getAttribute("title")).toContain("aus Eingabe + Ausgabe berechnet");
+    expect(pill?.getAttribute("title")).not.toContain("Kosten");
   });
 
   it("zeigt bei fehlender Modell-Capability ehrlich an, dass kein Modell gemeldet wurde", async () => {

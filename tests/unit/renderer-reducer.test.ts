@@ -6,7 +6,12 @@ import {
   type PermissionItem,
   type ToolItem,
 } from "../../src/renderer/features/chat/reducer";
-import type { AgentEvent, StreamEnvelope } from "../../src/renderer/types";
+import type {
+  AgentEvent,
+  StreamEnvelope,
+  TokenCounters,
+  UsageSnapshot,
+} from "../../src/renderer/types";
 
 function envelope(seq: number, event: AgentEvent, turnId = "turn-1"): StreamEnvelope {
   return {
@@ -142,24 +147,94 @@ describe("chatReducer", () => {
     expect(resolved.phase).toBe("running");
   });
 
-  it("übernimmt gemeldete Tokennutzung ohne eine Kontextfenstergröße zu erfinden", () => {
-    const updated = chatReducer(createChatState("session-1"), {
+  it("übernimmt Usage-Snapshots vollständig statt Felder gegenseitig zu ersetzen", () => {
+    const withTokens = chatReducer(createChatState("session-1"), {
       type: "events",
       events: [envelope(1, {
         type: "usage.updated",
-        inputTokens: 900,
-        outputTokens: 124,
-        totalTokens: 1_024,
+        snapshot: snapshot(1, {
+          session: {
+            tokens: counters({ input: 900, output: 124, total: 1_024, totalKind: "provider" }),
+            coverage: "complete",
+            source: "geminui_aggregate",
+          },
+        }),
       })],
     });
 
-    expect(updated.usage).toEqual({
-      inputTokens: 900,
-      outputTokens: 124,
-      totalTokens: 1_024,
-      used: 1_024,
-      size: undefined,
-      cost: undefined,
+    expect(withTokens.usage?.session?.tokens.total).toBe(1_024);
+    // No context window was reported, so none may be invented.
+    expect(withTokens.usage?.context).toBeNull();
+
+    const withContext = chatReducer(withTokens, {
+      type: "events",
+      events: [envelope(2, {
+        type: "usage.updated",
+        snapshot: snapshot(2, {
+          session: {
+            tokens: counters({ input: 900, output: 124, total: 1_024, totalKind: "provider" }),
+            coverage: "complete",
+            source: "geminui_aggregate",
+          },
+          context: { used: 2_048, size: 8_192, source: "acp_usage_update" },
+        }),
+      })],
     });
+
+    expect(withContext.usage?.context).toEqual({
+      used: 2_048,
+      size: 8_192,
+      source: "acp_usage_update",
+    });
+    expect(withContext.usage?.session?.tokens.total).toBe(1_024);
+  });
+
+  it("verwirft einen älteren Snapshot und übernimmt den persistierten beim Neustart", () => {
+    const current = chatReducer(createChatState("session-1"), {
+      type: "events",
+      events: [envelope(1, { type: "usage.updated", snapshot: snapshot(5, {}) })],
+    });
+
+    const stale = chatReducer(current, {
+      type: "events",
+      events: [envelope(2, { type: "usage.updated", snapshot: snapshot(2, {}) })],
+    });
+    expect(stale.usage?.revision).toBe(5);
+
+    const restored = chatReducer(createChatState("session-1"), {
+      type: "usage-snapshot",
+      snapshot: snapshot(9, {}),
+    });
+    expect(restored.usage?.revision).toBe(9);
+    expect(chatReducer(restored, { type: "usage-snapshot", snapshot: null }).usage?.revision).toBe(9);
   });
 });
+
+function counters(overrides: Partial<TokenCounters> = {}): TokenCounters {
+  return {
+    input: null,
+    output: null,
+    total: null,
+    thought: null,
+    cachedRead: null,
+    cachedWrite: null,
+    tool: null,
+    totalKind: null,
+    ...overrides,
+  };
+}
+
+function snapshot(
+  revision: number,
+  overrides: Partial<Omit<UsageSnapshot, "revision">>,
+): UsageSnapshot {
+  return {
+    revision,
+    lastTurn: null,
+    session: null,
+    context: null,
+    cost: null,
+    updatedAt: "2026-08-20T12:00:00.000Z",
+    ...overrides,
+  };
+}

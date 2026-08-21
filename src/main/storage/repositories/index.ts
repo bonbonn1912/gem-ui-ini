@@ -4,3 +4,4 @@ export * from "./event-repository";
 export * from "./project-repository";
 export * from "./session-repository";
 export * from "./settings-repository";
+export * from "./usage-repository";

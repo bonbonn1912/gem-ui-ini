@@ -10,6 +10,8 @@ import type {
   ProjectApprovalPolicy as ContractProjectApprovalPolicy,
   ProjectWithRoots,
   StreamEnvelope as ContractStreamEnvelope,
+  TokenCounters as ContractTokenCounters,
+  UsageSnapshot as ContractUsageSnapshot,
 } from "../shared/contracts";
 
 export type AppCapabilities = ContractAppCapabilities;
@@ -21,6 +23,8 @@ export type Attachment = ContractAttachment;
 export type PermissionOption = ContractPermissionOption;
 export type AgentEvent = ContractAgentEvent;
 export type StreamEnvelope = ContractStreamEnvelope;
+export type UsageSnapshot = ContractUsageSnapshot;
+export type TokenCounters = ContractTokenCounters;
 
 export type SessionStatus = ContractAppSession["status"] | "queued";
 

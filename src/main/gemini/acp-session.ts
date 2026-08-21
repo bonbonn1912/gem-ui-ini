@@ -23,6 +23,7 @@ import {
 import { GeminiIntegrationError, toErrorMessage } from "./errors.js";
 import { normalizeSessionNotification } from "./event-normalizer.js";
 import { PermissionBroker } from "./permission-broker.js";
+import { parsePromptUsage } from "./usage.js";
 import type {
   AgentEventListener,
   GeminiSessionSnapshot,
@@ -424,17 +425,20 @@ export class GeminiAcpSession {
         acp.methods.agent.session.prompt,
         { sessionId: this.providerSessionId, prompt },
       );
+      // Parse the provider payload exactly once. Gemini CLI 0.56 releases its
+      // counters only here, in `_meta.quota`.
+      const usage = parsePromptUsage(response);
       const result: GeminiTurnResult = {
         stopReason: response.stopReason,
-        ...(response.usage ? { usage: response.usage } : {}),
+        ...(usage ? { usage } : {}),
       };
+      // The usage observation must precede turn.completed so the controller can
+      // still attribute it to the active turn id.
+      if (usage) this.emit("usage.tokens.observed", usage);
       if (response.stopReason === "cancelled") {
         this.emit("turn.cancelled", {});
       } else {
-        this.emit("turn.completed", {
-          stopReason: response.stopReason,
-          ...(response.usage ? { usage: response.usage } : {}),
-        });
+        this.emit("turn.completed", { stopReason: response.stopReason });
       }
       return result;
     } catch (error) {

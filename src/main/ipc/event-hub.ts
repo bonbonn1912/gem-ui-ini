@@ -15,6 +15,8 @@ export interface EventReplayStore {
     sessionId: string,
     afterSeq: number,
   ): StreamEnvelope[] | Promise<StreamEnvelope[]>;
+  /** Optional: the persisted usage snapshot, independent of the replay window. */
+  usageSnapshot?(sessionId: string): unknown;
 }
 
 type Subscription = {
@@ -36,7 +38,11 @@ export class SessionEventHub {
     sessionId: string;
     afterSeq: number;
     webContents: WebContents;
-  }): Promise<{ subscriptionId: string; replay: StreamEnvelope[] }> {
+  }): Promise<{
+    subscriptionId: string;
+    replay: StreamEnvelope[];
+    usageSnapshot: unknown;
+  }> {
     return this.#withSessionLock(input.sessionId, async () => {
       const subscriptionId = randomUUID();
       this.#subscriptions.set(subscriptionId, {
@@ -52,7 +58,8 @@ export class SessionEventHub {
         input.sessionId,
         input.afterSeq,
       );
-      return { subscriptionId, replay };
+      const usageSnapshot = this.#store.usageSnapshot?.(input.sessionId) ?? null;
+      return { subscriptionId, replay, usageSnapshot };
     });
   }
 

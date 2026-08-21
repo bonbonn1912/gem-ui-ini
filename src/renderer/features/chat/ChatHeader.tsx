@@ -1,5 +1,10 @@
 import { Icon } from "../../components/Icon";
-import type { AppProject, AppSession, SessionMode } from "../../types";
+import type {
+  AppProject,
+  AppSession,
+  SessionMode,
+  TokenCounters,
+} from "../../types";
 import type { ChatState } from "./reducer";
 
 type ChatHeaderProps = {
@@ -36,28 +41,119 @@ function compactNumber(value: number): string {
   return new Intl.NumberFormat("de-DE", { notation: "compact", maximumFractionDigits: 1 }).format(value);
 }
 
-function usagePresentation(chat: ChatState): { label: string; title: string; percent?: number } | null {
-  if (!chat.usage) return null;
-  const used = chat.usage.used ?? chat.usage.totalTokens;
-  if (used === undefined) return null;
+function exactNumber(value: number): string {
+  return value.toLocaleString("de-DE");
+}
 
+const TOKEN_SOURCE_LABELS: Record<string, string> = {
+  acp_prompt_usage: "ACP PromptResponse.usage",
+  gemini_meta_quota: "Gemini _meta.quota",
+  legacy_event: "ältere GeminUI-Aufzeichnung",
+  geminui_aggregate: "von GeminUI summiert",
+  acp_usage_update: "ACP usage_update",
+};
+
+function counterLines(tokens: TokenCounters): string[] {
+  const lines: string[] = [];
+  if (tokens.input !== null) lines.push(`Eingabe: ${exactNumber(tokens.input)} Token`);
+  if (tokens.output !== null) lines.push(`Ausgabe: ${exactNumber(tokens.output)} Token`);
+  if (tokens.total !== null) {
+    lines.push(
+      tokens.totalKind === "derived_input_plus_output"
+        ? `Gesamt: ${exactNumber(tokens.total)} Token (aus Eingabe + Ausgabe berechnet)`
+        : `Gesamt: ${exactNumber(tokens.total)} Token`,
+    );
+  }
+  if (tokens.thought !== null) lines.push(`Gedanken: ${exactNumber(tokens.thought)} Token`);
+  if (tokens.cachedRead !== null) lines.push(`Cache gelesen: ${exactNumber(tokens.cachedRead)} Token`);
+  if (tokens.tool !== null) lines.push(`Werkzeuge: ${exactNumber(tokens.tool)} Token`);
+  return lines;
+}
+
+type UsagePresentation = {
+  label: string;
+  title: string;
+  percent?: number;
+};
+
+/**
+ * Presents exactly what the agent reported.
+ *
+ * The pill is always visible: an empty display means "not reported yet", not a
+ * broken feature. Consumption is never shown as a context percentage, and no
+ * context-window size is invented when the agent did not send one.
+ */
+function usagePresentation(chat: ChatState, working: boolean): UsagePresentation {
+  const snapshot = chat.usage;
+  const pending = working
+    ? "Der laufende Turn ist noch nicht enthalten. Gemini CLI meldet Tokenzahlen erst nach Abschluss des Turns."
+    : null;
+
+  const lastTurn = snapshot?.lastTurn;
   const details: string[] = [];
-  if (chat.usage.inputTokens !== undefined) details.push(`Eingabe: ${chat.usage.inputTokens.toLocaleString("de-DE")} Token`);
-  if (chat.usage.outputTokens !== undefined) details.push(`Ausgabe: ${chat.usage.outputTokens.toLocaleString("de-DE")} Token`);
-  if (chat.usage.cost) details.push(`Kosten: ${chat.usage.cost.amount} ${chat.usage.cost.currency}`);
+  if (lastTurn) {
+    details.push(
+      `Letzter Turn (${TOKEN_SOURCE_LABELS[lastTurn.source] ?? lastTurn.source}):`,
+      ...counterLines(lastTurn.tokens).map((line) => `  ${line}`),
+    );
+    for (const model of lastTurn.byModel) {
+      details.push(`  ${model.model}: ${exactNumber(model.input)} ein / ${exactNumber(model.output)} aus`);
+    }
+  }
+  if (snapshot?.cost) {
+    details.push(`Kosten: ${snapshot.cost.amount} ${snapshot.cost.currency}`);
+  }
 
-  if (chat.usage.size !== undefined && chat.usage.size > 0) {
-    const percent = Math.round((used / chat.usage.size) * 100);
+  const session = snapshot?.session ?? null;
+  const coverageNote = session
+    ? session.coverage === "partial"
+      ? "Erfasst seit Aktivierung der Zählung, nicht die vollständige Sessionhistorie."
+      : session.coverage === "provider_reported"
+        ? "Vom Agenten kumulativ für die Session gemeldet."
+        : "Vollständig für alle von GeminUI beobachteten Turns."
+    : null;
+
+  if (session) {
+    details.push(
+      `Sessionverbrauch (${TOKEN_SOURCE_LABELS[session.source] ?? session.source}):`,
+      ...counterLines(session.tokens).map((line) => `  ${line}`),
+    );
+    if (coverageNote) details.push(coverageNote);
+  }
+
+  const context = snapshot?.context ?? null;
+  if (context) {
+    const percent = Math.round((context.used / context.size) * 100);
     return {
-      label: `${used.toLocaleString("de-DE")} / ${chat.usage.size.toLocaleString("de-DE")} · ${percent} %`,
-      title: [`Kontext: ${used.toLocaleString("de-DE")} von ${chat.usage.size.toLocaleString("de-DE")} Token (${percent} %)`, ...details].join("\n"),
+      label: `Kontext ${exactNumber(context.used)} / ${exactNumber(context.size)} · ${percent} %`,
+      title: [
+        `Kontextfenster: ${exactNumber(context.used)} von ${exactNumber(context.size)} Token belegt (${percent} %).`,
+        ...details,
+        ...(pending ? [pending] : []),
+      ].join("\n"),
       percent,
     };
   }
 
+  const sessionTotal = session?.tokens.total ?? session?.tokens.input ?? null;
+  if (session && sessionTotal !== null) {
+    return {
+      label: `${session.coverage === "partial" ? "Seit Erfassung" : "Session"} ${compactNumber(sessionTotal)} Token`,
+      title: [
+        "Kontextbelegung wurde von Gemini nicht gemeldet, deshalb gibt es keinen Prozentwert.",
+        ...details,
+        ...(pending ? [pending] : []),
+      ].join("\n"),
+    };
+  }
+
   return {
-    label: `${compactNumber(used)} Token`,
-    title: [`Gemeldete Tokennutzung: ${used.toLocaleString("de-DE")}. Die Kontextfenstergröße wurde nicht gemeldet.`, ...details].join("\n"),
+    label: "Token: –",
+    title: [
+      "Gemini hat für diese Session noch keine Nutzung gemeldet.",
+      ...details,
+      ...(pending ? [pending] : []),
+    ].join("\n"),
   };
 }
 
@@ -80,7 +176,7 @@ export function ChatHeader({
     ...(session.model ? [session.model] : []),
   ]));
   const working = ["running", "awaiting_permission", "cancelling"].includes(chat.phase);
-  const usage = usagePresentation(chat);
+  const usage = usagePresentation(chat, working);
 
   return (
     <header className="chat-header">
@@ -99,18 +195,16 @@ export function ChatHeader({
       </div>
 
       <div className="header-actions">
-        {usage && (
-          <span
-            className="usage-pill"
-            title={usage.title}
-            aria-label={usage.title.replaceAll("\n", ". ")}
-          >
-            {usage.percent !== undefined && (
-              <i aria-hidden="true"><span style={{ width: `${Math.min(100, Math.max(0, usage.percent))}%` }} /></i>
-            )}
-            <span>{usage.label}</span>
-          </span>
-        )}
+        <span
+          className="usage-pill"
+          title={usage.title}
+          aria-label={usage.title.replaceAll("\n", ". ")}
+        >
+          {usage.percent !== undefined && (
+            <i aria-hidden="true"><span style={{ width: `${Math.min(100, Math.max(0, usage.percent))}%` }} /></i>
+          )}
+          <span>{usage.label}</span>
+        </span>
         <details className="roots-menu">
           <summary>
             <Icon name="folder" size={15} />

@@ -171,7 +171,7 @@ async function handleMessage(message) {
           messageId: "echo-message",
         },
       });
-      respond(message.id, { stopReason: "end_turn" });
+      respond(message.id, { stopReason: "end_turn", ...promptUsagePayload() });
       return;
     }
     case "session/cancel": {
@@ -315,18 +315,52 @@ async function streamPermissionTurn(promptId, sessionId) {
       messageId: "stream-message",
     },
   });
-  notify("session/update", {
-    sessionId,
-    update: {
-      sessionUpdate: "usage_update",
-      used: 10,
-      size: 100,
-    },
-  });
-  respond(promptId, {
-    stopReason: "end_turn",
-    usage: { totalTokens: 10, inputTokens: 4, outputTokens: 6 },
-  });
+  if (usageMode() === "acp_full") {
+    notify("session/update", {
+      sessionId,
+      update: {
+        sessionUpdate: "usage_update",
+        used: 10,
+        size: 100,
+      },
+    });
+  }
+  respond(promptId, { stopReason: "end_turn", ...promptUsagePayload() });
+}
+
+/**
+ * Which usage dialect this fake agent speaks.
+ *
+ * `gemini_056` is the default because it is what the currently supported
+ * Gemini CLI actually sends: no usage_update, no PromptResponse.usage, only the
+ * proprietary `_meta.quota` block. Tests that rely on a fully implemented ACP
+ * agent must opt into `acp_full` explicitly.
+ */
+function usageMode() {
+  return process.env.FAKE_ACP_USAGE_MODE ?? "gemini_056";
+}
+
+function promptUsagePayload() {
+  switch (usageMode()) {
+    case "acp_full":
+      return { usage: { totalTokens: 10, inputTokens: 4, outputTokens: 6 } };
+    case "none":
+      return {};
+    default:
+      return {
+        _meta: {
+          quota: {
+            token_count: { input_tokens: 4, output_tokens: 6 },
+            model_usage: [
+              {
+                model: "gemini-2.5-pro",
+                token_count: { input_tokens: 4, output_tokens: 6 },
+              },
+            ],
+          },
+        },
+      };
+  }
 }
 
 function modes(currentModeId) {

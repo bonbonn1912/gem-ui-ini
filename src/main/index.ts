@@ -21,9 +21,11 @@ import {
   ProjectRepository,
   SessionRepository,
   SettingsRepository,
+  UsageRepository,
   openAppDatabase,
   type SqliteDatabase,
 } from "./storage";
+import { UsageService } from "./usage";
 
 app.setName("GeminUI");
 configureUserDataPath();
@@ -90,6 +92,8 @@ async function bootstrap(): Promise<void> {
   const attachmentRepository = new AttachmentRepository(database);
   const settingsRepository = new SettingsRepository(database);
   const clientRequestRepository = new ClientRequestRepository(database);
+  const usageRepository = new UsageRepository(database);
+  const usageService = new UsageService(usageRepository);
   clientRequestRepository.clearPending();
 
   const projectService = new ProjectService(projectRepository);
@@ -108,6 +112,7 @@ async function bootstrap(): Promise<void> {
   eventHub = new SessionEventHub({
     eventsAfter: (sessionId, afterSeq) =>
       eventRepository.listAfter(sessionId, afterSeq),
+    usageSnapshot: (sessionId) => usageService.getSnapshot(sessionId),
   });
   controller = new AppController({
     projects: projectService,
@@ -116,6 +121,7 @@ async function bootstrap(): Promise<void> {
     attachmentRepository,
     attachmentService,
     capabilities: capabilityService,
+    usage: usageService,
     publishEvents: (events) => eventHub?.publish(events),
   });
   projectService.setRuntimeCoordinator(controller);

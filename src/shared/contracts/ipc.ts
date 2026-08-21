@@ -20,7 +20,12 @@ import {
   VoidResultSchema,
   type VoidResult,
 } from "./common";
-import { StreamEnvelopeBatchSchema, type StreamEnvelope } from "./events";
+import {
+  StreamEnvelopeBatchSchema,
+  UsageSnapshotSchema,
+  type StreamEnvelope,
+  type UsageSnapshot,
+} from "./events";
 import {
   ArchiveProjectInputSchema,
   CreateProjectInputSchema,
@@ -133,6 +138,12 @@ export const EventSubscriptionResultSchema = z
   .object({
     subscriptionId: EntityIdSchema,
     replay: StreamEnvelopeBatchSchema,
+    /**
+     * Authoritative usage state for this session. It is delivered separately
+     * from the replay so the display does not depend on the last usage event
+     * still being inside the replay window.
+     */
+    usageSnapshot: UsageSnapshotSchema.nullable().default(null),
   })
   .strict();
 
@@ -294,6 +305,7 @@ export interface GemUiDesktopApi {
   subscribeSessionEvents(
     input: SubscribeSessionEventsInput,
     callback: (events: StreamEnvelope[]) => void,
+    onUsageSnapshot?: (snapshot: UsageSnapshot | null) => void,
   ): Promise<() => void>;
   openExternalHttpsUrl(url: string): Promise<VoidResult>;
 }

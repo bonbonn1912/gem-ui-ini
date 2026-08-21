@@ -10,6 +10,7 @@ import type {
   NormalizedContent,
   NormalizedToolCall,
 } from "./types.js";
+import { parseUsageUpdate } from "./usage.js";
 
 interface NormalizerContext {
   readonly appSessionId: string;
@@ -73,16 +74,12 @@ export function normalizeSessionNotification(
           ...(update.updatedAt !== undefined ? { updatedAt: update.updatedAt } : {}),
         }),
       ];
-    case "usage_update":
-      return [
-        make("usage.updated", {
-          used: update.used,
-          size: update.size,
-          ...(update.cost
-            ? { cost: { amount: update.cost.amount, currency: update.cost.currency } }
-            : {}),
-        }),
-      ];
+    case "usage_update": {
+      // Context occupancy, never token consumption. Broken values are dropped
+      // instead of being forwarded as a plausible looking number.
+      const observation = parseUsageUpdate(update);
+      return observation ? [make("usage.context.observed", observation)] : [];
+    }
     case "plan":
       return [make("plan.updated", { plan: update.entries })];
     case "plan_update":

@@ -5,6 +5,7 @@ import {
   StreamEnvelopeBatchSchema,
   type GemUiDesktopApi,
   type StreamEnvelope,
+  type UsageSnapshot,
 } from "../shared/contracts";
 
 type EventBatch = {
@@ -97,12 +98,16 @@ const desktopApi: GemUiDesktopApi = {
   subscribeSessionEvents: async (
     input: unknown,
     callback: EventCallback,
+    onUsageSnapshot?: (snapshot: UsageSnapshot | null) => void,
   ): Promise<() => void> => {
     const result = EventSubscriptionResultSchema.parse(
       await ipcRenderer.invoke(IPC_CHANNELS.subscribeSessionEvents, input),
     );
 
     callbacks.set(result.subscriptionId, callback);
+    // The snapshot is applied before the replay so a usage event inside the
+    // replay window still wins, and a session outside it is not left empty.
+    onUsageSnapshot?.(result.usageSnapshot);
     if (result.replay.length > 0) callback(result.replay);
     const queued = pendingBatches.get(result.subscriptionId) ?? [];
     pendingBatches.delete(result.subscriptionId);

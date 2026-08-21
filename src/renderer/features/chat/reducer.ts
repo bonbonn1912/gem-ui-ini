@@ -2,6 +2,7 @@ import type {
   Attachment,
   PermissionOption,
   StreamEnvelope,
+  UsageSnapshot,
 } from "../../types";
 
 type ToolPayload = {
@@ -94,17 +95,12 @@ export interface ChatState {
   lastSeq: number;
   phase: TurnPhase;
   activeTurnId: string | null;
-  usage: {
-    inputTokens?: number;
-    outputTokens?: number;
-    totalTokens?: number;
-    used?: number;
-    size?: number;
-    cost?: {
-      amount: number;
-      currency: string;
-    };
-  } | null;
+  /**
+   * Complete snapshot delivered by the main process. It is replaced as a whole;
+   * the renderer never merges fields or uses one value as a fallback for
+   * another, which is what used to turn consumption into context occupancy.
+   */
+  usage: UsageSnapshot | null;
   modes: string[];
   models: string[];
   error: string | null;
@@ -112,6 +108,7 @@ export interface ChatState {
 
 export type ChatAction =
   | { type: "reset"; sessionId: string | null }
+  | { type: "usage-snapshot"; snapshot: UsageSnapshot | null }
   | { type: "events"; events: StreamEnvelope[] }
   | {
       type: "optimistic-user";
@@ -389,31 +386,11 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
       });
       return { ...next, items, phase: "running" };
     }
-    case "usage.updated": {
-      // ACP reports context-window usage as used/size, while older persisted
-      // envelopes only contain the token counters. Keeping both shapes here
-      // lets the renderer show every value it actually receives without
-      // guessing a context-window size.
-      const usageEvent: {
-        inputTokens?: number | null;
-        outputTokens?: number | null;
-        totalTokens?: number | null;
-        used?: number | null;
-        size?: number | null;
-        cost?: { amount: number; currency: string } | null;
-      } = event;
-      return {
-        ...next,
-        usage: {
-          inputTokens: usageEvent.inputTokens ?? undefined,
-          outputTokens: usageEvent.outputTokens ?? undefined,
-          totalTokens: usageEvent.totalTokens ?? usageEvent.used ?? undefined,
-          used: usageEvent.used ?? usageEvent.totalTokens ?? undefined,
-          size: usageEvent.size ?? undefined,
-          cost: usageEvent.cost ?? undefined,
-        },
-      };
-    }
+    case "usage.updated":
+      // A newer snapshot always replaces the previous one atomically.
+      return next.usage && next.usage.revision > event.snapshot.revision
+        ? next
+        : { ...next, usage: event.snapshot };
     case "turn.completed":
       return {
         ...next,
@@ -491,6 +468,13 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "reset":
       return createChatState(action.sessionId);
+    case "usage-snapshot":
+      // Restart path: the persisted snapshot must not overwrite a newer live
+      // value that already arrived through the replay.
+      if (!action.snapshot) return state;
+      return state.usage && state.usage.revision >= action.snapshot.revision
+        ? state
+        : { ...state, usage: action.snapshot };
     case "events": {
       const events = [...action.events]
         .filter(

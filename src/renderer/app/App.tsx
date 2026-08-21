@@ -261,6 +261,11 @@ export function App() {
           ));
         }
       },
+      (snapshot) => {
+        // Restores the last known usage state right after a restart, even when
+        // the matching event is outside the replay window.
+        if (current) dispatch({ type: "usage-snapshot", snapshot });
+      },
     )
       .then((dispose) => {
         if (current) unsubscribe = dispose;

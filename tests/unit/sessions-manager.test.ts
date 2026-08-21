@@ -52,6 +52,21 @@ describe("GeminiSessionManager ACP contract", () => {
       { type: "text", text: "please stream" },
     ]);
     expect(result.stopReason).toBe("end_turn");
+    // Gemini CLI 0.56 sends neither usage_update nor PromptResponse.usage; the
+    // counters only exist inside _meta.quota.
+    expect(result.usage).toMatchObject({
+      scope: "turn",
+      source: "gemini_meta_quota",
+      tokens: { input: 4, output: 6, total: 10, totalKind: "derived_input_plus_output" },
+      byModel: [{ model: "gemini-2.5-pro", input: 4, output: 6 }],
+    });
+    const usageIndex = events.findIndex((event) => event.type === "usage.tokens.observed");
+    const completedIndex = events.findIndex((event) => event.type === "turn.completed");
+    // The observation must arrive before turn.completed so the controller can
+    // still attribute it to the active turn.
+    expect(usageIndex).toBeGreaterThanOrEqual(0);
+    expect(usageIndex).toBeLessThan(completedIndex);
+    expect(events.some((event) => event.type === "usage.context.observed")).toBe(false);
     expect(events.map((event) => event.type)).toEqual(
       expect.arrayContaining([
         "session.started",
@@ -62,7 +77,7 @@ describe("GeminiSessionManager ACP contract", () => {
         "permission.requested",
         "permission.resolved",
         "tool.completed",
-        "usage.updated",
+        "usage.tokens.observed",
         "turn.completed",
       ]),
     );
@@ -105,6 +120,49 @@ describe("GeminiSessionManager ACP contract", () => {
     expect(manager.getSession("app-1")?.models?.currentModelId).toBe(
       "gemini-2.5-flash",
     );
+  });
+
+  it("passes a fully ACP-compliant agent through without a Gemini special case", async () => {
+    const fixture = await workspaceFixture();
+    const events: NormalizedAgentEvent[] = [];
+    const manager = createManager(fixture, { FAKE_ACP_USAGE_MODE: "acp_full" });
+    manager.subscribe((event) => {
+      events.push(event);
+      if (event.type === "permission.requested") {
+        manager.respondToPermission({
+          appSessionId: "acp-full",
+          permissionId: event.payload.permissionId,
+          optionId: "allow-once",
+        });
+      }
+    });
+
+    await manager.createSession({ appSessionId: "acp-full", access: fixture.access });
+    await manager.prompt("acp-full", [{ type: "text", text: "please stream" }]);
+
+    const context = events.find((event) => event.type === "usage.context.observed");
+    expect(context?.payload).toMatchObject({ used: 10, size: 100 });
+    const tokens = events.find((event) => event.type === "usage.tokens.observed");
+    expect(tokens?.payload).toMatchObject({
+      scope: "session_cumulative",
+      source: "acp_prompt_usage",
+      tokens: { input: 4, output: 6, total: 10, totalKind: "provider" },
+    });
+  });
+
+  it("stays silent instead of inventing usage when an agent reports none", async () => {
+    const fixture = await workspaceFixture();
+    const events: NormalizedAgentEvent[] = [];
+    const manager = createManager(fixture, { FAKE_ACP_USAGE_MODE: "none" });
+    manager.subscribe((event) => events.push(event));
+
+    await manager.createSession({ appSessionId: "no-usage", access: fixture.access });
+    const result = await manager.prompt("no-usage", [{ type: "text", text: "hello" }]);
+
+    expect(result.stopReason).toBe("end_turn");
+    expect(result.usage).toBeUndefined();
+    expect(events.some((event) => event.type.startsWith("usage."))).toBe(false);
+    expect(events.some((event) => event.type === "turn.completed")).toBe(true);
   });
 
   it("sends semantic session/cancel and waits for the cancelled stop reason", async () => {

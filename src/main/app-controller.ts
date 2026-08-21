@@ -20,6 +20,7 @@ import {
   type SetProjectApprovalPolicyInput,
   type StreamEnvelope,
   type UpdateSessionInput,
+  type UsageSnapshot,
 } from "../shared/contracts";
 import type { AttachmentService } from "./attachments/attachment-service";
 import type { GeminiCapabilityService } from "./capability-service";
@@ -35,6 +36,7 @@ import {
 import type { ProjectService, ProjectRuntimeCoordinator } from "./projects";
 import { runCapturedCommand } from "./processes/run-command";
 import { GeminiSessionManager } from "./sessions";
+import type { UsageService } from "./usage";
 import {
   type AttachmentRepository,
   type EventRepository,
@@ -65,6 +67,7 @@ export type AppControllerOptions = {
   attachmentRepository: AttachmentRepository;
   attachmentService: AttachmentService;
   capabilities: GeminiCapabilityService;
+  usage: UsageService;
   publishEvents: (events: StreamEnvelope[]) => void | Promise<void>;
 };
 
@@ -75,6 +78,7 @@ export class AppController implements ProjectRuntimeCoordinator {
   readonly #attachmentRepository: AttachmentRepository;
   readonly #attachmentService: AttachmentService;
   readonly #capabilities: GeminiCapabilityService;
+  readonly #usage: UsageService;
   readonly #publishEvents: AppControllerOptions["publishEvents"];
   readonly #activeTurns = new Map<string, ActiveTurn>();
   readonly #eventBuffers = new Map<string, PendingEventBuffer>();
@@ -89,6 +93,7 @@ export class AppController implements ProjectRuntimeCoordinator {
     this.#attachmentRepository = options.attachmentRepository;
     this.#attachmentService = options.attachmentService;
     this.#capabilities = options.capabilities;
+    this.#usage = options.usage;
     this.#publishEvents = options.publishEvents;
   }
 
@@ -389,6 +394,15 @@ export class AppController implements ProjectRuntimeCoordinator {
       );
     }
     await this.#manager!.setModel(input.sessionId, input.modelId);
+    // The context window belongs to the previous model. Drop it until the agent
+    // reports a new one instead of showing a percentage of the wrong size.
+    if (session.model !== input.modelId) {
+      this.#publishUsageSnapshot(
+        input.sessionId,
+        null,
+        this.#usage.invalidateContext(input.sessionId, new Date().toISOString()),
+      );
+    }
     return this.#sessions.update(input.sessionId, {
       model: input.modelId,
       updatedAt: new Date().toISOString(),
@@ -653,6 +667,18 @@ export class AppController implements ProjectRuntimeCoordinator {
           mode: event.payload.currentModeId,
         });
         break;
+      case "usage.tokens.observed":
+        this.#recordTokenUsage(event.appSessionId, active?.turnId ?? null, {
+          observation: event.payload,
+          occurredAt: event.occurredAt,
+        });
+        break;
+      case "usage.context.observed":
+        this.#recordContextUsage(event.appSessionId, active?.turnId ?? null, {
+          observation: event.payload,
+          occurredAt: event.occurredAt,
+        });
+        break;
     }
 
     if (sharedEvent) {
@@ -671,6 +697,65 @@ export class AppController implements ProjectRuntimeCoordinator {
     ) {
       this.#activeTurns.delete(event.appSessionId);
     }
+  }
+
+  #recordTokenUsage(
+    sessionId: string,
+    turnId: string | null,
+    input: {
+      observation: Parameters<UsageService["recordTokens"]>[0]["observation"];
+      occurredAt: string;
+    },
+  ): void {
+    try {
+      // Without an active turn the observation cannot be de-duplicated by turn
+      // id, so it gets its own synthetic key instead of colliding with a real
+      // turn and silently replacing it.
+      const snapshot = this.#usage.recordTokens({
+        sessionId,
+        turnId: turnId ?? `untracked-${randomUUID()}`,
+        observation: input.observation,
+        occurredAt: input.occurredAt,
+      });
+      this.#publishUsageSnapshot(sessionId, turnId, snapshot, input.occurredAt);
+    } catch {
+      // A usage bookkeeping failure must never abort the running turn.
+    }
+  }
+
+  #recordContextUsage(
+    sessionId: string,
+    turnId: string | null,
+    input: {
+      observation: Parameters<UsageService["recordContext"]>[0]["observation"];
+      occurredAt: string;
+    },
+  ): void {
+    try {
+      const snapshot = this.#usage.recordContext({
+        sessionId,
+        observation: input.observation,
+        occurredAt: input.occurredAt,
+      });
+      this.#publishUsageSnapshot(sessionId, turnId, snapshot, input.occurredAt);
+    } catch {
+      // See #recordTokenUsage.
+    }
+  }
+
+  #publishUsageSnapshot(
+    sessionId: string,
+    turnId: string | null,
+    snapshot: UsageSnapshot | null,
+    timestamp = new Date().toISOString(),
+  ): void {
+    if (!snapshot) return;
+    this.#queueEvent({
+      sessionId,
+      turnId,
+      event: { type: "usage.updated", snapshot },
+      timestamp,
+    });
   }
 
   #handleSyntheticFailure(sessionId: string, error: unknown): void {
@@ -870,15 +955,11 @@ function toSharedEvent(
             optionId: event.payload.optionId,
           }
         : null;
-    case "usage.updated":
-      return {
-        type: "usage.updated",
-        inputTokens: null,
-        outputTokens: null,
-        totalTokens: event.payload.used,
-        used: event.payload.used,
-        size: event.payload.size,
-      };
+    // Usage is not a straight passthrough: both observations are aggregated by
+    // the UsageService and published as one complete snapshot.
+    case "usage.tokens.observed":
+    case "usage.context.observed":
+      return null;
     case "commands.updated":
       return {
         type: "commands.updated",

@@ -2,6 +2,7 @@ import {
   AgentEventSchema,
   EntityIdSchema,
   IsoTimestampSchema,
+  migrateLegacyUsageEvent,
   StreamEnvelopeSchema,
   type AgentEvent,
   type StreamEnvelope,
@@ -105,7 +106,11 @@ export class EventRepository {
 
 function parseEventRow(row: EventRow): StreamEnvelope {
   try {
-    const event = AgentEventSchema.parse(JSON.parse(row.payload_json));
+    // Rows written before the usage snapshot contract are read-compatible: they
+    // are lifted into a snapshot that is explicitly marked as legacy.
+    const event = AgentEventSchema.parse(
+      migrateLegacyUsageEvent(JSON.parse(row.payload_json)),
+    );
     if (event.type !== row.event_type) {
       throw new Error("event_type does not match the serialized event");
     }

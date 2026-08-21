@@ -1,3 +1,8 @@
+import type {
+  UsageContextObservation,
+  UsageTokenObservation,
+} from "./usage.js";
+
 export interface ProjectAccess {
   /** Canonical absolute path used as both process cwd and ACP session cwd. */
   readonly primaryRoot: string;
@@ -224,14 +229,8 @@ export type NormalizedAgentEvent =
         readonly outcome: "selected" | "cancelled";
       }
     >
-  | Event<
-      "usage.updated",
-      {
-        readonly used: number;
-        readonly size: number;
-        readonly cost?: { readonly amount: number; readonly currency: string };
-      }
-    >
+  | Event<"usage.tokens.observed", UsageTokenObservation>
+  | Event<"usage.context.observed", UsageContextObservation>
   | Event<"commands.updated", { readonly commands: readonly unknown[] }>
   | Event<"mode.updated", { readonly currentModeId: string }>
   | Event<"config.updated", { readonly configOptions: readonly unknown[] }>
@@ -242,7 +241,6 @@ export type NormalizedAgentEvent =
       "turn.completed",
       {
         readonly stopReason: "end_turn" | "max_tokens" | "max_turn_requests" | "refusal";
-        readonly usage?: unknown;
       }
     >
   | Event<"turn.cancelled", Record<string, never>>
@@ -283,5 +281,6 @@ export interface GeminiTurnResult {
     | "max_turn_requests"
     | "refusal"
     | "cancelled";
-  readonly usage?: unknown;
+  /** Present only when the agent actually reported token counters. */
+  readonly usage?: UsageTokenObservation;
 }
