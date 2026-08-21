@@ -33,6 +33,7 @@ import {
   type SendPromptInput,
   type SetProjectRootsInput,
   type SetProjectApprovalPolicyInput,
+  type SearchProjectFilesInput,
   type SetSessionModeInput,
   type SetSessionModelInput,
   type SetContextInclusionInput,
@@ -52,6 +53,7 @@ import type {
 import type { GeminiCapabilityService } from "../capability-service";
 import type { GitService, GitStatusSubscriptionHub } from "../git";
 import type { ProjectService } from "../projects";
+import type { ProjectFileService } from "../project-files";
 import { LinkPreviewViewHost, type LinkMetadataFetcher } from "../links";
 import type { ClientRequestRepository } from "../storage";
 import { openExternalHttps, openStoredFile } from "../security/main-window";
@@ -64,6 +66,7 @@ import type { GitLabService, GitLabSubscriptionHub } from "../integrations/gitla
 export type RegisterAppIpcOptions = {
   mainWindow: BrowserWindow;
   projects: ProjectService;
+  projectFiles: ProjectFileService;
   controller: AppController;
   capabilities: GeminiCapabilityService;
   attachments: AttachmentService;
@@ -131,6 +134,9 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
   );
   register(IPC_CHANNELS.getProject, (input) =>
     options.projects.get((input as GetProjectInput).projectId),
+  );
+  register(IPC_CHANNELS.searchProjectFiles, (input) =>
+    options.projectFiles.search(input as SearchProjectFilesInput),
   );
   register(IPC_CHANNELS.reauthorizeProjectRoot, async (input) => {
     const value = input as ReauthorizeProjectRootInput;

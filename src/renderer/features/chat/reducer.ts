@@ -128,6 +128,7 @@ export type ChatAction =
       text: string;
       attachments: Attachment[];
       contextAttachments: Array<{ id: string; kind: "file" | "link"; title: string }>;
+      projectFiles: Array<{ rootId: string; rootLabel: string; relativePath: string; displayName: string }>;
       timestamp: string;
     }
   | { type: "prompt-failed"; clientRequestId: string; message: string }
@@ -325,6 +326,7 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
             text: delta,
             attachments: [],
             contextAttachments: [],
+            projectFiles: [],
             streaming: true,
             turnId: envelope.turnId,
             timestamp: envelope.timestamp,
@@ -525,6 +527,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
               mimeType,
             })),
             contextAttachments: action.contextAttachments,
+            projectFiles: action.projectFiles,
             clientRequestId: action.clientRequestId,
             timestamp: action.timestamp,
             turnId: null,

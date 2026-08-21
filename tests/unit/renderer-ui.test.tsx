@@ -161,6 +161,14 @@ function createApi(options: { projects?: AppProject[]; sessions?: AppSession[]; 
         return () => undefined;
       }),
     },
+    projectFiles: {
+      search: vi.fn().mockResolvedValue({
+        projectId: project.id,
+        rootRevision: project.rootRevision,
+        entries: [],
+        truncated: false,
+      }),
+    },
     linkPreview: {
       open: vi.fn(),
       setBounds: vi.fn().mockResolvedValue({ ok: true }),
@@ -392,6 +400,45 @@ describe("Renderer UI", () => {
       contextAttachmentIds: [contextList.projectAttachments[0]!.id],
     }));
     expect(screen.getByText("Architektur.md", { selector: ".sent-context-attachment" })).toBeVisible();
+  });
+
+  it("wählt Projektdateien per @-Drop-up und Tab als Promptkontext aus", async () => {
+    const user = userEvent.setup();
+    const { api } = createApi();
+    vi.mocked(api.projectFiles.search).mockResolvedValue({
+      projectId: project.id,
+      rootRevision: project.rootRevision,
+      entries: [{
+        rootId: project.roots[0]!.id,
+        rootLabel: "portal",
+        relativePath: "src/auth.ts",
+        displayName: "auth.ts",
+        size: 512,
+        contextEligible: true,
+        contextUnavailableReason: null,
+      }],
+      truncated: false,
+    });
+    window.gemUi = api;
+
+    render(<App />);
+    const composer = await screen.findByRole("textbox", { name: "Nachricht an Gemini" });
+    await user.type(composer, "Prüfe @");
+    expect(screen.getByRole("listbox", { name: "Projektdateien" })).toBeVisible();
+    expect(screen.getByText("Tippe den ersten Buchstaben des Dateinamens oder Pfads.")).toBeVisible();
+    await user.type(composer, "aut");
+    expect(await screen.findByRole("option", { name: /auth\.ts/ })).toBeVisible();
+
+    await user.keyboard("{Tab}");
+    expect(screen.getByLabelText("Referenzierte Projektdateien")).toHaveTextContent("auth.ts");
+    expect(composer).toHaveValue("Prüfe @src/auth.ts ");
+
+    await user.type(composer, "auf Fehler{Enter}");
+    await waitFor(() => expect(api.sessions.sendPrompt).toHaveBeenCalledTimes(1));
+    expect(api.sessions.sendPrompt).toHaveBeenCalledWith(expect.objectContaining({
+      projectFiles: [{ rootId: project.roots[0]!.id, relativePath: "src/auth.ts" }],
+    }));
+    expect(screen.getByText("auth.ts", { selector: ".sent-project-file > span" })).toBeVisible();
   });
 
   it("erlaubt Copy-Paste im Eingabefeld des 'Link hinzufügen'-Dialogs", async () => {

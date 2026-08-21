@@ -9,6 +9,10 @@ import {
   RootRevisionSchema,
 } from "./common";
 import { MAX_CONTEXT_ATTACHMENTS_PER_PROMPT } from "./context-attachments";
+import {
+  MAX_PROJECT_FILE_REFERENCES_PER_PROMPT,
+  ProjectFileReferenceInputSchema,
+} from "./project-files";
 
 export const SessionStatusSchema = z.enum([
   "idle",

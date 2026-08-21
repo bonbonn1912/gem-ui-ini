@@ -31,6 +31,7 @@ import type {
   ProjectRoot as ContractProjectRoot,
   ProjectRootCandidate as ContractProjectRootCandidate,
   ProjectApprovalPolicy as ContractProjectApprovalPolicy,
+  ProjectFileSearchEntry as ContractProjectFileSearchEntry,
   ProjectWithRoots,
   StreamEnvelope as ContractStreamEnvelope,
   TokenCounters as ContractTokenCounters,
@@ -44,6 +45,7 @@ export type AppProject = ProjectWithRoots;
 export type ProjectRoot = ContractProjectRoot;
 export type ProjectRootCandidate = ContractProjectRootCandidate;
 export type ProjectApprovalPolicy = ContractProjectApprovalPolicy;
+export type ProjectFileSearchEntry = ContractProjectFileSearchEntry;
 export type Attachment = ContractAttachment;
 export type ContextAttachment = ContractContextAttachment;
 export type ContextAttachmentList = ContractContextAttachmentList;

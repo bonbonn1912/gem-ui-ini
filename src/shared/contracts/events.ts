@@ -11,6 +11,10 @@ import {
   MAX_CONTEXT_ATTACHMENTS_PER_PROMPT,
 } from "./context-attachments";
 import { DisplayNameSchema } from "./common";
+import {
+  MAX_PROJECT_FILE_REFERENCES_PER_PROMPT,
+  ProjectFilePromptSnapshotSchema,
+} from "./project-files";
 
 const SessionStartedEventSchema = z
   .object({

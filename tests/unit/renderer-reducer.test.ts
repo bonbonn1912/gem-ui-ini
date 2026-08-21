@@ -75,6 +75,7 @@ describe("chatReducer", () => {
         createdAt: "2026-08-20T12:00:00.000Z",
       }],
       contextAttachments: [],
+      projectFiles: [],
       timestamp: "2026-08-20T12:00:00.000Z",
     });
 

@@ -26,6 +26,7 @@ import type {
   GitLabRepositoryCandidate,
   GitFileChange,
   GitProjectStatus,
+  ProjectFileSearchEntry,
   ProjectRootCandidate,
   UiError,
   StreamEnvelope,
@@ -703,6 +704,12 @@ export function App() {
       text,
       attachments,
       contextAttachments: contextAttachments.included.map(({ id, kind, title }) => ({ id, kind, title })),
+      projectFiles: projectFiles.map(({ rootId, rootLabel, relativePath, displayName }) => ({
+        rootId,
+        rootLabel,
+        relativePath,
+        displayName,
+      })),
       timestamp: new Date().toISOString(),
     });
     setSessions((current) => current.map((session) => session.id === activeSession.id ? { ...session, status: "running" } : session));
@@ -946,6 +953,8 @@ export function App() {
               <Composer
                 key={activeSession.id}
                 sessionId={activeSession.id}
+                projectId={activeProject.id}
+                rootRevision={activeProject.rootRevision}
                 phase={effectivePhase}
                 imagesSupported={capabilities.gemini.images}
                 contextAttachmentCount={contextAttachments.included.length}

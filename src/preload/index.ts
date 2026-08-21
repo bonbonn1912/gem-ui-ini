@@ -126,6 +126,10 @@ const desktopApi: GemUiDesktopApi = {
     delete: (input) => ipcRenderer.invoke(IPC_CHANNELS.deleteProject, input),
   },
 
+  projectFiles: {
+    search: (input) => ipcRenderer.invoke(IPC_CHANNELS.searchProjectFiles, input),
+  },
+
   sessions: {
     list: (input) => ipcRenderer.invoke(IPC_CHANNELS.listSessions, input),
     create: (input) => ipcRenderer.invoke(IPC_CHANNELS.createSession, input),
@@ -322,6 +326,7 @@ const desktopApi: GemUiDesktopApi = {
 };
 
 Object.freeze(desktopApi.projects);
+Object.freeze(desktopApi.projectFiles);
 Object.freeze(desktopApi.sessions);
 Object.freeze(desktopApi.attachments);
 Object.freeze(desktopApi.contextAttachments);
