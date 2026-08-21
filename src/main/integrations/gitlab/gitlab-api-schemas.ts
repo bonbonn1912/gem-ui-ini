@@ -3,7 +3,11 @@ import { z } from "zod";
 export const RawGitLabUserSchema = z.object({
   id: z.number().int().positive(),
   username: z.string().trim().min(1),
-  name: z.string().trim().min(1),
+  name: z
+    .string()
+    .nullable()
+    .optional()
+    .transform((val) => (val && val.trim()) || "GitLab User"),
   avatar_url: z.string().nullable().optional(),
 });
 

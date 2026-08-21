@@ -242,6 +242,7 @@ describe("GitLabRepository Storage", () => {
         tokenCipher: "encrypted_token_hex",
         accessMode: "read_write",
         scopes: ["api"],
+        allowSelfSignedTls: true,
         expiresAt: null,
         lastValidatedAt: now,
         createdAt: now,
@@ -250,6 +251,7 @@ describe("GitLabRepository Storage", () => {
 
       expect(conn.user.username).toBe("devuser");
       expect(conn.tokenConfigured).toBe(true);
+      expect(conn.allowSelfSignedTls).toBe(true);
 
       const binding = gitlabRepo.saveBinding({
         id: randomUUID(),

@@ -1,3 +1,4 @@
+import { Agent } from "undici";
 import {
   RawGitLabDiscussionNoteSchema,
   RawGitLabDiscussionSchema,
@@ -12,6 +13,7 @@ export type GitLabApiClientOptions = {
   instanceUrl: string;
   apiBaseUrl?: string;
   token: string;
+  allowSelfSignedTls?: boolean;
   fetchFn?: typeof fetch;
 };
 
@@ -45,6 +47,14 @@ export function normalizeApiBaseUrl(instanceUrl: string): { instanceUrl: string;
     basePath = basePath.slice(0, -"/api/v4".length);
   }
 
+  // If host is gitlab.com, any pathname is a project/user path and not part of the instance base URL
+  if (parsed.hostname.toLowerCase() === "gitlab.com") {
+    basePath = "";
+  } else if (basePath.endsWith(".git") || basePath.includes("/-/")) {
+    // If a full git clone or MR URL was pasted as instance URL
+    basePath = "";
+  }
+
   const portSuffix = parsed.port ? `:${parsed.port}` : "";
   const normalizedInstance = `${parsed.protocol}//${parsed.hostname}${portSuffix}${basePath}`;
   const apiBaseUrl = `${normalizedInstance}/api/v4`;
@@ -60,6 +70,7 @@ export class GitLabApiClient {
   readonly apiBaseUrl: string;
   readonly #token: string;
   readonly #fetch: typeof fetch;
+  readonly #dispatcher?: Agent;
 
   constructor(options: GitLabApiClientOptions) {
     const normalized = normalizeApiBaseUrl(options.instanceUrl);
@@ -67,6 +78,13 @@ export class GitLabApiClient {
     this.apiBaseUrl = options.apiBaseUrl ?? normalized.apiBaseUrl;
     this.#token = options.token.trim();
     this.#fetch = options.fetchFn ?? fetch;
+    if (options.allowSelfSignedTls) {
+      this.#dispatcher = new Agent({
+        connect: {
+          rejectUnauthorized: false,
+        },
+      });
+    }
   }
 
   async getCurrentUser() {
@@ -179,21 +197,16 @@ export class GitLabApiClient {
         method,
         headers,
         body: body !== undefined ? JSON.stringify(body) : undefined,
-        redirect: "manual",
+        redirect: "follow",
         signal: combinedSignal,
-      });
+        ...(this.#dispatcher ? { dispatcher: this.#dispatcher } : {}),
+      } as RequestInit);
     } catch (err: unknown) {
       if (err instanceof Error && err.name === "TimeoutError") {
-        throw new GitLabApiError(408, "Zeitüberschreitung bei der Anfrage an GitLab.");
+        throw new GitLabApiError(408, `Zeitüberschreitung bei der Anfrage an ${url}.`);
       }
-      throw new GitLabApiError(0, `Netzwerkfehler bei Verbindung zu GitLab: ${(err as Error).message}`);
-    }
-
-    if (response.status >= 300 && response.status < 400) {
-      throw new GitLabApiError(
-        response.status,
-        "GitLab-Server sendete eine unerwartete Weiterleitung (Redirect), die aus Sicherheitsgründen nicht gefolgt wurde.",
-      );
+      const cause = (err as any)?.cause ? ` (${(err as any).cause.message || (err as any).cause})` : "";
+      throw new GitLabApiError(0, `Netzwerkfehler bei Verbindung zu ${url}: ${(err as Error).message}${cause}`);
     }
 
     if (!response.ok) {
@@ -204,25 +217,49 @@ export class GitLabApiClient {
         if (!isNaN(parsed) && parsed > 0) retryAfterSeconds = Math.min(parsed, 300);
       }
 
+      let errorDetail = "";
+      try {
+        const errorJson = (await response.json()) as { message?: unknown; error?: unknown; error_description?: unknown };
+        const msg = errorJson.message || errorJson.error_description || errorJson.error;
+        if (msg) {
+          errorDetail = typeof msg === "object" ? JSON.stringify(msg) : String(msg);
+        }
+      } catch {
+        try {
+          errorDetail = (await response.text()).slice(0, 300);
+        } catch {
+          // ignore
+        }
+      }
+
       if (response.status === 401) {
-        throw new GitLabApiError(401, "GitLab-Token ist ungültig, abgelaufen oder wurde widerrufen.");
+        throw new GitLabApiError(
+          401,
+          errorDetail
+            ? `GitLab-Token ungültig/abgelehnt (${response.status}): ${errorDetail}`
+            : `GitLab-Token ist ungültig, abgelaufen oder hat unzureichende Rechte für ${url}.`,
+        );
       }
       if (response.status === 403) {
-        throw new GitLabApiError(403, "Keine ausreichenden Berechtigungen für diese GitLab-Aktion (fehlender Scope oder Rolle).", retryAfterSeconds);
+        throw new GitLabApiError(
+          403,
+          errorDetail
+            ? `GitLab Zugriff verweigert (${response.status}): ${errorDetail}`
+            : "Keine ausreichenden Berechtigungen für diese GitLab-Aktion (fehlender Scope oder Rolle).",
+          retryAfterSeconds,
+        );
       }
       if (response.status === 404) {
-        throw new GitLabApiError(404, "GitLab-Projekt, Merge Request oder Discussion nicht gefunden.", retryAfterSeconds);
+        throw new GitLabApiError(
+          404,
+          errorDetail
+            ? `GitLab Ressource nicht gefunden (${response.status}): ${errorDetail}`
+            : `GitLab-Endpunkt oder Ressource unter ${url} nicht gefunden.`,
+          retryAfterSeconds,
+        );
       }
       if (response.status === 429) {
         throw new GitLabApiError(429, "GitLab Rate Limit erreicht. Bitte kurz warten.", retryAfterSeconds);
-      }
-
-      let errorDetail = "";
-      try {
-        const errorJson = (await response.json()) as { message?: string; error?: string };
-        errorDetail = errorJson.message || errorJson.error || "";
-      } catch {
-        // ignore body parse failure
       }
 
       throw new GitLabApiError(
@@ -253,14 +290,16 @@ export class GitLabApiClient {
         response = await this.#fetch(nextUrl, {
           method: "GET",
           headers,
-          redirect: "manual",
+          redirect: "follow",
           signal: timeoutSignal,
-        });
+          ...(this.#dispatcher ? { dispatcher: this.#dispatcher } : {}),
+        } as RequestInit);
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "TimeoutError") {
           throw new GitLabApiError(408, "Zeitüberschreitung bei der Anfrage an GitLab.");
         }
-        throw new GitLabApiError(0, `Netzwerkfehler bei Verbindung zu GitLab: ${(err as Error).message}`);
+        const cause = (err as any)?.cause ? ` (${(err as any).cause.message || (err as any).cause})` : "";
+        throw new GitLabApiError(0, `Netzwerkfehler bei Verbindung zu GitLab: ${(err as Error).message}${cause}`);
       }
 
       if (!response.ok) {

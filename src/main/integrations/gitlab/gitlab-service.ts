@@ -91,6 +91,7 @@ export class GitLabService implements ExternalPromptContextProvider {
       instanceUrl,
       apiBaseUrl,
       token: input.token,
+      allowSelfSignedTls: input.allowSelfSignedTls,
       fetchFn: this.#fetchFn,
     });
 
@@ -117,6 +118,7 @@ export class GitLabService implements ExternalPromptContextProvider {
       tokenConfigured: true,
       access,
       scopes,
+      allowSelfSignedTls: Boolean(input.allowSelfSignedTls),
       expiresAt: tokenMeta?.expires_at ? new Date(tokenMeta.expires_at).toISOString() : null,
       lastValidatedAt: now,
       createdAt: now,
@@ -128,6 +130,7 @@ export class GitLabService implements ExternalPromptContextProvider {
     const validated = await this.testConnection({
       instanceUrl: input.instanceUrl,
       token: input.token,
+      allowSelfSignedTls: input.allowSelfSignedTls,
     });
 
     const tokenCipher = await this.#vault.encryptToken(input.token);
@@ -143,6 +146,7 @@ export class GitLabService implements ExternalPromptContextProvider {
       tokenCipher,
       accessMode: validated.access,
       scopes: validated.scopes,
+      allowSelfSignedTls: validated.allowSelfSignedTls,
       expiresAt: validated.expiresAt,
       lastValidatedAt: now,
       createdAt: now,
@@ -157,6 +161,7 @@ export class GitLabService implements ExternalPromptContextProvider {
     const validated = await this.testConnection({
       instanceUrl: connection.instanceUrl,
       token: input.token,
+      allowSelfSignedTls: input.allowSelfSignedTls ?? connection.allowSelfSignedTls,
     });
 
     if (validated.user.id !== connection.user.id) {
@@ -172,6 +177,7 @@ export class GitLabService implements ExternalPromptContextProvider {
       tokenCipher,
       accessMode: validated.access,
       scopes: validated.scopes,
+      allowSelfSignedTls: validated.allowSelfSignedTls,
       expiresAt: validated.expiresAt,
       lastValidatedAt: now,
       updatedAt: now,
@@ -240,6 +246,7 @@ export class GitLabService implements ExternalPromptContextProvider {
         instanceUrl: connection.instanceUrl,
         apiBaseUrl: connection.apiBaseUrl,
         token,
+        allowSelfSignedTls: connection.allowSelfSignedTls,
         fetchFn: this.#fetchFn,
       });
 
@@ -325,6 +332,7 @@ export class GitLabService implements ExternalPromptContextProvider {
         instanceUrl: connection.instanceUrl,
         apiBaseUrl: connection.apiBaseUrl,
         token,
+        allowSelfSignedTls: connection.allowSelfSignedTls,
         fetchFn: this.#fetchFn,
       });
       return this.#mrResolver.resolveMergeRequestByUrl(client, parsed.projectPath, parsed.mergeRequestIid);
@@ -362,6 +370,7 @@ export class GitLabService implements ExternalPromptContextProvider {
         instanceUrl: connection.instanceUrl,
         apiBaseUrl: connection.apiBaseUrl,
         token,
+        allowSelfSignedTls: connection.allowSelfSignedTls,
         fetchFn: this.#fetchFn,
       });
 
@@ -466,6 +475,7 @@ export class GitLabService implements ExternalPromptContextProvider {
         instanceUrl: state.connection.instanceUrl,
         apiBaseUrl: state.connection.apiBaseUrl,
         token,
+        allowSelfSignedTls: state.connection.allowSelfSignedTls,
         fetchFn: this.#fetchFn,
       });
 
@@ -506,6 +516,7 @@ export class GitLabService implements ExternalPromptContextProvider {
         instanceUrl: connection.instanceUrl,
         apiBaseUrl: connection.apiBaseUrl,
         token,
+        allowSelfSignedTls: connection.allowSelfSignedTls,
         fetchFn: this.#fetchFn,
       });
 
@@ -539,6 +550,7 @@ export class GitLabService implements ExternalPromptContextProvider {
         instanceUrl: connection.instanceUrl,
         apiBaseUrl: connection.apiBaseUrl,
         token,
+        allowSelfSignedTls: connection.allowSelfSignedTls,
         fetchFn: this.#fetchFn,
       });
 

@@ -30,6 +30,7 @@ export function GitLabSetupDialog({
   // New connection form fields
   const [instanceUrl, setInstanceUrl] = useState("https://gitlab.com");
   const [token, setToken] = useState("");
+  const [allowSelfSignedTls, setAllowSelfSignedTls] = useState(false);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +41,7 @@ export function GitLabSetupDialog({
     setError(null);
     setTestSuccess(null);
     setToken("");
+    setAllowSelfSignedTls(false);
 
     window.gemUi.gitlab
       .listConnections()
@@ -87,6 +89,7 @@ export function GitLabSetupDialog({
         clientRequestId,
         instanceUrl: instanceUrl.trim(),
         token: token.trim(),
+        allowSelfSignedTls,
       });
       setConnections((prev) => [saved, ...prev.filter((c) => c.id !== saved.id)]);
       setSelectedConnectionId(saved.id);
@@ -238,6 +241,17 @@ export function GitLabSetupDialog({
                 <small className="form-hint">
                   Empfohlener Scope: <code>api</code> (für Antworten & Threads auflösen) oder <code>read_api</code> (schreibgeschützt). Der Token wird sicher verschlüsselt in SQLite gespeichert.
                 </small>
+              </div>
+
+              <div className="form-group">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={allowSelfSignedTls}
+                    onChange={(e) => setAllowSelfSignedTls(e.target.checked)}
+                  />
+                  <span>SSL/TLS-Zertifikatsprüfung überspringen (z. B. für Self-Hosted / interne Firmenzertifikate)</span>
+                </label>
               </div>
 
               <div className="form-actions-inline">

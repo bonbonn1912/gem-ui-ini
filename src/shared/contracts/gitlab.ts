@@ -44,6 +44,7 @@ export const GitLabConnectionSummarySchema = z
     tokenConfigured: z.literal(true),
     access: GitLabAccessModeSchema,
     scopes: z.array(z.string().trim().min(1).max(100)).max(50),
+    allowSelfSignedTls: z.boolean().default(false),
     expiresAt: IsoTimestampSchema.nullable(),
     lastValidatedAt: IsoTimestampSchema,
     createdAt: IsoTimestampSchema,
@@ -56,6 +57,7 @@ export const SaveGitLabConnectionInputSchema = z
     clientRequestId: ClientRequestIdSchema,
     instanceUrl: z.string().trim().min(1).max(2048),
     token: z.string().trim().min(1).max(1000),
+    allowSelfSignedTls: z.boolean().default(false),
   })
   .strict();
 
@@ -63,6 +65,7 @@ export const TestGitLabConnectionInputSchema = z
   .object({
     instanceUrl: z.string().trim().min(1).max(2048),
     token: z.string().trim().min(1).max(1000),
+    allowSelfSignedTls: z.boolean().default(false),
   })
   .strict();
 
@@ -71,6 +74,7 @@ export const ReplaceGitLabTokenInputSchema = z
     clientRequestId: ClientRequestIdSchema,
     connectionId: EntityIdSchema,
     token: z.string().trim().min(1).max(1000),
+    allowSelfSignedTls: z.boolean().optional(),
   })
   .strict();
 

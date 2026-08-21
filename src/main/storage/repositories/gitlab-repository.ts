@@ -15,6 +15,7 @@ type ConnectionRow = {
   token_cipher: Buffer;
   access_mode: GitLabAccessMode;
   scopes_json: string;
+  allow_self_signed_tls: number;
   expires_at: string | null;
   last_validated_at: string;
   created_at: string;
@@ -62,6 +63,7 @@ function rowToConnectionSummary(row: ConnectionRow): GitLabConnectionSummary {
     tokenConfigured: true,
     access: row.access_mode,
     scopes,
+    allowSelfSignedTls: row.allow_self_signed_tls === 1,
     expiresAt: row.expires_at,
     lastValidatedAt: row.last_validated_at,
     createdAt: row.created_at,
@@ -146,6 +148,7 @@ export class GitLabRepository {
     tokenCipher: Buffer | string;
     accessMode: GitLabAccessMode;
     scopes: string[];
+    allowSelfSignedTls?: boolean;
     expiresAt: string | null;
     lastValidatedAt: string;
     createdAt: string;
@@ -158,9 +161,9 @@ export class GitLabRepository {
     const stmt = this.#db.prepare(`
       INSERT INTO gitlab_connections (
         id, instance_url, api_base_url, user_id, username, display_name,
-        token_cipher, access_mode, scopes_json, expires_at, last_validated_at,
+        token_cipher, access_mode, scopes_json, allow_self_signed_tls, expires_at, last_validated_at,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(instance_url, user_id) DO UPDATE SET
         api_base_url = excluded.api_base_url,
         username = excluded.username,
@@ -168,6 +171,7 @@ export class GitLabRepository {
         token_cipher = excluded.token_cipher,
         access_mode = excluded.access_mode,
         scopes_json = excluded.scopes_json,
+        allow_self_signed_tls = excluded.allow_self_signed_tls,
         expires_at = excluded.expires_at,
         last_validated_at = excluded.last_validated_at,
         updated_at = excluded.updated_at
@@ -183,6 +187,7 @@ export class GitLabRepository {
       cipherBuffer,
       data.accessMode,
       JSON.stringify(data.scopes),
+      data.allowSelfSignedTls ? 1 : 0,
       data.expiresAt,
       data.lastValidatedAt,
       data.createdAt,
@@ -200,6 +205,7 @@ export class GitLabRepository {
       tokenCipher: Buffer | string;
       accessMode: GitLabAccessMode;
       scopes: string[];
+      allowSelfSignedTls?: boolean;
       expiresAt: string | null;
       lastValidatedAt: string;
       updatedAt: string;
@@ -209,16 +215,22 @@ export class GitLabRepository {
       ? data.tokenCipher
       : Buffer.from(data.tokenCipher);
 
+    const existing = this.findConnection(id);
+    const allowSelfSigned = data.allowSelfSignedTls !== undefined
+      ? (data.allowSelfSignedTls ? 1 : 0)
+      : (existing?.allowSelfSignedTls ? 1 : 0);
+
     const stmt = this.#db.prepare(`
       UPDATE gitlab_connections
-      SET token_cipher = ?, access_mode = ?, scopes_json = ?, expires_at = ?,
-          last_validated_at = ?, updated_at = ?
+      SET token_cipher = ?, access_mode = ?, scopes_json = ?, allow_self_signed_tls = ?,
+          expires_at = ?, last_validated_at = ?, updated_at = ?
       WHERE id = ?
     `);
     const result = stmt.run(
       cipherBuffer,
       data.accessMode,
       JSON.stringify(data.scopes),
+      allowSelfSigned,
       data.expiresAt,
       data.lastValidatedAt,
       data.updatedAt,
