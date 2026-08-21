@@ -5,5 +5,6 @@ export * from "./events";
 export * from "./git";
 export * from "./ipc";
 export * from "./projects";
+export * from "./project-files";
 export * from "./settings";
 export * from "./sessions";

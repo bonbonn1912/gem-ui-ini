@@ -23,6 +23,7 @@ import type {
   AppSession,
   GitFileChange,
   GitProjectStatus,
+  ProjectFileSearchEntry,
   ProjectRootCandidate,
   UiError,
   StreamEnvelope,
@@ -669,7 +670,11 @@ export function App() {
     }
   };
 
-  const sendPrompt = async (text: string, attachments: ComposerAttachment[]) => {
+  const sendPrompt = async (
+    text: string,
+    attachments: ComposerAttachment[],
+    projectFiles: ProjectFileSearchEntry[],
+  ) => {
     if (!activeSession) return;
     const clientRequestId = createClientRequestId();
     dispatch({
@@ -678,6 +683,12 @@ export function App() {
       text,
       attachments,
       contextAttachments: contextAttachments.included.map(({ id, kind, title }) => ({ id, kind, title })),
+      projectFiles: projectFiles.map(({ rootId, rootLabel, relativePath, displayName }) => ({
+        rootId,
+        rootLabel,
+        relativePath,
+        displayName,
+      })),
       timestamp: new Date().toISOString(),
     });
     setSessions((current) => current.map((session) => session.id === activeSession.id ? { ...session, status: "running" } : session));
@@ -687,6 +698,7 @@ export function App() {
         text,
         attachmentIds: attachments.map((attachment) => attachment.id),
         contextAttachmentIds: contextAttachments.included.map((attachment) => attachment.id),
+        projectFiles: projectFiles.map(({ rootId, relativePath }) => ({ rootId, relativePath })),
         expectedRootRevision: activeProject?.rootRevision ?? 1,
         clientRequestId,
       });
@@ -902,6 +914,8 @@ export function App() {
               <Composer
                 key={activeSession.id}
                 sessionId={activeSession.id}
+                projectId={activeProject.id}
+                rootRevision={activeProject.rootRevision}
                 phase={effectivePhase}
                 imagesSupported={capabilities.gemini.images}
                 contextAttachmentCount={contextAttachments.included.length}

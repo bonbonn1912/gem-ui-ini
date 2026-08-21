@@ -41,6 +41,7 @@ export type MessageItem = TimelineBase & {
   text: string;
   attachments: Array<{ id: string; name: string; mimeType?: string }>;
   contextAttachments: Array<{ id: string; kind: "file" | "link"; title: string }>;
+  projectFiles: Array<{ rootId: string; rootLabel: string; relativePath: string; displayName: string }>;
   clientRequestId?: string;
   streaming?: boolean;
   failed?: boolean;
@@ -117,6 +118,7 @@ export type ChatAction =
       text: string;
       attachments: Attachment[];
       contextAttachments: Array<{ id: string; kind: "file" | "link"; title: string }>;
+      projectFiles: Array<{ rootId: string; rootLabel: string; relativePath: string; displayName: string }>;
       timestamp: string;
     }
   | { type: "prompt-failed"; clientRequestId: string; message: string }
@@ -247,6 +249,7 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
         text: eventText(event),
         attachments: eventAttachments,
         contextAttachments: event.contextAttachments,
+        projectFiles: event.projectFiles,
         clientRequestId: optimistic?.clientRequestId,
         turnId: envelope.turnId,
         timestamp: envelope.timestamp,
@@ -264,6 +267,9 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
           contextAttachments: message.contextAttachments.length
             ? message.contextAttachments
             : optimisticMessage.contextAttachments,
+          projectFiles: message.projectFiles.length
+            ? message.projectFiles
+            : optimisticMessage.projectFiles,
         };
         return {
           ...next,
@@ -310,6 +316,7 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
             text: delta,
             attachments: [],
             contextAttachments: [],
+            projectFiles: [],
             streaming: true,
             turnId: envelope.turnId,
             timestamp: envelope.timestamp,
@@ -510,6 +517,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
               mimeType,
             })),
             contextAttachments: action.contextAttachments,
+            projectFiles: action.projectFiles,
             clientRequestId: action.clientRequestId,
             timestamp: action.timestamp,
             turnId: null,

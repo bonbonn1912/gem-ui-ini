@@ -7,7 +7,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { Icon } from "../../components/Icon";
-import type { Attachment } from "../../types";
+import type { Attachment, ProjectFileSearchEntry } from "../../types";
 import type { TurnPhase } from "../chat/reducer";
 import { createClientRequestId } from "../../utils/client-request-id";
 
@@ -15,6 +15,8 @@ export type ComposerAttachment = Attachment & { previewUrl: string };
 
 type ComposerProps = {
   sessionId: string;
+  projectId: string;
+  rootRevision: number;
   phase: TurnPhase;
   imagesSupported: boolean;
   contextAttachmentCount: number;
@@ -22,10 +24,36 @@ type ComposerProps = {
   contextOverBudget: boolean;
   disabled?: boolean;
   onOpenContextAttachments: () => void;
-  onSend: (text: string, attachments: ComposerAttachment[]) => Promise<void>;
+  onSend: (
+    text: string,
+    attachments: ComposerAttachment[],
+    projectFiles: ProjectFileSearchEntry[],
+  ) => Promise<void>;
   onCancel: () => Promise<void>;
   onError: (message: string) => void;
 };
+
+type ActiveFileMention = {
+  start: number;
+  end: number;
+  query: string;
+};
+
+const PROJECT_FILE_MENU_ID = "composer-project-file-menu";
+const MAX_PROJECT_FILE_REFERENCES = 10;
+
+function activeFileMention(text: string, caret: number): ActiveFileMention | null {
+  const prefix = text.slice(0, caret);
+  const start = prefix.lastIndexOf("@");
+  if (start < 0) return null;
+
+  const preceding = start > 0 ? prefix[start - 1] : "";
+  if (preceding && !/[\s([{]/.test(preceding)) return null;
+
+  const query = prefix.slice(start + 1);
+  if (query.length > 200 || /\s/.test(query)) return null;
+  return { start, end: caret, query };
+}
 
 function readableSize(bytes: number): string {
   if (bytes < 1_024) return `${bytes} B`;
@@ -45,6 +73,8 @@ function isSupportedImageMime(value: string): value is Attachment["mimeType"] {
 
 export function Composer({
   sessionId,
+  projectId,
+  rootRevision,
   phase,
   imagesSupported,
   contextAttachmentCount,
@@ -58,17 +88,29 @@ export function Composer({
 }: ComposerProps) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [projectFiles, setProjectFiles] = useState<ProjectFileSearchEntry[]>([]);
+  const [fileSuggestions, setFileSuggestions] = useState<ProjectFileSearchEntry[]>([]);
+  const [fileSearchLoading, setFileSearchLoading] = useState(false);
+  const [fileSearchError, setFileSearchError] = useState<string | null>(null);
+  const [activeSuggestion, setActiveSuggestion] = useState(-1);
+  const [caretPosition, setCaretPosition] = useState(0);
+  const [dismissedMention, setDismissedMention] = useState<string | null>(null);
   const [staging, setStaging] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [sending, setSending] = useState(false);
   const [stopping, setStopping] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dragDepth = useRef(0);
+  const fileSearchSequence = useRef(0);
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
 
   const running = ["running", "awaiting_permission", "cancelling"].includes(phase);
-  const canSend = !disabled && !contextOverBudget && !running && !sending && !staging && Boolean(text.trim() || attachments.length);
+  const canSend = !disabled && !contextOverBudget && !running && !sending && !staging
+    && Boolean(text.trim() || attachments.length || projectFiles.length);
+  const mention = activeFileMention(text, caretPosition);
+  const mentionKey = mention ? `${mention.start}:${mention.end}:${mention.query}` : null;
+  const fileMenuOpen = Boolean(mention && mentionKey !== dismissedMention && !disabled);
 
   const hydrate = useCallback(async (staged: Attachment[]): Promise<ComposerAttachment[]> => {
     return Promise.all(
@@ -153,6 +195,41 @@ export function Composer({
     textarea.style.height = `${Math.min(textarea.scrollHeight, 190)}px`;
   }, [text]);
 
+  useEffect(() => {
+    const sequence = ++fileSearchSequence.current;
+    if (!mention || !fileMenuOpen || mention.query.length === 0) {
+      setFileSuggestions([]);
+      setFileSearchLoading(false);
+      setFileSearchError(null);
+      setActiveSuggestion(-1);
+      return;
+    }
+
+    setFileSearchLoading(true);
+    setFileSearchError(null);
+    const timer = window.setTimeout(() => {
+      void window.gemUi.projectFiles.search({
+        projectId,
+        expectedRootRevision: rootRevision,
+        query: mention.query,
+        limit: 10,
+      }).then((result) => {
+        if (fileSearchSequence.current !== sequence) return;
+        setFileSuggestions(result.entries);
+        setActiveSuggestion(result.entries.findIndex((entry) => entry.contextEligible));
+      }).catch((error: unknown) => {
+        if (fileSearchSequence.current !== sequence) return;
+        setFileSuggestions([]);
+        setActiveSuggestion(-1);
+        setFileSearchError(error instanceof Error ? error.message : "Projektdateien konnten nicht durchsucht werden.");
+      }).finally(() => {
+        if (fileSearchSequence.current === sequence) setFileSearchLoading(false);
+      });
+    }, 120);
+
+    return () => window.clearTimeout(timer);
+  }, [disabled, fileMenuOpen, mention?.query, projectId, rootRevision]);
+
   const removeAttachment = async (attachment: ComposerAttachment) => {
     setAttachments((current) => current.filter((item) => item.id !== attachment.id));
     URL.revokeObjectURL(attachment.previewUrl);
@@ -163,15 +240,56 @@ export function Composer({
     }
   };
 
+  const selectProjectFile = (entry: ProjectFileSearchEntry) => {
+    const currentMention = activeFileMention(text, caretPosition);
+    if (!currentMention || !entry.contextEligible) return;
+    if (!projectFiles.some((item) => item.rootId === entry.rootId && item.relativePath === entry.relativePath)) {
+      if (projectFiles.length >= MAX_PROJECT_FILE_REFERENCES) {
+        onError(`Pro Nachricht können höchstens ${MAX_PROJECT_FILE_REFERENCES} Projektdateien referenziert werden.`);
+        return;
+      }
+      setProjectFiles((current) => [...current, entry]);
+    }
+
+    const referenceText = `@${entry.relativePath}`;
+    const nextText = `${text.slice(0, currentMention.start)}${referenceText} ${text.slice(currentMention.end)}`;
+    const nextCaret = currentMention.start + referenceText.length + 1;
+    setText(nextText);
+    setCaretPosition(nextCaret);
+    setDismissedMention(null);
+    setFileSuggestions([]);
+    setActiveSuggestion(-1);
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
+  const moveSuggestion = (direction: 1 | -1) => {
+    const selectable = fileSuggestions
+      .map((entry, index) => entry.contextEligible ? index : -1)
+      .filter((index) => index >= 0);
+    if (!selectable.length) return;
+    const position = selectable.indexOf(activeSuggestion);
+    const nextPosition = position < 0
+      ? (direction === 1 ? 0 : selectable.length - 1)
+      : (position + direction + selectable.length) % selectable.length;
+    setActiveSuggestion(selectable[nextPosition]);
+  };
+
   const submit = async () => {
     if (!canSend) return;
     const submittedText = text.trim();
     const submittedAttachments = attachments;
+    const submittedProjectFiles = projectFiles;
     setSending(true);
     try {
-      await onSend(submittedText, submittedAttachments);
+      await onSend(submittedText, submittedAttachments, submittedProjectFiles);
       setText("");
       setAttachments([]);
+      setProjectFiles([]);
+      setFileSuggestions([]);
+      setCaretPosition(0);
       for (const attachment of submittedAttachments) URL.revokeObjectURL(attachment.previewUrl);
       textareaRef.current?.focus();
     } catch {
@@ -194,6 +312,29 @@ export function Composer({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (fileMenuOpen) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        moveSuggestion(event.key === "ArrowDown" ? 1 : -1);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setDismissedMention(mentionKey);
+        setFileSuggestions([]);
+        return;
+      }
+      if ((event.key === "Tab" || event.key === "Enter") && !event.shiftKey && !event.nativeEvent.isComposing) {
+        const entry = fileSuggestions[activeSuggestion];
+        if (entry?.contextEligible) {
+          event.preventDefault();
+          selectProjectFile(entry);
+          return;
+        }
+        event.preventDefault();
+        return;
+      }
+    }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       void submit();
@@ -233,6 +374,71 @@ export function Composer({
       )}
       <div className="composer-area">
         <div className={`composer ${running ? "composer--running" : ""}`}>
+          {fileMenuOpen && (
+            <div className="project-file-menu" id={PROJECT_FILE_MENU_ID} role="listbox" aria-label="Projektdateien">
+              <header>
+                <span><Icon name="file-text" size={14} /> Projektdateien</span>
+                <span><kbd>↑</kbd><kbd>↓</kbd> wählen · <kbd>Tab</kbd>/<kbd>Enter</kbd> übernehmen</span>
+              </header>
+              <div className="project-file-menu-list">
+                {fileSearchLoading && fileSuggestions.length === 0 && (
+                  <div className="project-file-menu-state"><span className="mini-spinner" /> Dateien werden gesucht …</div>
+                )}
+                {!fileSearchLoading && fileSearchError && (
+                  <div className="project-file-menu-state project-file-menu-state--error"><Icon name="warning" size={14} /> {fileSearchError}</div>
+                )}
+                {!fileSearchLoading && !fileSearchError && fileSuggestions.length === 0 && (
+                  <div className="project-file-menu-state">
+                    {mention?.query ? "Keine passende Projektdatei gefunden." : "Tippe den ersten Buchstaben des Dateinamens oder Pfads."}
+                  </div>
+                )}
+                {fileSuggestions.map((entry, index) => (
+                  <button
+                    className={`project-file-option ${index === activeSuggestion ? "project-file-option--active" : ""}`}
+                    id={`${PROJECT_FILE_MENU_ID}-${index}`}
+                    key={`${entry.rootId}:${entry.relativePath}`}
+                    type="button"
+                    role="option"
+                    aria-selected={index === activeSuggestion}
+                    aria-disabled={!entry.contextEligible}
+                    title={entry.contextUnavailableReason ?? `${entry.rootLabel}/${entry.relativePath}`}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      selectProjectFile(entry);
+                    }}
+                    onMouseEnter={() => {
+                      if (entry.contextEligible) setActiveSuggestion(index);
+                    }}
+                  >
+                    <span className="project-file-option-icon"><Icon name="file-text" size={14} /></span>
+                    <span className="project-file-option-copy">
+                      <strong>{entry.displayName}</strong>
+                      <small><span>{entry.rootLabel}</span>{entry.relativePath}</small>
+                    </span>
+                    <span className="project-file-option-size">{entry.contextEligible ? readableSize(entry.size) : "Nicht lesbar"}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {projectFiles.length > 0 && (
+            <div className="project-file-reference-strip" aria-label="Referenzierte Projektdateien">
+              {projectFiles.map((entry) => (
+                <span className="project-file-reference" key={`${entry.rootId}:${entry.relativePath}`} title={`${entry.rootLabel}/${entry.relativePath}`}>
+                  <Icon name="file-text" size={12} />
+                  <strong>{entry.displayName}</strong>
+                  <small>{entry.rootLabel}</small>
+                  <button
+                    type="button"
+                    onClick={() => setProjectFiles((current) => current.filter((item) => item.rootId !== entry.rootId || item.relativePath !== entry.relativePath))}
+                    aria-label={`${entry.displayName} aus dem Kontext entfernen`}
+                  >
+                    <Icon name="x" size={11} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
           {attachments.length > 0 && (
             <div className="attachment-strip" aria-label="Angehängte Bilder">
               {attachments.map((attachment) => (
@@ -250,12 +456,22 @@ export function Composer({
             ref={textareaRef}
             rows={1}
             value={text}
-            onChange={(event) => setText(event.target.value)}
+            onChange={(event) => {
+              setText(event.target.value);
+              setCaretPosition(event.target.selectionStart ?? event.target.value.length);
+              setDismissedMention(null);
+            }}
+            onClick={(event) => setCaretPosition(event.currentTarget.selectionStart ?? text.length)}
+            onSelect={(event) => setCaretPosition(event.currentTarget.selectionStart ?? text.length)}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             placeholder={running ? "Nächste Nachricht vorbereiten …" : "Nachricht an Gemini …"}
             aria-label="Nachricht an Gemini"
             aria-describedby={running ? "composer-running-status" : undefined}
+            aria-autocomplete="list"
+            aria-controls={fileMenuOpen ? PROJECT_FILE_MENU_ID : undefined}
+            aria-expanded={fileMenuOpen}
+            aria-activedescendant={fileMenuOpen && activeSuggestion >= 0 ? `${PROJECT_FILE_MENU_ID}-${activeSuggestion}` : undefined}
             disabled={disabled}
           />
           <div className="composer-toolbar">
@@ -305,7 +521,7 @@ export function Composer({
             )}
           </div>
         </div>
-        <p className="composer-hint">Enter zum Senden · Shift + Enter für neue Zeile</p>
+        <p className="composer-hint"><kbd>@</kbd> für Projektdateien · Enter zum Senden · Shift + Enter für neue Zeile</p>
       </div>
     </>
   );

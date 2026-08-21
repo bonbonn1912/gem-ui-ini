@@ -9,6 +9,10 @@ import {
   RootRevisionSchema,
 } from "./common";
 import { MAX_CONTEXT_ATTACHMENTS_PER_PROMPT } from "./context-attachments";
+import {
+  MAX_PROJECT_FILE_REFERENCES_PER_PROMPT,
+  ProjectFileReferenceInputSchema,
+} from "./project-files";
 
 export const SessionStatusSchema = z.enum([
   "idle",
@@ -115,11 +119,18 @@ export const SendPromptInputSchema = z
       .array(EntityIdSchema)
       .max(MAX_CONTEXT_ATTACHMENTS_PER_PROMPT)
       .default([]),
+    projectFiles: z
+      .array(ProjectFileReferenceInputSchema)
+      .max(MAX_PROJECT_FILE_REFERENCES_PER_PROMPT)
+      .default([]),
   })
   .strict()
   .refine(
-    (input) => input.text.trim().length > 0 || input.attachmentIds.length > 0,
-    { message: "A prompt requires text or at least one attachment" },
+    (input) =>
+      input.text.trim().length > 0 ||
+      input.attachmentIds.length > 0 ||
+      input.projectFiles.length > 0,
+    { message: "A prompt requires text, an attachment, or a project file" },
   );
 
 export const CancelTurnInputSchema = z

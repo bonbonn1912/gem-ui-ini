@@ -212,6 +212,17 @@ function TimelineEntry({
             ))}
           </div>
         )}
+        {item.projectFiles.length > 0 && (
+          <div className="sent-project-files" aria-label="Verwendete Projektdateien">
+            {item.projectFiles.map((file) => (
+              <span className="sent-project-file" key={`${file.rootId}:${file.relativePath}`}>
+                <Icon name="file-text" size={13} />
+                <span>{file.displayName}</span>
+                <small>{file.rootLabel}/{file.relativePath}</small>
+              </span>
+            ))}
+          </div>
+        )}
         {item.text && <p>{item.text}</p>}
         {item.failed && <span className="message-error-label">Nicht gesendet</span>}
       </article>

@@ -37,6 +37,7 @@ import {
   type SessionModelSnapshot,
 } from "./gemini";
 import type { ProjectService, ProjectRuntimeCoordinator } from "./projects";
+import type { ProjectFileService } from "./project-files";
 import { runCapturedCommand } from "./processes/run-command";
 import { GeminiSessionManager } from "./sessions";
 import type { UsageService } from "./usage";
@@ -70,6 +71,7 @@ export type AppControllerOptions = {
   attachmentRepository: AttachmentRepository;
   attachmentService: AttachmentService;
   contextAttachments: ContextAttachmentService;
+  projectFiles: ProjectFileService;
   capabilities: GeminiCapabilityService;
   usage: UsageService;
   publishEvents: (events: StreamEnvelope[]) => void | Promise<void>;
@@ -82,6 +84,7 @@ export class AppController implements ProjectRuntimeCoordinator {
   readonly #attachmentRepository: AttachmentRepository;
   readonly #attachmentService: AttachmentService;
   readonly #contextAttachments: ContextAttachmentService;
+  readonly #projectFiles: ProjectFileService;
   readonly #capabilities: GeminiCapabilityService;
   readonly #usage: UsageService;
   readonly #publishEvents: AppControllerOptions["publishEvents"];
@@ -98,6 +101,7 @@ export class AppController implements ProjectRuntimeCoordinator {
     this.#attachmentRepository = options.attachmentRepository;
     this.#attachmentService = options.attachmentService;
     this.#contextAttachments = options.contextAttachments;
+    this.#projectFiles = options.projectFiles;
     this.#capabilities = options.capabilities;
     this.#usage = options.usage;
     this.#publishEvents = options.publishEvents;
@@ -244,7 +248,12 @@ export class AppController implements ProjectRuntimeCoordinator {
       attachmentIds: input.contextAttachmentIds ?? [],
       imagesSupported: this.#capabilities.snapshot().gemini.images,
     });
-    const parts: PromptPart[] = [...context.parts];
+    const projectFiles = await this.#projectFiles.buildPromptContext({
+      projectId: session.projectId,
+      expectedRootRevision: input.expectedRootRevision,
+      references: input.projectFiles ?? [],
+    });
+    const parts: PromptPart[] = [...context.parts, ...projectFiles.parts];
     for (const image of images) {
       parts.push({
         type: "image",
@@ -272,6 +281,7 @@ export class AppController implements ProjectRuntimeCoordinator {
         text: input.text,
         attachmentIds: input.attachmentIds,
         contextAttachments: context.snapshots,
+        projectFiles: projectFiles.snapshots,
       },
       timestamp,
     });

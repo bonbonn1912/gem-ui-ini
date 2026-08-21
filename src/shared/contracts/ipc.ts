@@ -108,6 +108,12 @@ import {
   type SetProjectApprovalPolicyInput,
 } from "./projects";
 import {
+  ProjectFileSearchResultSchema,
+  SearchProjectFilesInputSchema,
+  type ProjectFileSearchResult,
+  type SearchProjectFilesInput,
+} from "./project-files";
+import {
   AppSessionSchema,
   CancelTurnInputSchema,
   CreateSessionInputSchema,
@@ -211,6 +217,7 @@ export const IPC_CHANNELS = {
   getProject: "projects:get",
   reauthorizeProjectRoot: "projects:reauthorize-root",
   getProjectApprovalPolicy: "projects:get-approval-policy",
+  searchProjectFiles: "project-files:search",
   pickProjectFolders: "projects:pick-folders",
   createProject: "projects:create",
   renameProject: "projects:rename",
@@ -268,6 +275,7 @@ export const IpcRequestSchemas = {
   [IPC_CHANNELS.getProject]: GetProjectInputSchema,
   [IPC_CHANNELS.reauthorizeProjectRoot]: ReauthorizeProjectRootInputSchema,
   [IPC_CHANNELS.getProjectApprovalPolicy]: GetProjectApprovalPolicyInputSchema,
+  [IPC_CHANNELS.searchProjectFiles]: SearchProjectFilesInputSchema,
   [IPC_CHANNELS.pickProjectFolders]: PickProjectFoldersInputSchema,
   [IPC_CHANNELS.createProject]: CreateProjectInputSchema,
   [IPC_CHANNELS.renameProject]: RenameProjectInputSchema,
@@ -322,6 +330,7 @@ export const IpcResponseSchemas = {
   [IPC_CHANNELS.getProject]: ProjectWithRootsSchema,
   [IPC_CHANNELS.reauthorizeProjectRoot]: ProjectRootReauthorizationResultSchema,
   [IPC_CHANNELS.getProjectApprovalPolicy]: ProjectApprovalPolicySchema,
+  [IPC_CHANNELS.searchProjectFiles]: ProjectFileSearchResultSchema,
   [IPC_CHANNELS.pickProjectFolders]: z.array(ProjectRootCandidateSchema).max(6),
   [IPC_CHANNELS.createProject]: ProjectWithRootsSchema,
   [IPC_CHANNELS.renameProject]: ProjectWithRootsSchema,
@@ -400,6 +409,9 @@ export interface GemUiDesktopApi {
       input: SetProjectApprovalPolicyInput,
     ): Promise<ProjectApprovalPolicy>;
     delete(input: DeleteProjectInput): Promise<VoidResult>;
+  };
+  projectFiles: {
+    search(input: SearchProjectFilesInput): Promise<ProjectFileSearchResult>;
   };
   sessions: {
     list(input: ListSessionsInput): Promise<AppSession[]>;

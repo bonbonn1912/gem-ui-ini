@@ -13,6 +13,7 @@ import { GitService, GitStatusSubscriptionHub } from "./git";
 import { SessionEventHub } from "./ipc/event-hub";
 import { registerAppIpc } from "./ipc/register-app-ipc";
 import { ProjectService } from "./projects";
+import { ProjectFileService } from "./project-files";
 import { LinkMetadataFetcher } from "./links";
 import {
   createMainWindow,
@@ -108,6 +109,7 @@ async function bootstrap(): Promise<void> {
   clientRequestRepository.clearPending();
 
   const projectService = new ProjectService(projectRepository);
+  const projectFileService = new ProjectFileService(projectService);
   const capabilityService = new GeminiCapabilityService(
     settingsRepository,
     app.getVersion(),
@@ -146,6 +148,7 @@ async function bootstrap(): Promise<void> {
     attachmentRepository,
     attachmentService,
     contextAttachments: contextAttachmentService,
+    projectFiles: projectFileService,
     capabilities: capabilityService,
     usage: usageService,
     publishEvents: (events) => eventHub?.publish(events),
@@ -154,6 +157,7 @@ async function bootstrap(): Promise<void> {
 
   runtimeServices = {
     projects: projectService,
+    projectFiles: projectFileService,
     controller,
     capabilities: capabilityService,
     attachments: attachmentService,
