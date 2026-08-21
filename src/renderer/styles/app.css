@@ -29,6 +29,22 @@
   --sidebar-muted: #999da8;
   --shadow-sm: 0 1px 2px rgba(20, 22, 28, 0.06), 0 4px 14px rgba(20, 22, 28, 0.04);
   --shadow-lg: 0 20px 60px rgba(15, 17, 23, 0.18), 0 3px 14px rgba(15, 17, 23, 0.1);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Aliases: der GitLab-/Integrations-Block nutzt eine zweite Namensfamilie.
+     Sie zeigt auf dieselben Tokens, damit beide Welten identisch aussehen und
+     der Dark-Mode automatisch mitläuft. */
+  --surface-0: var(--surface);
+  --surface-1: var(--surface-soft);
+  --surface-2: var(--surface-hover);
+  --border-subtle: var(--border-soft);
+  --border-medium: var(--border);
+  --text-primary: var(--text);
+  --text-secondary: var(--text-soft);
+  --text-muted: var(--muted);
+  --primary: var(--accent);
+  --primary-strong: var(--accent-strong);
+  --primary-soft: var(--accent-soft);
 }
 
 * { box-sizing: border-box; }
@@ -462,7 +478,7 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
   .right-panel-resize-handle { display:none; }
   .chat-header { height: 61px; padding-right: 11px; gap: 8px; }.chat-heading h1 { font-size: 12.5px; }.chat-subtitle > span:first-child,.subtitle-separator { display:none; }.usage-pill { display:none; }.roots-menu > summary span { display:none; }.roots-menu > summary { width:32px;padding:0;justify-content:center; }.roots-menu > summary svg:last-child { display:none; }.mode-select select { max-width:72px; }.model-select select { max-width:110px; }.model-pill { max-width:130px; }.model-pill > span { display:none; }
   .timeline { padding: 25px 17px 24px; gap:14px; }.composer-area { padding: 7px 12px 10px; }.composer-context { display:none; }.composer-hint { display:none; }.project-file-menu > header > span:last-child { display:none; }.project-file-option-size { display:none; }.message--user { max-width:88%; }.thought-card,.tool-card,.permission-card { margin-left:0; }.inline-diff-group { margin-left:0; }.assistant-mark { width:25px;height:25px; }.message--assistant { grid-template-columns:25px minmax(0,1fr);gap:8px; }.assistant-content { font-size:12.5px; }
-  .project-dialog { max-height:calc(100vh - 20px); border-radius:14px; }.modal-layer { padding:10px; }.dialog-body { padding:16px; }.project-dialog > footer { padding:10px 16px; }.selected-folder { grid-template-columns:32px minmax(0,1fr) auto; }.folder-tile { width:31px;height:31px; }.onboarding-card { padding:28px 22px; }.onboarding-steps p { grid-template-columns:1fr; }.onboarding-actions { flex-direction:column; }
+  .project-dialog { max-height:calc(100vh - 20px); border-radius:14px; }.modal-layer { padding:10px; }.dialog-body { padding:16px; }.dialog-tab-bar { padding:0 16px; }.project-dialog > footer { padding:10px 16px; }.repo-candidate-card { grid-template-columns:minmax(0,1fr); }.candidate-actions { justify-content:flex-end; }.selected-folder { grid-template-columns:32px minmax(0,1fr) auto; }.folder-tile { width:31px;height:31px; }.onboarding-card { padding:28px 22px; }.onboarding-steps p { grid-template-columns:1fr; }.onboarding-actions { flex-direction:column; }
   .workspace-empty,.project-empty { padding:28px 20px; }.empty-benefits { gap:8px; }
   .changes-toggle, .attachments-toggle { width:32px;padding:0;justify-content:center; }.changes-toggle i, .attachments-toggle i { min-width:14px;height:14px;padding:0 3px;position:absolute;margin:-23px 0 0 22px;font-size:6.5px; }.attachments-toggle em { display:none; }.changes-panel-header, .attachments-panel-header { height:61px; }.changes-panel-body { height:calc(100% - 61px);grid-template-rows:minmax(0,1fr); }.changes-diff-pane { display:none; }.changes-panel-body--diff .changes-list-pane { display:none; }.changes-panel-body--diff .changes-diff-pane { display:block; }.git-diff-back { display:grid; }
   .attachments-panel-body { height:calc(100% - 61px);grid-template-rows:minmax(0,1fr) 0; }.attachments-panel-body--detail { grid-template-rows:0 minmax(0,1fr); }.attachments-panel-body--detail .attachments-list-pane { display:none; }.attachments-detail-pane { border-top:0; }
@@ -809,106 +825,176 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 
 /* Dialog Tabs */
 .dialog-tab-bar {
+  padding: 0 22px;
+  flex: 0 0 auto;
   display: flex;
-  gap: 6px;
-  padding: 0 20px;
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--surface-1);
+  gap: 2px;
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--surface-soft) 40%, var(--surface));
 }
 .dialog-tab {
-  padding: 8px 12px;
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
+  min-height: 38px;
+  padding: 0 11px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 640;
+  cursor: pointer;
 }
+.dialog-tab:hover:not(.dialog-tab--active) { color: var(--text-soft); }
+.dialog-tab svg { opacity: 0.75; }
 .dialog-tab--active {
-  border-bottom-color: var(--primary);
-  color: var(--text-primary);
-  font-weight: 600;
+  border-bottom-color: var(--accent);
+  color: var(--accent);
 }
+.dialog-tab--active svg { opacity: 1; }
 
 /* Integration Settings */
-.integrations-settings-section {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
+.integrations-settings-section { display: grid; gap: 19px; }
 .integration-card {
-  border: 1px solid var(--border-subtle);
+  display: grid;
+  gap: 12px;
+  padding: 13px 14px;
+  border: 1px solid var(--border-soft);
   border-radius: 10px;
-  background: var(--surface-1);
-  padding: 14px;
+  background: var(--surface);
 }
 .integration-card-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 12px;
-}
-.integration-title-group {
-  display: flex;
-  align-items: center;
   gap: 10px;
 }
-.gitlab-icon-color {
-  color: #e24329;
-}
-.optional-tag {
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: var(--surface-2);
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 500;
-}
-.repo-candidate-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px;
+.integration-title-group { display: flex; align-items: center; gap: 10px; }
+.integration-title-group > div { display: grid; gap: 3px; }
+.integration-title-group h4 { margin: 0; color: var(--text-soft); font-size: 11px; font-weight: 640; }
+.integration-title-group p { margin: 0; color: var(--muted); font-size: 9px; font-weight: 450; line-height: 1.45; }
+.integration-icon {
+  width: 35px;
+  height: 35px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
   border-radius: 8px;
-  background: var(--surface-0);
-  border: 1px solid var(--border-subtle);
-  margin-top: 8px;
+  background: var(--surface-soft);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
-.candidate-header-row {
+.gitlab-icon-color { color: #e24329; }
+.optional-tag {
+  padding: 3px 6px;
+  flex: 0 0 auto;
+  border-radius: 5px;
+  color: var(--muted);
+  background: var(--surface-soft);
+  font-size: 8.5px;
+  font-weight: 720;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.integration-card-body { display: grid; gap: 8px; }
+.integration-loading {
+  min-height: 41px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
+  justify-content: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 9.8px;
+}
+.integration-loading .mini-spinner { width: 12px; height: 12px; }
+.no-repos-hint {
+  min-height: 41px;
+  margin: 0;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: 9px;
+  color: var(--muted);
+  font-size: 9.8px;
+}
+.repository-candidates { display: grid; gap: 8px; }
+.repository-candidates-list { display: grid; gap: 5px; max-height: 245px; overflow-y: auto; }
+.repo-candidate-card {
+  min-width: 0;
+  padding: 9px 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: var(--surface-soft);
+}
+.candidate-info { min-width: 0; display: grid; gap: 4px; }
+.candidate-header-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+.candidate-header-row strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-soft);
+  font-size: 10.8px;
 }
 .branch-tag {
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--surface-2);
-  font-family: var(--font-mono, monospace);
-  font-size: 10.5px;
+  padding: 2px 5px;
+  flex: 0 0 auto;
+  border-radius: 5px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  font-family: var(--font-mono);
+  font-size: 8.4px;
 }
 .status-pill {
-  padding: 1px 6px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 600;
+  padding: 3px 6px;
+  flex: 0 0 auto;
+  border-radius: 5px;
+  font-size: 8.5px;
+  font-weight: 720;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
-.status-pill--active {
-  background: rgba(16, 185, 129, 0.15);
-  color: #059669;
-}
-.status-pill--inactive {
-  background: var(--surface-2);
-  color: var(--text-muted);
-}
+.status-pill--active { color: var(--green); background: var(--green-soft); }
+.status-pill--inactive { color: var(--muted); background: var(--surface); border: 1px solid var(--border-soft); }
 .remote-summary {
-  font-size: 11px;
-  color: var(--text-secondary);
-  margin: 3px 0 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 8.7px;
+}
+.binding-meta { color: var(--muted); font-size: 9px; }
+.binding-meta strong { color: var(--text-soft); font-weight: 650; }
+.candidate-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
+.candidate-actions .primary-button,
+.candidate-actions .secondary-button {
+  min-height: 29px;
+  padding: 0 10px;
+  border-radius: 7px;
+  font-size: 9.5px;
+  font-weight: 650;
+}
+.danger-button-text { color: var(--muted); }
+.danger-button-text:hover:not(:disabled) {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 32%, var(--border));
+  background: var(--red-soft);
 }
 
 /* Timeline Chip */
@@ -919,84 +1005,155 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 }
 
 /* Setup Dialog */
-.connection-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 8px 0;
+.gitlab-setup-dialog .dialog-title-group { min-width: 0; display: flex; align-items: center; gap: 11px; }
+.gitlab-setup-dialog .dialog-title-group > div { min-width: 0; display: grid; gap: 3px; }
+.gitlab-setup-dialog h3 { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -.025em; }
+.gitlab-setup-dialog .dialog-title-group p {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 9px;
 }
-.connection-card {
-  padding: 10px;
+.gitlab-setup-dialog .dialog-title-group p strong { color: var(--text-soft); font-weight: 650; }
+.gitlab-icon-badge {
+  width: 35px;
+  height: 35px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
   border-radius: 8px;
-  border: 1px solid var(--border-subtle);
-  background: var(--surface-0);
-  cursor: pointer;
-  transition: all .12s ease;
-}
-.connection-card:hover {
-  border-color: var(--border-medium);
-}
-.connection-card--selected {
-  border-color: var(--primary);
-  background: rgba(59, 130, 246, 0.06);
-}
-.connection-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 12px;
-}
-.connection-access-badge {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 4px;
-}
-.connection-access-badge--read_write {
-  background: rgba(16, 185, 129, 0.15);
-  color: #059669;
-}
-.connection-access-badge--read_only {
-  background: rgba(245, 158, 11, 0.15);
-  color: #d97706;
+  color: #e24329;
+  background: var(--surface-soft);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .04);
 }
 
-.gitlab-error-banner {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: rgba(239, 68, 68, 0.12);
-  color: #dc2626;
-  font-size: 11.5px;
+.form-group { display: grid; gap: 7px; }
+.form-group > label:not(.checkbox-label) { color: var(--text-soft); font-size: 11px; font-weight: 640; }
+.form-group input:not([type="checkbox"]) {
+  height: 39px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  outline: 0;
+  color: var(--text);
+  background: var(--surface);
+  font-size: 12px;
 }
+.form-group input:not([type="checkbox"])::placeholder { color: var(--faint); }
+.form-group select {
+  width: 100%;
+  height: 40px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  outline: 0;
+  color: var(--text);
+  background: var(--surface);
+  font-size: 11px;
+}
+.form-group input:not([type="checkbox"]):focus,
+.form-group select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 9%, transparent);
+}
+.form-hint { color: var(--muted); font-size: 9px; line-height: 1.5; }
+.form-hint code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  color: var(--text-soft);
+  background: var(--surface-soft);
+  font-family: var(--font-mono);
+  font-size: 8.4px;
+}
+.form-actions-inline { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.form-actions-inline .primary-button,
+.form-actions-inline .secondary-button { min-height: 34px; padding: 0 12px; border-radius: 8px; font-size: 10.5px; }
+
+.gitlab-connection-selector { display: grid; gap: 7px; }
+.gitlab-connection-selector > label { color: var(--text-soft); font-size: 11px; font-weight: 640; }
+.new-connection-form { display: grid; gap: 14px; }
+.new-connection-form h4 { margin: 0; color: var(--text-soft); font-size: 11px; font-weight: 640; }
+.connection-cards { display: grid; gap: 5px; }
+.connection-card {
+  padding: 9px 10px;
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: var(--surface-soft);
+  cursor: pointer;
+  transition: border-color .12s ease, background .12s ease;
+}
+.connection-card:hover { border-color: var(--border); }
+.connection-card--selected {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface-soft));
+}
+.connection-card-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.connection-card-host {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-soft);
+  font-size: 10.8px;
+  font-weight: 650;
+}
+.connection-card-user { color: var(--muted); font-size: 9px; }
+.connection-card-user strong { color: var(--text-soft); font-family: var(--font-mono); font-weight: 650; }
+.connection-access-badge {
+  padding: 3px 6px;
+  flex: 0 0 auto;
+  border-radius: 5px;
+  font-size: 8.5px;
+  font-weight: 720;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.connection-access-badge--read_write { color: var(--green); background: var(--green-soft); }
+.connection-access-badge--read_only { color: var(--amber); background: var(--amber-soft); }
+.add-connection-btn {
+  min-height: 34px;
+  padding: 0 11px;
+  justify-self: start;
+  border-radius: 8px;
+  color: var(--accent);
+  font-size: 10px;
+}
+
+.gitlab-error-banner,
 .gitlab-success-banner {
+  padding: 8px 10px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: rgba(16, 185, 129, 0.12);
-  color: #059669;
-  font-size: 11.5px;
+  gap: 7px;
+  border-radius: 8px;
+  font-size: 10px;
 }
+.gitlab-error-banner { color: var(--red); background: var(--red-soft); }
+.gitlab-success-banner { color: var(--green); background: var(--green-soft); }
 
 .checkbox-label {
-  display: inline-flex;
-  align-items: center;
+  display: flex;
+  align-items: flex-start;
   gap: 8px;
   cursor: pointer;
-  font-size: 12px;
-  color: var(--text-color, #374151);
+  color: var(--text-soft);
+  font-size: 9.5px;
+  font-weight: 620;
+  line-height: 1.45;
   user-select: none;
 }
 
 .checkbox-label input[type="checkbox"] {
   cursor: pointer;
-  accent-color: #fc6d26;
-  width: 15px;
-  height: 15px;
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
   margin: 0;
+  flex: 0 0 auto;
 }
 
 @media (max-width: 640px) {

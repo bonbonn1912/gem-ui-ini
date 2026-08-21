@@ -54,6 +54,8 @@ export function IntegrationsSettings({
     }
   };
 
+  const activeCount = candidates.filter((cand) => cand.binding?.enabled).length;
+
   return (
     <div className="integrations-settings-section">
       <div className="integration-card">
@@ -91,7 +93,28 @@ export function IntegrationsSettings({
           )}
 
           {candidates.length > 0 && (
-            <div className="repository-candidates-list">
+            <div className="repository-candidates">
+              <div className="field-heading">
+                <div>
+                  <span>Repositories</span>
+                  <small>
+                    {activeCount}/{candidates.length} aktiviert
+                  </small>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadCandidates()}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <span className="mini-spinner" />
+                  ) : (
+                    <Icon name="refresh" size={14} />
+                  )}
+                  Aktualisieren
+                </button>
+              </div>
+              <div className="repository-candidates-list">
               {candidates.map((cand) => {
                 const isEnabled = Boolean(cand.binding?.enabled);
                 const firstRemote = cand.remotes[0];
@@ -137,13 +160,14 @@ export function IntegrationsSettings({
                           className="primary-button"
                           onClick={() => setSetupCandidate(cand)}
                         >
-                          Für dieses Repository aktivieren
+                          Aktivieren
                         </button>
                       )}
                     </div>
                   </div>
                 );
               })}
+              </div>
             </div>
           )}
         </div>

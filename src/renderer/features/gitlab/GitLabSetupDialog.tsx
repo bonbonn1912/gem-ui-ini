@@ -74,6 +74,15 @@ export function GitLabSetupDialog({
       .catch((err) => setError((err as Error).message));
   }, [open, candidate]);
 
+  useEffect(() => {
+    if (!open) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !saving && !testing) onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose, open, saving, testing]);
+
   if (!open || !candidate) return null;
 
   const activeRemote = candidate.remotes[selectedRemoteIndex] ?? candidate.remotes[0];
@@ -138,12 +147,21 @@ export function GitLabSetupDialog({
     }
   };
 
-  const selectedConnection = connections.find((c) => c.id === selectedConnectionId);
-
   return (
-    <div className="dialog-backdrop" onClick={onClose}>
-      <div className="dialog gitlab-setup-dialog" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="GitLab für Repository einrichten">
-        <header className="dialog-header">
+    <div
+      className="modal-layer"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target && !saving && !testing) onClose();
+      }}
+    >
+      <section
+        className="project-dialog gitlab-setup-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="GitLab für Repository einrichten"
+      >
+        <header>
           <div className="dialog-title-group">
             <span className="gitlab-icon-badge"><Icon name="gitlab" size={18} /></span>
             <div>
@@ -151,7 +169,7 @@ export function GitLabSetupDialog({
               <p>Repository: <strong>{candidate.displayName}</strong> {candidate.branch ? `(Branch: ${candidate.branch})` : ""}</p>
             </div>
           </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Schließen"><Icon name="x" size={16} /></button>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Schließen"><Icon name="x" size={19} /></button>
         </header>
 
         <div className="dialog-body">
@@ -275,7 +293,7 @@ export function GitLabSetupDialog({
           )}
         </div>
 
-        <footer className="dialog-footer">
+        <footer>
           <button type="button" className="secondary-button" onClick={onClose}>
             Abbrechen
           </button>
@@ -288,7 +306,7 @@ export function GitLabSetupDialog({
             {saving ? <><span className="mini-spinner" /> Aktivieren …</> : "Für dieses Repository aktivieren"}
           </button>
         </footer>
-      </div>
+      </section>
     </div>
   );
 }

@@ -299,7 +299,6 @@ const migrations: readonly Migration[] = [
           'read_only', 'read_write', 'unknown', 'reauthentication_required'
         )),
         scopes_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(scopes_json)),
-        allow_self_signed_tls INTEGER NOT NULL DEFAULT 0 CHECK(allow_self_signed_tls IN (0, 1)),
         expires_at TEXT,
         last_validated_at TEXT NOT NULL,
         created_at TEXT NOT NULL,
@@ -344,6 +343,15 @@ const migrations: readonly Migration[] = [
 
       CREATE INDEX gitlab_bindings_connection
         ON gitlab_repository_bindings(connection_id, enabled);
+    `,
+  },
+  {
+    version: 8,
+    name: "008_gitlab_allow_self_signed_tls",
+    sql: `
+      ALTER TABLE gitlab_connections
+        ADD COLUMN allow_self_signed_tls INTEGER NOT NULL DEFAULT 0
+        CHECK(allow_self_signed_tls IN (0, 1));
     `,
   },
 ];
