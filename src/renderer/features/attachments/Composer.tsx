@@ -40,6 +40,7 @@ type ComposerProps = {
   draft?: ComposerDraft | null;
   externalContexts?: PreparedExternalContext[];
   sessionMode?: string | null;
+  hasPendingPlan?: boolean;
   onDraftApplied?: () => void;
   onRemoveExternalContext?: (refId: string) => void;
   onOpenContextAttachments: () => void;
@@ -103,6 +104,7 @@ export function Composer({
   draft = null,
   externalContexts = [],
   sessionMode = null,
+  hasPendingPlan = true,
   onDraftApplied,
   onRemoveExternalContext,
   onOpenContextAttachments,
@@ -123,6 +125,7 @@ export function Composer({
   const [dragging, setDragging] = useState(false);
   const [sending, setSending] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [decisionDismissed, setDecisionDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dragDepth = useRef(0);
   const fileSearchSequence = useRef(0);
@@ -130,6 +133,13 @@ export function Composer({
   attachmentsRef.current = attachments;
 
   const running = ["running", "awaiting_permission", "cancelling"].includes(phase);
+
+  useEffect(() => {
+    if (running) {
+      setDecisionDismissed(false);
+    }
+  }, [sessionId, running]);
+
   const canSend = !disabled && !contextOverBudget && !running && !sending && !staging
     && Boolean(text.trim() || attachments.length || projectFiles.length || externalContexts.length);
   const mention = activeFileMention(text, caretPosition);
@@ -365,12 +375,14 @@ export function Composer({
   };
 
   const isPlanMode = sessionMode === "plan";
+  const showPlanDecision = isPlanMode && hasPendingPlan && !running && !decisionDismissed;
 
   const handleDecision = async (decision: "accept" | "reject") => {
     if (sending || staging || running || disabled) return;
+    setDecisionDismissed(true);
     const promptText = decision === "accept"
       ? (text.trim() ? `Plan akzeptiert: ${text.trim()}` : "Plan akzeptiert. Bitte mit der Umsetzung beginnen.")
-      : (text.trim() ? `Plan abgelehnt: ${text.trim()}` : "Plan abgelehnt. Bitte überarbeiten und einen alternativen Ansatz vorschlagen.");
+      : (text.trim() ? `Plan abgelehnt: ${text.trim()}` : "Plan abgelehnt.");
 
     setSending(true);
     try {
@@ -386,6 +398,7 @@ export function Composer({
       textareaRef.current?.focus();
     } catch {
       // The parent presents the validated desktop error
+      setDecisionDismissed(false);
     } finally {
       setSending(false);
     }
@@ -393,6 +406,7 @@ export function Composer({
 
   const stop = async () => {
     if (stopping || phase === "cancelling") return;
+    setDecisionDismissed(true);
     setStopping(true);
     try {
       await onCancel();
@@ -570,7 +584,7 @@ export function Composer({
               ))}
             </div>
           )}
-          {isPlanMode && !running && (
+          {showPlanDecision && (
             <div className="plan-decision-bar" role="group" aria-label="Plan-Entscheidung">
               <span className="plan-decision-label">
                 <Icon name="brain" size={14} />
@@ -594,7 +608,7 @@ export function Composer({
                   onClick={() => void handleDecision("reject")}
                   disabled={sending || staging || disabled}
                   aria-label="Plan ablehnen"
-                  title="Plan ablehnen und überarbeiten lassen (übernimmt ggf. dein Feedback)"
+                  title="Plan ablehnen (übernimmt ggf. deine Nachricht)"
                 >
                   <Icon name="x" size={13} />
                   <span>Ablehnen</span>

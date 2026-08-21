@@ -1317,7 +1317,7 @@ describe("Renderer UI", () => {
 
   it("bietet im Planmodus Buttons zum Akzeptieren und Ablehnen des Plans", async () => {
     const user = userEvent.setup();
-    const { api } = createApi();
+    const { api, emit } = createApi();
     const planSession = {
       ...session,
       id: "session-plan",
@@ -1331,7 +1331,24 @@ describe("Renderer UI", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Architektur planen" });
 
-    const acceptButton = screen.getByRole("button", { name: "Plan akzeptieren" });
+    await emit([
+      {
+        seq: 1,
+        sessionId: "session-plan",
+        turnId: "turn-1",
+        timestamp: "2026-08-20T12:00:01.000Z",
+        event: { type: "message.assistant.delta", messageId: "assistant-plan", delta: "# Plan für Architektur\n1. Entwurf\n2. Umsetzung" },
+      },
+      {
+        seq: 2,
+        sessionId: "session-plan",
+        turnId: "turn-1",
+        timestamp: "2026-08-20T12:00:02.000Z",
+        event: { type: "turn.completed", stopReason: "completed" },
+      },
+    ]);
+
+    const acceptButton = await screen.findByRole("button", { name: "Plan akzeptieren" });
     const rejectButton = screen.getByRole("button", { name: "Plan ablehnen" });
     expect(acceptButton).toBeVisible();
     expect(rejectButton).toBeVisible();
@@ -1342,6 +1359,51 @@ describe("Renderer UI", () => {
       expect.objectContaining({
         sessionId: "session-plan",
         text: "Plan akzeptiert. Bitte mit der Umsetzung beginnen.",
+      }),
+    );
+  });
+
+  it("sendet beim Ablehnen im Planmodus eine saubere Absage ohne Alternativvorschlag", async () => {
+    const user = userEvent.setup();
+    const { api, emit } = createApi();
+    const planSession = {
+      ...session,
+      id: "session-plan",
+      title: "Architektur planen",
+      mode: "plan",
+      status: "idle" as const,
+    };
+    vi.mocked(api.sessions.list).mockResolvedValue([planSession]);
+    window.gemUi = api;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Architektur planen" });
+
+    await emit([
+      {
+        seq: 1,
+        sessionId: "session-plan",
+        turnId: "turn-1",
+        timestamp: "2026-08-20T12:00:01.000Z",
+        event: { type: "message.assistant.delta", messageId: "assistant-plan", delta: "Hier ist der Plan." },
+      },
+      {
+        seq: 2,
+        sessionId: "session-plan",
+        turnId: "turn-1",
+        timestamp: "2026-08-20T12:00:02.000Z",
+        event: { type: "turn.completed", stopReason: "completed" },
+      },
+    ]);
+
+    const rejectButton = await screen.findByRole("button", { name: "Plan ablehnen" });
+    await user.click(rejectButton);
+
+    await waitFor(() => expect(api.sessions.sendPrompt).toHaveBeenCalledTimes(1));
+    expect(api.sessions.sendPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "session-plan",
+        text: "Plan abgelehnt.",
       }),
     );
   });

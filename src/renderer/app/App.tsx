@@ -1071,6 +1071,28 @@ export function App() {
     return "idle";
   }, [activeSession, chat.phase]);
 
+  const hasPendingPlan = useMemo(() => {
+    if (!activeSession || activeSession.mode !== "plan") return false;
+    if (effectivePhase !== "idle") return false;
+    if (chat.items.length === 0) return false;
+
+    for (let i = chat.items.length - 1; i >= 0; i--) {
+      const item = chat.items[i]!;
+      if (item.kind === "notice") return false;
+      if (item.kind === "message" && item.role === "user") {
+        return false;
+      }
+      if (item.kind === "tool") {
+        return false;
+      }
+      if (item.kind === "message" && item.role === "assistant") {
+        if (item.streaming) return false;
+        return true;
+      }
+    }
+    return false;
+  }, [activeSession?.mode, effectivePhase, chat.items]);
+
   if (booting) return <LoadingScreen />;
   if (fatalError) {
     return (
@@ -1248,6 +1270,7 @@ export function App() {
                 draft={composerDraft}
                 externalContexts={pendingExternalContexts}
                 sessionMode={activeSession.mode}
+                hasPendingPlan={hasPendingPlan}
                 onDraftApplied={() => setComposerDraft(null)}
                 onRemoveExternalContext={(refId) =>
                   setPendingExternalContexts((current) =>
