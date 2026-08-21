@@ -195,3 +195,27 @@ export type CancelTurnInput = z.input<typeof CancelTurnInputSchema>;
 export type PermissionResponse = z.input<typeof PermissionResponseSchema>;
 export type SetSessionModeInput = z.input<typeof SetSessionModeInputSchema>;
 export type SetSessionModelInput = z.input<typeof SetSessionModelInputSchema>;
+
+export function generateSessionTitleFromPrompt(prompt: string): string {
+  let clean = prompt
+    .replace(/^(\s*#+\s*|\s*[-*]\s*)/gm, "")
+    .replace(/`{1,3}[^`]+`{1,3}/g, "")
+    .split("\n")[0]
+    .trim();
+
+  clean = clean
+    .replace(/^(kannst\s+du\s+(bitte\s+)?|könntest\s+du\s+(bitte\s+)?|bitte\s+|erstelle\s+(mir\s+)?|mach\s+(mir\s+)?|schreibe\s+(mir\s+)?)/i, "")
+    .trim();
+
+  if (!clean) return "Neue Session";
+
+  const maxLength = 45;
+  if (clean.length <= maxLength) {
+    return clean.charAt(0).toUpperCase() + clean.slice(1);
+  }
+
+  const trimmed = clean.slice(0, maxLength);
+  const lastSpace = trimmed.lastIndexOf(" ");
+  const result = lastSpace > 20 ? trimmed.slice(0, lastSpace) : trimmed;
+  return `${result.trim()}…`;
+}

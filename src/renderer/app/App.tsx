@@ -32,20 +32,21 @@ import { useTodos } from "../features/todos/useTodos";
 import { GitLabPanel, type ReviewDelivery } from "../features/gitlab/GitLabPanel";
 import { McpPanel } from "../features/mcp/McpPanel";
 import { SkillsPanel } from "../features/skills/SkillsPanel";
-import type {
-  AppCapabilities,
-  AppProject,
-  AppSession,
-  ExternalPromptContextRef,
-  GitLabRepositoryCandidate,
-  GitFileChange,
-  PreparedExternalContext,
-  GitProjectStatus,
-  ProjectFileSearchEntry,
-  ProjectRootCandidate,
-  Todo,
-  UiError,
-  StreamEnvelope,
+import {
+  generateSessionTitleFromPrompt,
+  type AppCapabilities,
+  type AppProject,
+  type AppSession,
+  type ExternalPromptContextRef,
+  type GitLabRepositoryCandidate,
+  type GitFileChange,
+  type PreparedExternalContext,
+  type GitProjectStatus,
+  type ProjectFileSearchEntry,
+  type ProjectRootCandidate,
+  type Todo,
+  type UiError,
+  type StreamEnvelope,
 } from "../types";
 import { createClientRequestId } from "../utils/client-request-id";
 
@@ -849,7 +850,17 @@ export function App() {
       })),
       timestamp: new Date().toISOString(),
     });
-    setSessions((current) => current.map((session) => session.id === activeSession.id ? { ...session, status: "running" } : session));
+    const isInitialTitle = !activeSession.title || activeSession.title.trim() === "Neue Session";
+    const optimisticTitle = isInitialTitle && text.trim()
+      ? generateSessionTitleFromPrompt(text)
+      : activeSession.title;
+    setSessions((current) =>
+      current.map((session) =>
+        session.id === activeSession.id
+          ? { ...session, title: optimisticTitle, status: "running" }
+          : session,
+      ),
+    );
     try {
       const result = await window.gemUi.sessions.sendPrompt({
         sessionId: activeSession.id,
