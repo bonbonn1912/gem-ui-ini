@@ -1372,4 +1372,22 @@ describe("Renderer UI", () => {
 
     expect(screen.getByText(/# Implementierungsplan/)).toBeVisible();
   });
+
+  it("öffnet bei Hover/Klick auf die Token-Pille ein Details-Modal mit Input, Output und Cached", async () => {
+    const user = userEvent.setup();
+    const { api } = createApi();
+    window.gemUi = api;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Login reparieren" });
+
+    // Hover / click on usage pill to open token details popover
+    const pill = screen.getByText("Token: –").closest(".usage-pill")!;
+    await user.hover(pill);
+
+    expect(await screen.findByRole("dialog", { name: "Token-Nutzung Details" })).toBeVisible();
+    expect(screen.getByText("Input")).toBeVisible();
+    expect(screen.getByText("Output")).toBeVisible();
+    expect(screen.getByText("Cached")).toBeVisible();
+  });
 });

@@ -6,6 +6,25 @@ type AppInfoUpdatePopoverProps = {
   capabilities: AppCapabilities;
 };
 
+function cleanReleaseNotes(notes: string | null | undefined): string | null {
+  if (!notes) return null;
+  const filtered = notes
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => {
+      if (!line) return false;
+      const lower = line.toLowerCase();
+      if (lower.includes("bonbonn1912") || lower.includes("bonbon1912") || lower.includes("gem-ui-ini")) return false;
+      if (lower.includes("github.com") || lower.includes("gitlab.com")) return false;
+      if (lower.includes("changelog") || lower.includes("compare/")) return false;
+      if (lower.startsWith("http://") || lower.startsWith("https://")) return false;
+      return true;
+    })
+    .join("\n")
+    .trim();
+  return filtered || null;
+}
+
 export function AppInfoUpdatePopover({ capabilities }: AppInfoUpdatePopoverProps) {
   const [open, setOpen] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -181,8 +200,8 @@ export function AppInfoUpdatePopover({ capabilities }: AppInfoUpdatePopoverProps
                   </div>
                 </div>
 
-                {updateInfo.releaseNotes && (
-                  <p className="update-release-snippet">{updateInfo.releaseNotes.slice(0, 140)}...</p>
+                {cleanReleaseNotes(updateInfo.releaseNotes) && (
+                  <p className="update-release-snippet">{cleanReleaseNotes(updateInfo.releaseNotes)!.slice(0, 140)}...</p>
                 )}
 
                 {downloadedFilePath ? (

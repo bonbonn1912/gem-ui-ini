@@ -84,6 +84,25 @@ export function selectBestReleaseAsset(
   return assets[0]?.browser_download_url ?? null;
 }
 
+function cleanReleaseNotes(notes: string | null | undefined): string | null {
+  if (!notes) return null;
+  const filtered = notes
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => {
+      if (!line) return false;
+      const lower = line.toLowerCase();
+      if (lower.includes("bonbonn1912") || lower.includes("bonbon1912") || lower.includes("gem-ui-ini")) return false;
+      if (lower.includes("github.com") || lower.includes("gitlab.com")) return false;
+      if (lower.includes("changelog") || lower.includes("compare/")) return false;
+      if (lower.startsWith("http://") || lower.startsWith("https://")) return false;
+      return true;
+    })
+    .join("\n")
+    .trim();
+  return filtered || null;
+}
+
 export type AppUpdateServiceOptions = {
   repositoryOwner?: string;
   repositoryName?: string;
@@ -140,9 +159,9 @@ export class AppUpdateService {
       }
 
       if (!response.ok) {
-        let errorMsg = `GitHub API Fehler (${response.status})`;
+        let errorMsg = `Update-Server Fehler (${response.status})`;
         if (response.status === 403) {
-          errorMsg = "GitHub API Rate Limit erreicht. Bitte später erneut versuchen.";
+          errorMsg = "Update-Server Limit erreicht. Bitte später erneut versuchen.";
         }
         return {
           currentVersion,
@@ -177,16 +196,16 @@ export class AppUpdateService {
       }
 
       const isNewer = compareSemver(cleanLatest, currentVersion) > 0;
-      const downloadUrl = selectBestReleaseAsset(release.assets, this.#platform, this.#arch) ?? release.html_url ?? null;
+      const downloadUrl = selectBestReleaseAsset(release.assets, this.#platform, this.#arch) ?? null;
 
       return {
         currentVersion,
         latestVersion: cleanLatest,
         updateAvailable: isNewer,
         releaseName: release.name || rawTag || `Version ${cleanLatest}`,
-        releaseNotes: release.body ? release.body.slice(0, 4000) : null,
+        releaseNotes: cleanReleaseNotes(release.body),
         publishedAt: release.published_at ? new Date(release.published_at).toISOString() : null,
-        htmlUrl: release.html_url ?? null,
+        htmlUrl: null,
         downloadUrl,
         error: null,
       };
@@ -195,7 +214,7 @@ export class AppUpdateService {
         currentVersion,
         latestVersion: null,
         updateAvailable: false,
-        error: (err as Error).message || "Verbindung zu GitHub fehlgeschlagen.",
+        error: (err as Error).message || "Verbindung zum Update-Server fehlgeschlagen.",
       };
     }
   }
