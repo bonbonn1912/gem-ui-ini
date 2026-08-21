@@ -7,11 +7,25 @@ import {
   type KeyboardEvent,
 } from "react";
 import { Icon } from "../../components/Icon";
-import type { Attachment, ProjectFileSearchEntry } from "../../types";
+import type {
+  Attachment,
+  PreparedExternalContext,
+  ProjectFileSearchEntry,
+} from "../../types";
 import type { TurnPhase } from "../chat/reducer";
 import { createClientRequestId } from "../../utils/client-request-id";
 
 export type ComposerAttachment = Attachment & { previewUrl: string };
+
+/**
+ * Text handed to the composer from somewhere else — a todo, a review thread.
+ * The token is what makes a repeated insert of the same text visible; the text
+ * alone would look unchanged to an effect.
+ */
+export type ComposerDraft = {
+  token: number;
+  text: string;
+};
 
 type ComposerProps = {
   sessionId: string;
@@ -23,6 +37,10 @@ type ComposerProps = {
   contextEstimatedTokens: number;
   contextOverBudget: boolean;
   disabled?: boolean;
+  draft?: ComposerDraft | null;
+  externalContexts?: PreparedExternalContext[];
+  onDraftApplied?: () => void;
+  onRemoveExternalContext?: (refId: string) => void;
   onOpenContextAttachments: () => void;
   onSend: (
     text: string,
@@ -81,6 +99,10 @@ export function Composer({
   contextEstimatedTokens,
   contextOverBudget,
   disabled = false,
+  draft = null,
+  externalContexts = [],
+  onDraftApplied,
+  onRemoveExternalContext,
   onOpenContextAttachments,
   onSend,
   onCancel,
@@ -107,7 +129,7 @@ export function Composer({
 
   const running = ["running", "awaiting_permission", "cancelling"].includes(phase);
   const canSend = !disabled && !contextOverBudget && !running && !sending && !staging
-    && Boolean(text.trim() || attachments.length || projectFiles.length);
+    && Boolean(text.trim() || attachments.length || projectFiles.length || externalContexts.length);
   const mention = activeFileMention(text, caretPosition);
   const mentionKey = mention ? `${mention.start}:${mention.end}:${mention.query}` : null;
   const fileMenuOpen = Boolean(mention && mentionKey !== dismissedMention && !disabled);
@@ -143,8 +165,30 @@ export function Composer({
 
   const addFiles = useCallback((files: File[]) => {
     if (!files.length) return;
-    void addStaged(() => window.gemUi.attachments.stageDroppedFiles(files, sessionId));
-  }, [addStaged, sessionId]);
+
+    // Alles, was in den Chat gezogen wird, wird dauerhaft als Session-Anhang
+    // gesichert — Dokumente ebenso wie Bilder. Der Anhänge-Reiter „Diese
+    // Session" zeigt es danach unter „Aus dem Chat".
+    void window.gemUi.contextAttachments
+      .addDroppedFiles(
+        files,
+        { projectId, scope: "session", sessionId },
+        { origin: "chat" },
+      )
+      .catch((error) =>
+        onError(
+          error instanceof Error
+            ? error.message
+            : "Die Datei konnte nicht als Session-Anhang gespeichert werden.",
+        ),
+      );
+
+    // Bilder gehen zusätzlich als Anhang dieses Turns an Gemini.
+    const images = files.filter((file) => isSupportedImageMime(file.type));
+    if (images.length > 0) {
+      void addStaged(() => window.gemUi.attachments.stageDroppedFiles(images, sessionId));
+    }
+  }, [addStaged, onError, projectId, sessionId]);
 
   useEffect(() => {
     const hasFiles = (event: DragEvent) => Array.from(event.dataTransfer?.types ?? []).includes("Files");
@@ -187,6 +231,25 @@ export function Composer({
   useEffect(() => () => {
     for (const attachment of attachmentsRef.current) URL.revokeObjectURL(attachment.previewUrl);
   }, []);
+
+  // A handed-over draft is appended, never substituted: whatever the user has
+  // already typed is theirs, and silently replacing it would lose work.
+  useEffect(() => {
+    if (!draft) return;
+    setText((current) => {
+      const trimmed = current.trimEnd();
+      return trimmed ? `${trimmed}\n\n${draft.text}` : draft.text;
+    });
+    onDraftApplied?.();
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.focus();
+      window.requestAnimationFrame(() => {
+        textarea.selectionStart = textarea.value.length;
+        textarea.selectionEnd = textarea.value.length;
+      });
+    }
+  }, [draft?.token]);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -419,6 +482,32 @@ export function Composer({
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+          {externalContexts.length > 0 && (
+            <div className="external-context-strip" aria-label="Vorbereiteter Reviewkontext">
+              {externalContexts.map((context) => (
+                <span className="external-context-chip" key={context.ref.id} title={context.mergeRequestReference}>
+                  <Icon name="gitlab" size={12} />
+                  <strong>{context.title}</strong>
+                  <small>
+                    {context.filePath ?? context.repositoryLabel} · gültig bis{" "}
+                    {new Date(context.expiresAt).toLocaleTimeString("de-DE", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </small>
+                  {onRemoveExternalContext && (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveExternalContext(context.ref.id)}
+                      aria-label={`${context.title} aus dem Entwurf entfernen`}
+                    >
+                      <Icon name="x" size={11} />
+                    </button>
+                  )}
+                </span>
+              ))}
             </div>
           )}
           {projectFiles.length > 0 && (

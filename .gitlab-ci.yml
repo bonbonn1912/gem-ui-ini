@@ -1,0 +1,68 @@
+stages:
+  - test
+  - build
+  - release
+
+default:
+  interruptible: true
+
+typecheck_and_test:
+  stage: test
+  image: node:24-bullseye
+  script:
+    - npm ci
+    - npm run typecheck
+    - npm test
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v/'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+build_windows:
+  stage: build
+  tags:
+    - saas-windows-medium-amd64
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v/'
+  script:
+    - npm ci
+    - npm run make -- --platform=win32 --arch=x64
+  artifacts:
+    name: "geminui-windows-$CI_COMMIT_TAG"
+    paths:
+      - out/make/squirrel.windows/x64/*.exe
+      - out/make/squirrel.windows/x64/*.nupkg
+      - out/make/squirrel.windows/x64/RELEASES
+    expire_in: 30 days
+
+build_macos:
+  stage: build
+  tags:
+    - saas-macos-medium-m1
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v/'
+  script:
+    - npm ci
+    - npm run make -- --platform=darwin --arch=arm64
+  artifacts:
+    name: "geminui-macos-arm64-$CI_COMMIT_TAG"
+    paths:
+      - out/make/zip/darwin/arm64/*.zip
+    expire_in: 30 days
+
+create_release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v/'
+  needs:
+    - job: build_windows
+      artifacts: true
+    - job: build_macos
+      artifacts: true
+  script:
+    - echo "Publishing Release $CI_COMMIT_TAG for Windows and macOS"
+  release:
+    name: "Release $CI_COMMIT_TAG"
+    tag_name: "$CI_COMMIT_TAG"
+    description: "GeminUI Desktop Release $CI_COMMIT_TAG für Windows und macOS"

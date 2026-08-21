@@ -1,4 +1,5 @@
 import { Icon } from "../../components/Icon";
+import { useDismissOnOutsideClick } from "../../hooks/useDismissOnOutsideClick";
 import type {
   AppProject,
   AppSession,
@@ -14,13 +15,6 @@ type ChatHeaderProps = {
   modelsSupported: boolean;
   onOpenSidebar: () => void;
   onEditProject: () => void;
-  attachmentsOpen: boolean;
-  attachmentsCount: number;
-  attachmentsIncludedCount: number;
-  onToggleAttachments: () => void;
-  changesOpen: boolean;
-  changesCount: number;
-  onToggleChanges: () => void;
   onSetMode: (mode: string) => void;
   onSetModel: (model: string) => void;
 };
@@ -124,15 +118,11 @@ function counterLines(tokens: TokenCounters, verbose = false): string[] {
   return lines;
 }
 
-export type UsageMetric = {
-  key: string;
-  label: string;
-  value: string;
-};
-
 type UsagePresentation = {
-  /** Segments rendered inside the pill. Empty means nothing was reported yet. */
-  metrics: UsageMetric[];
+  /** Caption and value of the single figure the pill shows. */
+  caption: string | null;
+  value: string | null;
+  /** Set instead of caption/value when nothing has been reported yet. */
   placeholder: string | null;
   title: string;
   percent?: number;
@@ -141,10 +131,15 @@ type UsagePresentation = {
 /**
  * Presents exactly what the agent reported.
  *
- * The pill is always visible and names each counter separately: context
- * occupancy, session input, session output and session cache. A counter the
- * agent never sent shows a dash instead of a zero, and consumption is never
- * rendered as a context percentage.
+ * The pill is always visible but says one thing only: how full the context
+ * window is when the agent reported a size, otherwise how many tokens the
+ * session has used. The full breakdown — input, output, cache, last turn and
+ * where each number came from — lives in the tooltip, so a header that has to
+ * stay readable is not asked to carry four counters at once.
+ *
+ * What is not reported is never invented: consumption is not dressed up as a
+ * context percentage, and a counter the agent never sent shows a dash rather
+ * than a zero.
  */
 function usagePresentation(chat: ChatState, working: boolean): UsagePresentation {
   const snapshot = chat.usage;
@@ -152,13 +147,15 @@ function usagePresentation(chat: ChatState, working: boolean): UsagePresentation
   const session = snapshot?.session ?? null;
   const lastTurn = snapshot?.lastTurn ?? null;
 
-  const metrics: UsageMetric[] = [];
   const lines: string[] = [];
   let percent: number | undefined;
+  let caption: string | null = null;
+  let value: string | null = null;
 
   if (context) {
     percent = Math.round((context.used / context.size) * 100);
-    metrics.push({ key: "context", label: "Kontext", value: `${percent} %` });
+    caption = "Kontext";
+    value = `${percent} %`;
     lines.push(
       `Kontextfenster: ${exactNumber(context.used)} von ${exactNumber(context.size)} Token belegt (${percent} %).`,
     );
@@ -170,13 +167,14 @@ function usagePresentation(chat: ChatState, working: boolean): UsagePresentation
     // "≥" is literal, not decorative: with partial coverage the true session
     // total is at least this large, because turns before tracking are missing.
     const atLeast = session.coverage === "partial" ? "≥ " : "";
-    const value = (count: number | null) =>
-      count === null ? "–" : `${atLeast}${exactNumber(count)}`;
-    metrics.push(
-      { key: "input", label: "In", value: value(session.tokens.input) },
-      { key: "output", label: "Out", value: value(session.tokens.output) },
-      { key: "cache", label: "Cache", value: value(session.tokens.cachedRead) },
-    );
+    // The context percentage wins the pill when both are known: it answers the
+    // question a running session actually raises.
+    if (caption === null) {
+      caption = "Token";
+      value = session.tokens.total === null
+        ? "–"
+        : `${atLeast}${exactNumber(session.tokens.total)}`;
+    }
 
     lines.push(
       `Sessionverbrauch (${TOKEN_SOURCE_LABELS[session.source] ?? session.source}):`,
@@ -209,16 +207,18 @@ function usagePresentation(chat: ChatState, working: boolean): UsagePresentation
     );
   }
 
-  if (metrics.length === 0) {
+  if (value === null) {
     return {
-      metrics,
+      caption: null,
+      value: null,
       placeholder: "Token: –",
       title: ["Gemini hat für diese Session noch keine Nutzung gemeldet.", ...lines.slice(1)].join("\n"),
     };
   }
 
   return {
-    metrics,
+    caption,
+    value,
     placeholder: null,
     title: lines.join("\n"),
     ...(percent !== undefined ? { percent } : {}),
@@ -232,16 +232,10 @@ export function ChatHeader({
   modelsSupported,
   onOpenSidebar,
   onEditProject,
-  attachmentsOpen,
-  attachmentsCount,
-  attachmentsIncludedCount,
-  onToggleAttachments,
-  changesOpen,
-  changesCount,
-  onToggleChanges,
   onSetMode,
   onSetModel,
 }: ChatHeaderProps) {
+  const menuRef = useDismissOnOutsideClick<HTMLDetailsElement>();
   // Two sources, both incomplete on their own: the cached lists carry display
   // names and are there from app start, the live event carries only IDs but is
   // the fresher one once a session runs. The current selection is appended so
@@ -250,6 +244,12 @@ export function ChatHeader({
   const models = mergeOptions(session.availableModels, chat.models, session.model, (id) => id);
   const working = ["running", "awaiting_permission", "cancelling"].includes(chat.phase);
   const usage = usagePresentation(chat, working);
+  // The button carries the two facts the popover would otherwise hide. Both can
+  // be unknown, and an empty button would be worse than an honest fallback.
+  const summaryLabel = [
+    models.find((model) => model.id === session.model)?.name ?? session.model,
+    modes.find((mode) => mode.id === session.mode)?.name ?? session.mode,
+  ].filter(Boolean).join(" · ") || "Session";
 
   return (
     <header className="chat-header">
@@ -279,46 +279,78 @@ export function ChatHeader({
           {usage.placeholder !== null ? (
             <span>{usage.placeholder}</span>
           ) : (
-            usage.metrics.map((metric) => (
-              <span className={`usage-metric usage-metric--${metric.key}`} key={metric.key}>
-                <span>{metric.label}</span>
-                <strong>{metric.value}</strong>
-              </span>
-            ))
+            <span className="usage-metric">
+              {usage.caption && <span>{usage.caption}</span>}
+              <strong>{usage.value}</strong>
+            </span>
           )}
         </span>
-        <button
-          className={`attachments-toggle ${attachmentsOpen ? "attachments-toggle--active" : ""}`}
-          type="button"
-          onClick={onToggleAttachments}
-          aria-pressed={attachmentsOpen}
-          aria-label={`Anhänge ${attachmentsOpen ? "schließen" : "öffnen"}${
-            attachmentsCount > 0 ? `, ${attachmentsCount} Anhänge, ${attachmentsIncludedCount} im Kontext` : ""
-          }`}
-        >
-          <Icon name="paperclip" size={15} />
-          <span>Anhänge</span>
-          {attachmentsCount > 0 && <i>{attachmentsCount > 99 ? "99+" : attachmentsCount}</i>}
-          {attachmentsIncludedCount > 0 && <em>{attachmentsIncludedCount}</em>}
-        </button>
-        <button
-          className={`changes-toggle ${changesOpen ? "changes-toggle--active" : ""}`}
-          type="button"
-          onClick={onToggleChanges}
-          aria-pressed={changesOpen}
-          aria-label={`Änderungen ${changesOpen ? "schließen" : "öffnen"}${changesCount > 0 ? `, ${changesCount} Dateien` : ""}`}
-        >
-          <Icon name="changes" size={15} />
-          <span>Änderungen</span>
-          {changesCount > 0 && <i>{changesCount > 999 ? "999+" : changesCount}</i>}
-        </button>
-        <details className="roots-menu">
-          <summary>
-            <Icon name="folder" size={15} />
-            <span>{project.roots.length} {project.roots.length === 1 ? "Root" : "Roots"}</span>
+
+        {/* Model, mode and the project roots describe how this session runs.
+            They are read far more often than they are changed, so the button
+            states them and the popover is where they are edited. */}
+        <details ref={menuRef} className="session-settings-menu">
+          <summary title="Sessioneinstellungen">
+            <Icon name="settings" size={15} />
+            <span>{summaryLabel}</span>
             <Icon name="chevron-down" size={13} />
           </summary>
-          <div className="roots-popover">
+          <div className="session-settings-popover">
+            <div className="session-settings-row">
+              <span className="session-settings-label">Modell</span>
+              {modelsSupported && models.length > 1 ? (
+                <label className="model-select">
+                  <span className="sr-only">Gemini-Modell</span>
+                  <select
+                    value={session.model ?? ""}
+                    onChange={(event) => onSetModel(event.target.value)}
+                    disabled={working}
+                    aria-label="Gemini-Modell"
+                  >
+                    {!session.model && <option value="" disabled>Modell wählen</option>}
+                    {models.map((model) => (
+                      <option key={model.id} value={model.id} title={model.description}>{model.name}</option>
+                    ))}
+                  </select>
+                  <Icon name="chevron-down" size={13} />
+                </label>
+              ) : (
+                /* One entry means the merge only recovered the current model — a
+                   dropdown that cannot change anything would promise a choice
+                   that does not exist, so the value is stated instead. */
+                <span
+                  className="model-pill"
+                  title={modelsSupported
+                    ? "Gemini hat noch keine auswählbaren Modelle gemeldet."
+                    : "Diese Gemini-ACP-Anbindung stellt keinen Modellwechsel bereit."
+                  }
+                >
+                  <strong>{session.model ?? NOT_REPORTED}</strong>
+                </span>
+              )}
+            </div>
+
+            <div className="session-settings-row">
+              <span className="session-settings-label">Modus</span>
+              {modes.length ? (
+                <label className="mode-select">
+                  <span className="sr-only">Gemini-Modus</span>
+                  <select
+                    value={session.mode ?? modes[0]?.id ?? ""}
+                    onChange={(event) => onSetMode(event.target.value)}
+                    disabled={working}
+                  >
+                    {modes.map((mode) => (
+                      <option key={mode.id} value={mode.id} title={mode.description}>{mode.name}</option>
+                    ))}
+                  </select>
+                  <Icon name="chevron-down" size={13} />
+                </label>
+              ) : (
+                <span className="model-pill"><strong>{session.mode ?? NOT_REPORTED}</strong></span>
+              )}
+            </div>
+
             <div className="roots-popover-heading">
               <div><strong>Projektordner</strong><span>Gemini-Kontext dieser Session</span></div>
               <span className="revision-badge">r{project.rootRevision}</span>
@@ -338,47 +370,6 @@ export function ChatHeader({
             </button>
           </div>
         </details>
-
-        {modes.length ? (
-          <label className="mode-select">
-            <span className="sr-only">Gemini-Modus</span>
-            <select value={session.mode ?? modes[0]?.id ?? ""} onChange={(event) => onSetMode(event.target.value)} disabled={working}>
-              {modes.map((mode) => (
-                <option key={mode.id} value={mode.id} title={mode.description}>{mode.name}</option>
-              ))}
-            </select>
-            <Icon name="chevron-down" size={13} />
-          </label>
-        ) : session.mode ? (
-          <span className="mode-pill">{session.mode}</span>
-        ) : null}
-
-        {/* One entry means the merge only recovered the current model — a
-            dropdown that cannot change anything would promise a choice that
-            does not exist, so the pill states the model instead. */}
-        {modelsSupported && models.length > 1 ? (
-          <label className="model-select">
-            <span className="sr-only">Gemini-Modell</span>
-            <select value={session.model ?? ""} onChange={(event) => onSetModel(event.target.value)} disabled={working} aria-label="Gemini-Modell">
-              {!session.model && <option value="" disabled>Modell wählen</option>}
-              {models.map((model) => (
-                <option key={model.id} value={model.id} title={model.description}>{model.name}</option>
-              ))}
-            </select>
-            <Icon name="chevron-down" size={13} />
-          </label>
-        ) : (
-          <span
-            className="model-pill"
-            title={modelsSupported
-              ? "Gemini hat noch keine auswählbaren Modelle gemeldet."
-              : "Diese Gemini-ACP-Anbindung stellt keinen Modellwechsel bereit."
-            }
-          >
-            <span>Modell</span>
-            <strong>{session.model ?? "nicht gemeldet"}</strong>
-          </span>
-        )}
       </div>
     </header>
   );

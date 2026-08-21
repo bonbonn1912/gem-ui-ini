@@ -59,6 +59,20 @@ export function installApplicationMenu(): void {
       ],
     },
     {
+      label: "Ansicht",
+      submenu: [
+        { role: "reload", label: "Neu laden" },
+        { role: "forceReload", label: "Erzwungenes Neuladen" },
+        { role: "toggleDevTools", label: "Entwicklertools umschalten" },
+        { type: "separator" },
+        { role: "resetZoom", label: "Originalgröße" },
+        { role: "zoomIn", label: "Vergrößern" },
+        { role: "zoomOut", label: "Verkleinern" },
+        { type: "separator" },
+        { role: "togglefullscreen", label: "Vollbild umschalten" },
+      ],
+    },
+    {
       label: "Fenster",
       submenu: [
         { role: "minimize" },
@@ -138,8 +152,9 @@ export function createMainWindow(): BrowserWindow {
     }
   });
   window.webContents.on("context-menu", (_event, params) => {
+    const template: MenuItemConstructorOptions[] = [];
     if (params.isEditable) {
-      const menu = Menu.buildFromTemplate([
+      template.push(
         { role: "undo", label: "Rückgängig", enabled: params.editFlags.canUndo },
         { role: "redo", label: "Wiederholen", enabled: params.editFlags.canRedo },
         { type: "separator" },
@@ -147,15 +162,29 @@ export function createMainWindow(): BrowserWindow {
         { role: "copy", label: "Kopieren", enabled: params.editFlags.canCopy },
         { role: "paste", label: "Einfügen", enabled: params.editFlags.canPaste },
         { role: "selectAll", label: "Alles auswählen", enabled: params.editFlags.canSelectAll },
-      ]);
-      menu.popup();
+      );
     } else if (params.selectionText && params.selectionText.trim().length > 0) {
-      const menu = Menu.buildFromTemplate([
+      template.push(
         { role: "copy", label: "Kopieren" },
         { role: "selectAll", label: "Alles auswählen" },
-      ]);
-      menu.popup();
+      );
     }
+
+    if (template.length > 0) {
+      template.push({ type: "separator" });
+    }
+    template.push({
+      label: "Element untersuchen",
+      click: () => {
+        window.webContents.inspectElement(params.x, params.y);
+        if (!window.webContents.isDevToolsOpened()) {
+          window.webContents.openDevTools();
+        }
+      },
+    });
+
+    const menu = Menu.buildFromTemplate(template);
+    menu.popup();
   });
 
   session.defaultSession.setPermissionRequestHandler(

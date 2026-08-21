@@ -1,4 +1,5 @@
 import { Icon } from "../../components/Icon";
+import { useDismissOnOutsideClick } from "../../hooks/useDismissOnOutsideClick";
 import type { ContextAttachment } from "../../types";
 
 type AttachmentRowProps = {
@@ -50,6 +51,7 @@ export function AttachmentRow({
   onOpenExternal,
   onOpenFile,
 }: AttachmentRowProps) {
+  const menuRef = useDismissOnOutsideClick<HTMLDetailsElement>();
   const processing = processingLabel(attachment);
   const disabledReason = !sessionId ? "Die Kontextauswahl gilt pro Session." : cannotInclude(attachment);
   const meta = attachment.file
@@ -103,7 +105,7 @@ export function AttachmentRow({
         {attachment.estimatedTokens !== null && <span className="context-attachment-tokens">~{attachment.estimatedTokens.toLocaleString("de-DE")}</span>}
         {disabledReason && attachment.file?.extractionState === "failed" && <span title={disabledReason}><Icon name="warning" size={15} /></span>}
       </button>
-      <details className="context-attachment-menu">
+      <details ref={menuRef} className="context-attachment-menu">
         <summary aria-label={`Aktionen für ${attachment.title}`}><Icon name="more" size={16} /></summary>
         <div>
           <button type="button" onClick={() => void rename()}>Umbenennen</button>

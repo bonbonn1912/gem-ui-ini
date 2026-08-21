@@ -18,6 +18,7 @@ export const MAX_CONTEXT_CHARS_TOTAL = 240_000;
 
 export const ContextAttachmentScopeSchema = z.enum(["project", "session"]);
 export const ContextAttachmentKindSchema = z.enum(["file", "link"]);
+export const ContextAttachmentOriginSchema = z.enum(["manual", "chat"]);
 export const ExtractionStateSchema = z.enum([
   "pending",
   "running",
@@ -66,6 +67,7 @@ export const ContextAttachmentSchema = z.object({
   scope: ContextAttachmentScopeSchema,
   sessionId: EntityIdSchema.nullable(),
   kind: ContextAttachmentKindSchema,
+  origin: ContextAttachmentOriginSchema,
   title: DisplayNameSchema,
   note: z.string().max(2_000).nullable(),
   sortOrder: z.int().nonnegative(),
@@ -133,12 +135,14 @@ export const ListContextAttachmentsInputSchema = z.object({
 export const AddContextFilesInputSchema = ContextTargetSchema.extend({
   clientRequestId: ClientRequestIdSchema,
   paths: z.array(FileSystemPathSchema).max(20).default([]),
+  origin: ContextAttachmentOriginSchema.default("manual"),
 }).strict();
 
 export const AddContextLinkInputSchema = ContextTargetSchema.extend({
   clientRequestId: ClientRequestIdSchema,
   url: z.url(),
   title: DisplayNameSchema.optional(),
+  origin: ContextAttachmentOriginSchema.default("manual"),
 }).strict();
 
 export const UpdateContextAttachmentInputSchema = z.object({
@@ -206,6 +210,7 @@ export const ClearLinkPreviewStorageInputSchema = z.object({
 
 export type ContextAttachmentScope = z.infer<typeof ContextAttachmentScopeSchema>;
 export type ContextAttachmentKind = z.infer<typeof ContextAttachmentKindSchema>;
+export type ContextAttachmentOrigin = z.infer<typeof ContextAttachmentOriginSchema>;
 export type ExtractionState = z.infer<typeof ExtractionStateSchema>;
 export type LinkPreviewState = z.infer<typeof LinkPreviewStateSchema>;
 export type ContextAttachmentFile = z.infer<typeof ContextAttachmentFileSchema>;

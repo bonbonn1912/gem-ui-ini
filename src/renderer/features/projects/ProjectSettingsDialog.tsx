@@ -7,6 +7,7 @@ import type {
   ProjectRootCandidate,
 } from "../../types";
 import { createClientRequestId } from "../../utils/client-request-id";
+import { IntegrationsSettings } from "../integrations/IntegrationsSettings";
 
 type ProjectSettingsDialogProps = {
   open: boolean;
@@ -42,6 +43,7 @@ export function ProjectSettingsDialog({
   onSave,
   onDelete,
 }: ProjectSettingsDialogProps) {
+  const [activeTab, setActiveTab] = useState<"general" | "integrations">("general");
   const [name, setName] = useState("");
   const [additional, setAdditional] = useState<ProjectRootCandidate[]>([]);
   const [picking, setPicking] = useState(false);
@@ -245,16 +247,43 @@ export function ProjectSettingsDialog({
           </button>
         </header>
 
-        <div className="dialog-body">
-          <label className="field-label">
-            <span>Projektname</span>
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              maxLength={200}
-              autoFocus
-            />
-          </label>
+        <div className="dialog-tab-bar">
+          <button
+            type="button"
+            className={`dialog-tab ${activeTab === "general" ? "dialog-tab--active" : ""}`}
+            onClick={() => setActiveTab("general")}
+          >
+            Allgemein
+          </button>
+          <button
+            type="button"
+            className={`dialog-tab ${activeTab === "integrations" ? "dialog-tab--active" : ""}`}
+            onClick={() => setActiveTab("integrations")}
+          >
+            <Icon name="gitlab" size={14} /> Integrationen
+          </button>
+        </div>
+
+        {activeTab === "integrations" ? (
+          <div className="dialog-body">
+            {project && (
+              <IntegrationsSettings
+                projectId={project.id}
+                rootRevision={project.rootRevision}
+              />
+            )}
+          </div>
+        ) : (
+          <div className="dialog-body">
+            <label className="field-label">
+              <span>Projektname</span>
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                maxLength={200}
+                autoFocus
+              />
+            </label>
 
           <div className="approval-policy-field">
             <div className="field-heading">
@@ -469,6 +498,7 @@ export function ProjectSettingsDialog({
             </div>
           )}
         </div>
+        )}
 
         <footer>
           <button
@@ -477,22 +507,24 @@ export function ProjectSettingsDialog({
             onClick={onClose}
             disabled={saving || deleting}
           >
-            Abbrechen
+            {activeTab === "integrations" ? "Schließen" : "Abbrechen"}
           </button>
-          <button
-            className="primary-button"
-            type="button"
-            onClick={() => void save()}
-            disabled={
-              !name.trim() ||
-              saving ||
-              deleting ||
-              approvalLoading ||
-              (changedToUnrestricted && !unrestrictedConfirmed)
-            }
-          >
-            {saving && <span className="mini-spinner" />} Änderungen speichern
-          </button>
+          {activeTab === "general" && (
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => void save()}
+              disabled={
+                !name.trim() ||
+                saving ||
+                deleting ||
+                approvalLoading ||
+                (changedToUnrestricted && !unrestrictedConfirmed)
+              }
+            >
+              {saving && <span className="mini-spinner" />} Änderungen speichern
+            </button>
+          )}
         </footer>
       </section>
     </div>

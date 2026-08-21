@@ -32,6 +32,7 @@ export function registerValidatedIpcHandler(
       const output = await handler(input, event);
       return responseSchema.parse(output);
     } catch (error) {
+      console.error(`[IPC Error on ${channel}]:`, error);
       throw toPublicError(error);
     }
   });

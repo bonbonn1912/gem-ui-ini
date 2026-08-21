@@ -11,6 +11,15 @@ export const RootFingerprintSchema = z
 export const DisplayNameSchema = z.string().trim().min(1).max(200);
 export const FileSystemPathSchema = z.string().min(1).max(32_768);
 export const Sha256Schema = RootFingerprintSchema;
+export const ShaSchema = z
+  .string()
+  .regex(/^[0-9a-f]{40}$|^[0-9a-f]{64}$/, "Expected a git commit SHA");
+export const HttpsUrlSchema = z
+  .string()
+  .url()
+  .refine((val) => val.startsWith("https://") || val.startsWith("http://"), {
+    message: "Expected http or https URL",
+  });
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue =

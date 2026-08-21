@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ClipboardEvent, type DragEvent } from "react";
 
 import { Icon } from "../../components/Icon";
+import { useDismissOnOutsideClick } from "../../hooks/useDismissOnOutsideClick";
 import type { AppProject, ContextAttachment, ContextAttachmentList } from "../../types";
 import { createClientRequestId } from "../../utils/client-request-id";
 import { AddLinkDialog } from "./AddLinkDialog";
@@ -9,6 +10,15 @@ import { AttachmentRow } from "./AttachmentRow";
 import { LinkPreviewHeightHandle } from "./LinkPreviewSurface";
 
 type AttachmentScope = "project" | "session";
+type OriginFilter = "all" | "chat" | "manual";
+
+const ORIGIN_FILTERS: Array<{ id: OriginFilter; label: string }> = [
+  { id: "all", label: "Alle" },
+  { id: "chat", label: "Aus dem Chat" },
+  { id: "manual", label: "Manuell" },
+];
+
+const DEFAULT_DETAIL_HEIGHT = 520;
 
 type AttachmentsPanelProps = {
   open: boolean;
@@ -78,11 +88,14 @@ export function AttachmentsPanel({
   onError,
   onOpenExternal,
 }: AttachmentsPanelProps) {
+  const menuRef = useDismissOnOutsideClick<HTMLDetailsElement>();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [linkScope, setLinkScope] = useState<AttachmentScope | null>(null);
   const [dragScope, setDragScope] = useState<AttachmentScope | null>(null);
   const [isLive, setIsLive] = useState(false);
   const [previewHeight, setPreviewHeight] = useState<number>(480);
+  const [detailHeight, setDetailHeight] = useState<number>(DEFAULT_DETAIL_HEIGHT);
+  const [originFilter, setOriginFilter] = useState<OriginFilter>("all");
 
   const all = useMemo(() => list ? [...list.projectAttachments, ...list.sessionAttachments] : [], [list]);
   const selected = all.find((attachment) => attachment.id === selectedId) ?? null;
@@ -184,7 +197,21 @@ export function AttachmentsPanel({
     }
   };
 
-  const renderGroup = (scope: AttachmentScope, title: string, attachments: ContextAttachment[]) => (
+  const renderGroup = (scope: AttachmentScope, title: string, all: ContextAttachment[]) => {
+    // Session-Anhänge lassen sich nach Herkunft filtern: automatisch aus dem
+    // Chat übernommen oder von Hand im Panel hinzugefügt.
+    const filtered =
+      scope === "session" && originFilter !== "all"
+        ? all.filter((attachment) => attachment.origin === originFilter)
+        : all;
+    const chatCount = all.filter((attachment) => attachment.origin === "chat").length;
+    const counts: Record<OriginFilter, number> = {
+      all: all.length,
+      chat: chatCount,
+      manual: all.length - chatCount,
+    };
+
+    return (
     <section
       className={`attachment-group ${dragScope === scope ? "attachment-group--drag" : ""}`}
       onDragEnter={(event) => { event.preventDefault(); event.stopPropagation(); setDragScope(scope); }}
@@ -197,17 +224,34 @@ export function AttachmentsPanel({
       key={scope}
     >
       <header>
-        <div><strong>{title}</strong><span>{attachments.length}</span></div>
+        <div><strong>{title}</strong><span>{all.length}</span></div>
         <GroupCheck
           label={title}
-          attachments={attachments}
+          attachments={filtered}
           disabled={!sessionId}
-          onChange={(included) => void setInclusion(attachments.map(({ id }) => id), included)}
+          onChange={(included) => void setInclusion(filtered.map(({ id }) => id), included)}
         />
       </header>
-      {attachments.length ? (
+      {scope === "session" && (
+        <div className="attachment-origin-tabs" role="tablist" aria-label="Anhänge nach Herkunft filtern">
+          {ORIGIN_FILTERS.map((filter) => (
+            <button
+              key={filter.id}
+              type="button"
+              role="tab"
+              aria-selected={originFilter === filter.id}
+              className={`attachment-origin-tab ${originFilter === filter.id ? "attachment-origin-tab--active" : ""}`}
+              onClick={() => setOriginFilter(filter.id)}
+            >
+              {filter.label}
+              <i>{counts[filter.id]}</i>
+            </button>
+          ))}
+        </div>
+      )}
+      {filtered.length ? (
         <div className="context-attachment-list">
-          {attachments.map((attachment) => (
+          {filtered.map((attachment) => (
             <AttachmentRow
               key={attachment.id}
               attachment={attachment}
@@ -224,10 +268,17 @@ export function AttachmentsPanel({
           ))}
         </div>
       ) : (
-        <p className="attachment-group-empty">Dateien hier ablegen</p>
+        <p className="attachment-group-empty">
+          {scope === "session" && originFilter === "chat"
+            ? "Noch nichts aus dem Chat angehängt"
+            : scope === "session" && originFilter === "manual"
+              ? "Noch nichts manuell hinzugefügt"
+              : "Dateien hier ablegen"}
+        </p>
       )}
     </section>
-  );
+    );
+  };
 
   return (
     <aside
@@ -254,7 +305,7 @@ export function AttachmentsPanel({
             <span>{all.length} Anhänge · {list?.includedCount ?? 0} im Kontext · ~{(list?.estimatedTotalTokens ?? 0).toLocaleString("de-DE")} Token</span>
           </div>
         </div>
-        <details className="attachments-add-menu">
+        <details ref={menuRef} className="attachments-add-menu">
           <summary aria-label="Anhang hinzufügen"><Icon name="plus" size={17} /></summary>
           <div>
             <strong>Zum Projekt</strong>
@@ -268,7 +319,14 @@ export function AttachmentsPanel({
         <button className="icon-button" type="button" onClick={onClose} aria-label="Anhänge schließen"><Icon name="x" size={17} /></button>
       </header>
 
-      <div className={`attachments-panel-body ${selected ? "attachments-panel-body--detail" : ""} ${isLive ? "attachments-panel-body--live" : ""}`}>
+      <div
+        className={`attachments-panel-body ${selected ? "attachments-panel-body--detail" : ""} ${isLive ? "attachments-panel-body--live" : ""}`}
+        style={
+          selected && !isLive
+            ? { gridTemplateRows: `minmax(120px, 1fr) auto minmax(0, ${detailHeight}px)` }
+            : undefined
+        }
+      >
         {isLive && selected?.link ? (
           <div
             className="attachments-live-dropdown-bar"
@@ -347,6 +405,16 @@ export function AttachmentsPanel({
             height={previewHeight}
             onChange={(nextHeight) => setPreviewHeight(nextHeight)}
             onReset={() => setPreviewHeight(480)}
+          />
+        )}
+
+        {/* Detailbereich (inkl. Link-Vorschau) frei in der Höhe ziehbar */}
+        {selected && !isLive && (
+          <LinkPreviewHeightHandle
+            height={detailHeight}
+            label="Höhe der Anhangsvorschau ändern"
+            onChange={(nextHeight) => setDetailHeight(nextHeight)}
+            onReset={() => setDetailHeight(DEFAULT_DETAIL_HEIGHT)}
           />
         )}
 

@@ -71,9 +71,39 @@ export async function extract(input: ExtractionRequest): Promise<ExtractionResul
   }
 }
 
+type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
+
+/**
+ * pdf.js hält jeden Prozess für eine Browserumgebung, dessen `process.type`
+ * gesetzt und ungleich "browser" ist. Electrons `utilityProcess` meldet
+ * "utility", deshalb überspringt pdf.js hier seine eigenen Node-Polyfills und
+ * scheitert bereits beim Modulimport an "DOMMatrix is not defined"; zusätzlich
+ * würde es einen `Worker`-Konstruktor bzw. `GlobalWorkerOptions.workerSrc`
+ * verlangen, die es in diesem Prozess ebenfalls nicht gibt.
+ *
+ * Dieser Worker extrahiert ausschließlich Text und rastert nichts, daher
+ * genügen inerte Platzhalter für die fehlenden Zeichen-APIs. Der pdf.js-Worker
+ * wird über `globalThis.pdfjsWorker` im selben Prozess registriert, damit zur
+ * Laufzeit keine separate Worker-Datei aus dem Bundle aufgelöst werden muss.
+ */
+async function loadPdfJs(): Promise<PdfJsModule> {
+  const globals = globalThis as unknown as Record<string, unknown>;
+  globals.DOMMatrix ??= class DOMMatrixPlaceholder {
+    a = 1;
+    b = 0;
+    c = 0;
+    d = 1;
+    e = 0;
+    f = 0;
+  };
+  globals.Path2D ??= class Path2DPlaceholder {};
+  globals.pdfjsWorker ??= await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+  return import("pdfjs-dist/legacy/build/pdf.mjs");
+}
+
 async function extractPdf(input: ExtractionRequest): Promise<ExtractionResult> {
   const [{ getDocument }, bytes] = await Promise.all([
-    import("pdfjs-dist/legacy/build/pdf.mjs"),
+    loadPdfJs(),
     readFile(input.filePath),
   ]);
   const loading = getDocument({ data: new Uint8Array(bytes), useWorkerFetch: false });

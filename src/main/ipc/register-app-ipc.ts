@@ -6,26 +6,36 @@ import {
   type ArchiveProjectInput,
   type AddContextFilesInput,
   type AddContextLinkInput,
+  type AddTodoFilesInput,
+  type AddTodoLinkInput,
   type AttachmentPreviewInput,
+  type AttachTodoAttachmentInput,
   type CancelTurnInput,
   type ClipboardImageInput,
   type CreateProjectInput,
   type CreateSessionInput,
+  type CreateTodoInput,
   type DeleteProjectInput,
   type DeleteSessionInput,
+  type DeleteTodoInput,
+  type DetachTodoAttachmentInput,
   type ContextAttachmentBytesInput,
   type GetProjectInput,
+  type ListAgentExtensionsInput,
   type GetProjectApprovalPolicyInput,
   type GetGitFileDiffInput,
   type GetGitProjectStatusInput,
   type ListProjectsInput,
   type ListSessionsInput,
   type ListContextAttachmentsInput,
+  type ListTodosInput,
   type OpenContextAttachmentInput,
   type OpenLinkPreviewInput,
   type PermissionResponse,
   type PickImagesInput,
+  type PrepareTodoForSessionInput,
   type RemoveAttachmentInput,
+  type ReorderTodosInput,
   type RemoveContextAttachmentInput,
   type RefreshLinkPreviewInput,
   type ReauthorizeProjectRootInput,
@@ -43,7 +53,9 @@ import {
   type SubscribeGitProjectStatusInput,
   type UpdateSessionInput,
   type UpdateContextAttachmentInput,
+  type UpdateTodoInput,
 } from "../../shared/contracts";
+import type { AgentExtensionService } from "../agent-extensions";
 import type { AppController } from "../app-controller";
 import type { AttachmentService } from "../attachments/attachment-service";
 import type {
@@ -54,26 +66,38 @@ import type { GeminiCapabilityService } from "../capability-service";
 import type { GitService, GitStatusSubscriptionHub } from "../git";
 import type { ProjectService } from "../projects";
 import type { ProjectFileService } from "../project-files";
+import type { TodoService, TodoSubscriptionHub } from "../todos";
 import { LinkPreviewViewHost, type LinkMetadataFetcher } from "../links";
 import type { ClientRequestRepository } from "../storage";
 import { openExternalHttps, openStoredFile } from "../security/main-window";
 import type { SessionEventHub } from "./event-hub";
 import { registerValidatedIpcHandler } from "./register-handler";
 
+import type { IntegrationRegistry } from "../integrations/integration-registry";
+import type { GitLabService, GitLabSubscriptionHub } from "../integrations/gitlab";
+import { AppUpdateService } from "../updates/app-update-service";
+
 export type RegisterAppIpcOptions = {
   mainWindow: BrowserWindow;
   projects: ProjectService;
   projectFiles: ProjectFileService;
+  agentExtensions: AgentExtensionService;
   controller: AppController;
   capabilities: GeminiCapabilityService;
   attachments: AttachmentService;
   contextAttachments: ContextAttachmentService;
   contextAttachmentHub: ContextAttachmentSubscriptionHub;
+  todos: TodoService;
+  todoHub: TodoSubscriptionHub;
   linkMetadataFetcher: LinkMetadataFetcher;
   clientRequests: ClientRequestRepository;
   eventHub: SessionEventHub;
   git: GitService;
   gitStatusHub: GitStatusSubscriptionHub;
+  integrations?: IntegrationRegistry;
+  gitlab?: GitLabService;
+  gitlabSubscriptionHub?: GitLabSubscriptionHub;
+  updateService?: AppUpdateService;
 };
 
 export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
@@ -319,6 +343,12 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
     ),
   );
 
+  register(IPC_CHANNELS.getSessionReconnectState, (input) =>
+    options.controller.getSessionReconnectState(
+      input as { sessionId: string },
+    ),
+  );
+
   register(IPC_CHANNELS.pickImages, (input) =>
     idempotent(
       options.clientRequests,
@@ -495,6 +525,112 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
     );
     return { ok: true };
   });
+  register(IPC_CHANNELS.listTodos, (input) =>
+    options.todos.list(input as ListTodosInput),
+  );
+  register(IPC_CHANNELS.createTodo, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as CreateTodoInput,
+      "todos.create",
+      () => options.todos.create(input as CreateTodoInput),
+    ),
+  );
+  register(IPC_CHANNELS.updateTodo, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as UpdateTodoInput,
+      "todos.update",
+      () => options.todos.update(input as UpdateTodoInput),
+    ),
+  );
+  register(IPC_CHANNELS.reorderTodos, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as ReorderTodosInput,
+      "todos.reorder",
+      () => options.todos.reorder(input as ReorderTodosInput),
+    ),
+  );
+  register(IPC_CHANNELS.deleteTodo, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as DeleteTodoInput,
+      "todos.delete",
+      () => options.todos.delete(input as DeleteTodoInput),
+    ),
+  );
+  register(IPC_CHANNELS.addTodoFiles, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as AddTodoFilesInput,
+      "todos.add-files",
+      async () => {
+        const value = input as AddTodoFilesInput;
+        let paths = value.paths ?? [];
+        if (paths.length === 0) {
+          const result = await dialog.showOpenDialog(options.mainWindow, {
+            title: "Dateien an dieses Todo anhängen",
+            buttonLabel: "Anhängen",
+            properties: ["openFile", "multiSelections"],
+          });
+          // An empty ingest is the cheapest way to answer with the todo's
+          // current state without teaching this handler where it lives.
+          if (result.canceled) return options.todos.addFiles({ ...value, paths: [] });
+          paths = result.filePaths;
+        }
+        if (paths.some((filePath) => !path.isAbsolute(filePath))) {
+          throw new Error("Anhangspfade müssen absolut sein.");
+        }
+        return options.todos.addFiles({ ...value, paths });
+      },
+    ),
+  );
+  register(IPC_CHANNELS.addTodoLink, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as AddTodoLinkInput,
+      "todos.add-link",
+      () => options.todos.addLink(input as AddTodoLinkInput),
+    ),
+  );
+  register(IPC_CHANNELS.attachTodoAttachment, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as AttachTodoAttachmentInput,
+      "todos.attach-attachment",
+      () => options.todos.attachAttachment(input as AttachTodoAttachmentInput),
+    ),
+  );
+  register(IPC_CHANNELS.detachTodoAttachment, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as DetachTodoAttachmentInput,
+      "todos.detach-attachment",
+      () => options.todos.detachAttachment(input as DetachTodoAttachmentInput),
+    ),
+  );
+  register(IPC_CHANNELS.prepareTodoForSession, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as PrepareTodoForSessionInput,
+      "todos.prepare-for-session",
+      () => options.todos.prepareForSession(input as PrepareTodoForSessionInput),
+    ),
+  );
+  register(IPC_CHANNELS.subscribeTodos, (input, event) =>
+    options.todoHub.subscribe({
+      value: input as ListTodosInput,
+      webContents: event.sender,
+    }),
+  );
+  register(IPC_CHANNELS.unsubscribeTodos, (input, event) => {
+    options.todoHub.unsubscribe(
+      (input as { subscriptionId: string }).subscriptionId,
+      event.sender,
+    );
+    return { ok: true };
+  });
   register(IPC_CHANNELS.openLinkPreviewView, (input) =>
     linkPreview.open((input as OpenLinkPreviewInput).attachmentId),
   );
@@ -563,10 +699,143 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
     return { ok: true };
   });
 
+  register(IPC_CHANNELS.listGeminiSkills, (input) =>
+    options.agentExtensions.listSkills(input as ListAgentExtensionsInput),
+  );
+  register(IPC_CHANNELS.listMcpServers, (input) =>
+    options.agentExtensions.listMcpServers(input as ListAgentExtensionsInput),
+  );
+
   register(IPC_CHANNELS.openExternalHttpsUrl, async (input) => {
     await openExternalHttps((input as { url: string }).url);
     return { ok: true };
   });
+
+  const updateService = options.updateService ?? new AppUpdateService();
+  register(IPC_CHANNELS.checkForUpdates, () => updateService.checkForUpdates());
+  register(IPC_CHANNELS.downloadUpdate, (input, event) =>
+    updateService.downloadUpdate(
+      (input as { downloadUrl: string }).downloadUrl,
+      (progress) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send(IPC_CHANNELS.appUpdateDownloadProgress, progress);
+        }
+      },
+    ),
+  );
+  register(IPC_CHANNELS.installUpdate, async (input) => {
+    await updateService.installUpdate((input as { filePath: string }).filePath);
+    return { ok: true as const };
+  });
+
+  if (options.integrations) {
+    register(IPC_CHANNELS.listProjectIntegrations, (input) =>
+      options.integrations!.listProjectIntegrations(
+        (input as { projectId: string }).projectId,
+      ),
+    );
+  }
+
+  if (options.gitlab) {
+    const gitlab = options.gitlab;
+
+    register(IPC_CHANNELS.listGitLabRepositoryCandidates, (input) =>
+      gitlab.listRepositoryCandidates((input as { projectId: string }).projectId),
+    );
+
+    register(IPC_CHANNELS.listGitLabConnections, () =>
+      gitlab.listConnections(),
+    );
+
+    register(IPC_CHANNELS.testGitLabConnection, (input) =>
+      gitlab.testConnection(input as any),
+    );
+
+    register(IPC_CHANNELS.saveGitLabConnection, (input) =>
+      idempotent(options.clientRequests, input as any, "gitlab.save-connection", () =>
+        gitlab.saveConnection(input as any),
+      ),
+    );
+
+    register(IPC_CHANNELS.replaceGitLabToken, (input) =>
+      idempotent(options.clientRequests, input as any, "gitlab.replace-token", () =>
+        gitlab.replaceToken(input as any),
+      ),
+    );
+
+    register(IPC_CHANNELS.removeGitLabConnection, (input) =>
+      idempotent(options.clientRequests, input as any, "gitlab.remove-connection", () => {
+        gitlab.removeConnection(input as any);
+        return { ok: true };
+      }),
+    );
+
+    register(IPC_CHANNELS.enableGitLabBinding, (input) =>
+      idempotent(options.clientRequests, input as any, "gitlab.enable-binding", () =>
+        gitlab.enableBinding(input as any),
+      ),
+    );
+
+    register(IPC_CHANNELS.disableGitLabBinding, (input) =>
+      idempotent(options.clientRequests, input as any, "gitlab.disable-binding", async () => {
+        const inp = input as { projectId: string; bindingId: string };
+        await gitlab.disableBinding(inp.projectId, inp.bindingId);
+        return { ok: true };
+      }),
+    );
+
+    register(IPC_CHANNELS.listGitLabMergeRequests, (input) => {
+      const inp = input as { projectId: string; bindingId: string };
+      return gitlab.listMergeRequests(inp.projectId, inp.bindingId);
+    });
+
+    register(IPC_CHANNELS.selectGitLabMergeRequest, (input) =>
+      idempotent(options.clientRequests, input as any, "gitlab.select-merge-request", () =>
+        gitlab.selectMergeRequest(input as any),
+      ),
+    );
+
+    register(IPC_CHANNELS.connectGitLabMergeRequestUrl, (input) =>
+      idempotent(options.clientRequests, input as any, "gitlab.connect-merge-request-url", () =>
+        gitlab.connectMergeRequestUrl(input as any),
+      ),
+    );
+
+    register(IPC_CHANNELS.getGitLabReviewState, (input) => {
+      const inp = input as { projectId: string; bindingId: string };
+      return gitlab.getReviewState(inp.projectId, inp.bindingId);
+    });
+
+    register(IPC_CHANNELS.prepareGitLabReviewContext, (input) =>
+      gitlab.prepareReviewContext(input as any),
+    );
+
+    register(IPC_CHANNELS.resolveGitLabDiscussion, (input) =>
+      idempotent(options.clientRequests, input as any, "gitlab.resolve-discussion", () =>
+        gitlab.resolveDiscussion(input as any),
+      ),
+    );
+
+    register(IPC_CHANNELS.replyToGitLabDiscussion, (input) =>
+      idempotent(options.clientRequests, input as any, "gitlab.reply-to-discussion", () =>
+        gitlab.replyToDiscussion(input as any),
+      ),
+    );
+  }
+
+  if (options.gitlabSubscriptionHub) {
+    const hub = options.gitlabSubscriptionHub;
+    register(IPC_CHANNELS.subscribeGitLabReviewState, (input) => {
+      const inp = input as { projectId: string; bindingId: string };
+      return hub.subscribe(inp.projectId, inp.bindingId);
+    });
+
+    register(IPC_CHANNELS.unsubscribeGitLabReviewState, (input) => {
+      const inp = input as { subscriptionId: string };
+      hub.unsubscribe(inp.subscriptionId);
+      return { ok: true };
+    });
+  }
 
   return () => {
     linkPreview.dispose();
