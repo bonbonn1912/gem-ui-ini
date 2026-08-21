@@ -24,7 +24,11 @@ import type { ExternalPromptContextProvider } from "../external-prompt-context-r
 import { mapGitLabDiscussions } from "./discussion-mapper";
 import { GitLabApiClient, normalizeApiBaseUrl } from "./gitlab-api-client";
 import { GitLabTokenVault } from "./gitlab-token-vault";
-import { MergeRequestResolver } from "./merge-request-resolver";
+import {
+  MergeRequestResolver,
+  mapRawMergeRequest,
+  sortMergeRequests,
+} from "./merge-request-resolver";
 import { RepositoryBindingResolver } from "./repository-binding-resolver";
 import { ReviewContextBuilder } from "./review-context-builder";
 import { ReviewContextSnapshotStore } from "./review-context-snapshot-store";
@@ -255,40 +259,17 @@ export class GitLabService implements ExternalPromptContextProvider {
       const candidate = candidates.find((c) => c.binding?.id === bindingId);
       const branch = candidate?.branch;
 
-      if (branch) {
-        return this.#mrResolver.findMergeRequestsForBranch(
-          client,
-          binding.sourceProjectId,
-          binding.sourceProjectPath,
-          branch,
-        );
-      }
+      // Immer alle offenen MRs des Projekts laden. Der Panel-Nutzer soll aus der
+      // vollen Liste wählen können, statt eine MR-URL eintippen zu müssen; MRs
+      // des aktuell ausgecheckten Branches werden lediglich nach oben sortiert.
+      const rawList = await client.listMergeRequests(binding.sourceProjectId, {
+        state: "opened",
+      });
+      const list = rawList.map((raw) =>
+        mapRawMergeRequest(raw, binding.sourceProjectPath),
+      );
 
-      // If detached or no branch, return open MRs of source project
-      const rawList = await client.listMergeRequests(binding.sourceProjectId, { state: "opened" });
-      return rawList.map((raw) => ({
-        targetProjectId: raw.target_project_id ?? raw.project_id,
-        targetProjectPath: binding.sourceProjectPath,
-        iid: raw.iid,
-        title: raw.title,
-        webUrl: raw.web_url,
-        state: raw.state as "opened" | "closed" | "locked" | "merged",
-        draft: Boolean(raw.draft || raw.work_in_progress),
-        sourceBranch: raw.source_branch,
-        targetBranch: raw.target_branch,
-        sourceProjectId: raw.source_project_id ?? raw.project_id,
-        headSha: raw.diff_refs?.head_sha ?? raw.sha,
-        baseSha: raw.diff_refs?.base_sha ?? null,
-        startSha: raw.diff_refs?.start_sha ?? null,
-        author: {
-          id: raw.author.id,
-          username: raw.author.username,
-          name: raw.author.name,
-          avatarUrl: raw.author.avatar_url ?? null,
-        },
-        unresolvedCount: raw.user_notes_count ?? 0,
-        updatedAt: raw.updated_at,
-      }));
+      return sortMergeRequests(list, branch);
     });
   }
 
@@ -380,56 +361,45 @@ export class GitLabService implements ExternalPromptContextProvider {
       let targetProjectId = binding.selectedTargetProjectId;
       let mrIid = binding.selectedMergeRequestIid;
 
-      // If no MR is selected yet, try to auto-select matching branch MR
+      // Noch kein MR gewählt: selbstständig den passendsten offenen MR ziehen.
+      // Bevorzugt einen MR des ausgecheckten Branches, sonst — wenn das
+      // Projekt genau einen offenen MR hat — eben diesen.
       if (!targetProjectId || !mrIid) {
-        if (candidate?.branch) {
-          const mrs = await this.#mrResolver.findMergeRequestsForBranch(
-            client,
-            binding.sourceProjectId,
-            binding.sourceProjectPath,
-            candidate.branch,
-          );
-          if (mrs.length === 1) {
-            const first = mrs[0]!;
-            targetProjectId = first.targetProjectId;
-            mrIid = first.iid;
-            this.#repo.updateBindingSelection(bindingId, {
-              selectedTargetProjectId: targetProjectId,
-              selectedTargetProjectPath: first.targetProjectPath,
-              selectedMergeRequestIid: mrIid,
-              updatedAt: new Date().toISOString(),
-            });
-            mrSummary = first;
-          }
+        const open = sortMergeRequests(
+          (
+            await client.listMergeRequests(binding.sourceProjectId, {
+              state: "opened",
+            })
+          ).map((raw) => mapRawMergeRequest(raw, binding.sourceProjectPath)),
+          candidate?.branch,
+        );
+
+        const branch = candidate?.branch?.trim().toLowerCase() || null;
+        const onBranch = branch
+          ? open.filter((mr) => mr.sourceBranch.toLowerCase() === branch)
+          : [];
+        const autoPick = onBranch[0] ?? (open.length === 1 ? open[0] : null);
+
+        if (autoPick) {
+          targetProjectId = autoPick.targetProjectId;
+          mrIid = autoPick.iid;
+          this.#repo.updateBindingSelection(bindingId, {
+            selectedTargetProjectId: targetProjectId,
+            selectedTargetProjectPath: autoPick.targetProjectPath,
+            selectedMergeRequestIid: mrIid,
+            updatedAt: new Date().toISOString(),
+          });
+          mrSummary = autoPick;
         }
       }
 
       if (targetProjectId && mrIid) {
         if (!mrSummary) {
           const rawMr = await client.getMergeRequest(targetProjectId, mrIid);
-          mrSummary = {
-            targetProjectId: rawMr.target_project_id ?? rawMr.project_id,
-            targetProjectPath: binding.selectedTargetProjectPath || binding.sourceProjectPath,
-            iid: rawMr.iid,
-            title: rawMr.title,
-            webUrl: rawMr.web_url,
-            state: rawMr.state as "opened" | "closed" | "locked" | "merged",
-            draft: Boolean(rawMr.draft || rawMr.work_in_progress),
-            sourceBranch: rawMr.source_branch,
-            targetBranch: rawMr.target_branch,
-            sourceProjectId: rawMr.source_project_id ?? rawMr.project_id,
-            headSha: rawMr.diff_refs?.head_sha ?? rawMr.sha,
-            baseSha: rawMr.diff_refs?.base_sha ?? null,
-            startSha: rawMr.diff_refs?.start_sha ?? null,
-            author: {
-              id: rawMr.author.id,
-              username: rawMr.author.username,
-              name: rawMr.author.name,
-              avatarUrl: rawMr.author.avatar_url ?? null,
-            },
-            unresolvedCount: rawMr.user_notes_count ?? 0,
-            updatedAt: rawMr.updated_at,
-          };
+          mrSummary = mapRawMergeRequest(
+            rawMr,
+            binding.selectedTargetProjectPath || binding.sourceProjectPath,
+          );
         }
 
         const rawDiscussions = await client.listDiscussions(targetProjectId, mrIid);

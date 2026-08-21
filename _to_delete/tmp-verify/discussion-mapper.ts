@@ -2,8 +2,8 @@ import type {
   GitLabDiffPosition,
   GitLabDiscussion,
   GitLabDiscussionNote,
-} from "../../../shared/contracts";
-import type { RawGitLabDiscussionSchema } from "./gitlab-api-schemas";
+} from "./gitlab.ts";
+import type { RawGitLabDiscussionSchema } from "../src/main/integrations/gitlab/gitlab-api-schemas.ts";
 import { z } from "zod";
 
 type RawDiscussion = z.infer<typeof RawGitLabDiscussionSchema>;
@@ -34,7 +34,7 @@ function normalizeNoteType(value: unknown, hasPosition: boolean): KnownNoteType 
 }
 
 /** Contract requires an absolute http(s) URL; relative GitLab avatar paths become null. */
-export function normalizeAvatarUrl(value: unknown): string | null {
+function normalizeAvatarUrl(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   if (!trimmed.startsWith("https://") && !trimmed.startsWith("http://")) return null;

@@ -1,9 +1,23 @@
 import type { GitLabMergeRequestSummary } from "../../../shared/contracts";
+import { normalizeAvatarUrl } from "./discussion-mapper";
 import type { GitLabApiClient } from "./gitlab-api-client";
 import type { RawGitLabMergeRequestSchema } from "./gitlab-api-schemas";
 import { z } from "zod";
 
 type RawMR = z.infer<typeof RawGitLabMergeRequestSchema>;
+
+const KNOWN_MR_STATES = ["opened", "closed", "locked", "merged"] as const;
+
+/**
+ * GitLab kann künftig weitere States liefern. Ein unbekannter Wert darf nicht
+ * die ganze MR-Liste unbrauchbar machen, deshalb wird er durchgereicht statt
+ * blind auf die bekannten vier gecastet.
+ */
+export function normalizeMergeRequestState(value: unknown): string {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if ((KNOWN_MR_STATES as readonly string[]).includes(trimmed)) return trimmed;
+  return trimmed || "opened";
+}
 
 export function mapRawMergeRequest(
   raw: RawMR,
@@ -16,7 +30,7 @@ export function mapRawMergeRequest(
     iid: raw.iid,
     title: raw.title,
     webUrl: raw.web_url,
-    state: raw.state as "opened" | "closed" | "locked" | "merged",
+    state: normalizeMergeRequestState(raw.state),
     draft: isDraft,
     sourceBranch: raw.source_branch,
     targetBranch: raw.target_branch,
@@ -28,11 +42,37 @@ export function mapRawMergeRequest(
       id: raw.author.id,
       username: raw.author.username,
       name: raw.author.name,
-      avatarUrl: raw.author.avatar_url ?? null,
+      avatarUrl: normalizeAvatarUrl(raw.author.avatar_url),
     },
     unresolvedCount: raw.user_notes_count ?? 0,
     updatedAt: raw.updated_at,
   };
+}
+
+/**
+ * Sortiert offene Merge Requests so, wie sie im Review-Panel angeboten werden:
+ * MRs des aktuell ausgecheckten Branches zuerst, danach die zuletzt
+ * aktualisierten. Entwürfe rutschen innerhalb ihrer Gruppe nach unten.
+ */
+export function sortMergeRequests(
+  list: GitLabMergeRequestSummary[],
+  currentBranch?: string | null,
+): GitLabMergeRequestSummary[] {
+  const branch = currentBranch?.trim().toLowerCase() || null;
+  const rank = (mr: GitLabMergeRequestSummary) => {
+    const onBranch = branch !== null && mr.sourceBranch.toLowerCase() === branch;
+    if (onBranch) return mr.draft ? 1 : 0;
+    return mr.draft ? 3 : 2;
+  };
+
+  return [...list].sort((a, b) => {
+    const byRank = rank(a) - rank(b);
+    if (byRank !== 0) return byRank;
+    const byDate =
+      new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    if (!Number.isNaN(byDate) && byDate !== 0) return byDate;
+    return b.iid - a.iid;
+  });
 }
 
 export class MergeRequestResolver {

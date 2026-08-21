@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Icon } from "../../components/Icon";
 import type { AppSession, ExternalPromptContextRef } from "../../types";
 import { GitLabDiscussionCard } from "./GitLabDiscussionCard";
+import { GitLabMergeRequestList } from "./GitLabMergeRequestList";
 import { GitLabMergeRequestPicker } from "./GitLabMergeRequestPicker";
 import { GitLabRepositoryPicker } from "./GitLabRepositoryPicker";
 import { useGitLabReview } from "./useGitLabReview";
@@ -33,15 +34,22 @@ export function GitLabPanel({
     reviewState,
     loading,
     error,
+    mergeRequests,
+    mergeRequestsLoading,
+    loadMergeRequests,
     refresh,
     selectMergeRequest,
-    connectMergeRequestUrl,
     resolveDiscussion,
     replyToDiscussion,
     prepareReviewContext,
   } = useGitLabReview(projectId);
 
   const [filterTab, setFilterTab] = useState<FilterTab>("unresolved");
+
+  const selectedCandidate = useMemo(
+    () => candidates.find((c) => c.binding?.id === selectedBindingId) ?? null,
+    [candidates, selectedBindingId],
+  );
 
   const filteredDiscussions = useMemo(() => {
     if (!reviewState) return [];
@@ -58,19 +66,22 @@ export function GitLabPanel({
   }, [reviewState, filterTab]);
 
   const isReadOnly = reviewState?.connection.access === "read_only";
+  const mergeRequest = reviewState?.mergeRequest ?? null;
 
   const handleSendToGemini = async (
     discussionId: string,
     mode: "affected_lines" | "whole_file",
   ) => {
-    if (!reviewState?.mergeRequest) return;
+    if (!mergeRequest) return;
     if (!activeSession) {
-      throw new Error("Bitte wählen Sie zuerst eine aktive Chat-Session aus, um den Review-Thread zu senden.");
+      throw new Error(
+        "Bitte wählen Sie zuerst eine aktive Chat-Session aus, um den Review-Thread zu senden.",
+      );
     }
 
     const prepared = await prepareReviewContext(
-      reviewState.mergeRequest.targetProjectId,
-      reviewState.mergeRequest.iid,
+      mergeRequest.targetProjectId,
+      mergeRequest.iid,
       discussionId,
       mode,
     );
@@ -83,54 +94,48 @@ export function GitLabPanel({
   return (
     <aside className="gitlab-panel" aria-label="GitLab Review Panel">
       <header className="gitlab-panel-header">
-        <div className="panel-title-group">
-          <span className="gitlab-header-icon"><Icon name="gitlab" size={17} /></span>
-          <strong>GitLab Review</strong>
-          {reviewState && (
-            <span className="unresolved-counter-badge">
+        <div>
+          <span className="gitlab-panel-icon">
+            <Icon name="gitlab" size={17} />
+          </span>
+          <div>
+            <strong>GitLab Review</strong>
+            <span>
+              {mergeRequest
+                ? `!${mergeRequest.iid} · ${mergeRequest.sourceBranch}`
+                : selectedCandidate?.displayName || "Kein Merge Request gewählt"}
+            </span>
+          </div>
+          {reviewState && reviewState.unresolvedDiscussionsCount > 0 && (
+            <span className="gitlab-open-badge">
               {reviewState.unresolvedDiscussionsCount} offen
             </span>
           )}
         </div>
 
-        <div className="panel-header-actions">
-          <button
-            type="button"
-            className="icon-button"
-            onClick={() => void refresh()}
-            title="Aktualisieren"
-            aria-label="Aktualisieren"
-            disabled={loading}
-          >
-            <Icon name="refresh" size={15} className={loading ? "spinning" : ""} />
-          </button>
-          <button
-            type="button"
-            className="icon-button"
-            onClick={onClose}
-            title="Panel schließen"
-            aria-label="GitLab Panel schließen"
-          >
-            <Icon name="x" size={16} />
-          </button>
-        </div>
+        <button
+          type="button"
+          className="icon-button"
+          onClick={() => void refresh()}
+          title="Aktualisieren"
+          aria-label="Aktualisieren"
+          disabled={loading}
+        >
+          {loading ? <span className="mini-spinner" /> : <Icon name="refresh" size={16} />}
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          onClick={onClose}
+          title="Panel schließen"
+          aria-label="GitLab Panel schließen"
+        >
+          <Icon name="x" size={17} />
+        </button>
       </header>
 
       <div className="gitlab-panel-body">
-        {/* If no enabled bindings exist for this project */}
-        {enabledBindings.length === 0 && !loading && (
-          <div className="gitlab-panel-empty">
-            <span className="empty-icon"><Icon name="gitlab" size={32} /></span>
-            <strong>GitLab nicht aktiviert</strong>
-            <p>Für die Repositories dieses Projekts ist noch keine GitLab-Review-Integration aktiviert.</p>
-            <button type="button" className="primary-button" onClick={onOpenSettings}>
-              In Projekteinstellungen aktivieren
-            </button>
-          </div>
-        )}
-
-        {/* Enabled Repositories Picker & MR Picker */}
-        {enabledBindings.length > 0 && (
+        {enabledBindings.length > 0 && (mergeRequest || enabledBindings.length > 1) && (
           <div className="gitlab-controls-bar">
             <GitLabRepositoryPicker
               candidates={candidates}
@@ -138,33 +143,32 @@ export function GitLabPanel({
               onSelectBinding={(id) => setSelectedBindingId(id)}
             />
 
-            {selectedBindingId && (
+            {selectedBindingId && mergeRequest && (
               <GitLabMergeRequestPicker
-                projectId={projectId}
-                bindingId={selectedBindingId}
-                selectedMr={reviewState?.mergeRequest ?? null}
+                mergeRequests={mergeRequests}
+                loading={mergeRequestsLoading}
+                selectedMr={mergeRequest}
                 onSelectMr={selectMergeRequest}
-                onConnectMrUrl={connectMergeRequestUrl}
+                onReload={() => void loadMergeRequests()}
                 onOpenExternal={onOpenExternal}
               />
             )}
 
-            {/* Filter Tabs */}
-            {reviewState?.mergeRequest && (
+            {mergeRequest && (
               <div className="gitlab-filter-tabs">
                 <button
                   type="button"
                   className={`filter-tab ${filterTab === "unresolved" ? "filter-tab--active" : ""}`}
                   onClick={() => setFilterTab("unresolved")}
                 >
-                  Offen ({reviewState.unresolvedDiscussionsCount})
+                  Offen <i>{reviewState?.unresolvedDiscussionsCount ?? 0}</i>
                 </button>
                 <button
                   type="button"
                   className={`filter-tab ${filterTab === "all" ? "filter-tab--active" : ""}`}
                   onClick={() => setFilterTab("all")}
                 >
-                  Alle ({reviewState.totalDiscussionsCount})
+                  Alle <i>{reviewState?.totalDiscussionsCount ?? 0}</i>
                 </button>
                 <button
                   type="button"
@@ -178,71 +182,100 @@ export function GitLabPanel({
           </div>
         )}
 
-        {/* Error message */}
-        {error && (
-          <div className="gitlab-error-banner">
-            <Icon name="warning" size={16} />
-            <span>{error}</span>
-            <button type="button" onClick={() => void refresh()}>Erneut</button>
-          </div>
-        )}
+        <div className="gitlab-panel-scroll">
+          {enabledBindings.length === 0 && !loading && (
+            <div className="gitlab-panel-state">
+              <span className="gitlab-state-icon">
+                <Icon name="gitlab" size={22} />
+              </span>
+              <strong>GitLab nicht aktiviert</strong>
+              <p>
+                Für die Repositories dieses Projekts ist noch keine
+                GitLab-Review-Integration aktiviert.
+              </p>
+              <button type="button" className="primary-button" onClick={onOpenSettings}>
+                <Icon name="settings" size={14} /> In Projekteinstellungen aktivieren
+              </button>
+            </div>
+          )}
 
-        {/* Loading state */}
-        {loading && !reviewState && (
-          <div className="gitlab-loading">
-            <span className="mini-spinner" /> Review-Threads werden geladen …
-          </div>
-        )}
+          {error && (
+            <div className="gitlab-panel-error" role="alert">
+              <Icon name="warning" size={17} />
+              <p>
+                <strong>GitLab konnte nicht geladen werden</strong>
+                <span>{error}</span>
+              </p>
+              <button type="button" onClick={() => void refresh()}>
+                Erneut
+              </button>
+            </div>
+          )}
 
-        {/* Discussion list */}
-        {reviewState && reviewState.mergeRequest && (
-          <div className="gitlab-discussions-list">
-            {filteredDiscussions.length === 0 ? (
-              <div className="gitlab-discussions-empty">
-                <Icon name="check" size={24} />
-                <p>
-                  {filterTab === "unresolved"
-                    ? "Keine offenen Review-Threads in diesem Merge Request!"
-                    : "Keine Review-Threads gefunden."}
-                </p>
-              </div>
-            ) : (
-              filteredDiscussions.map((discussion) => (
-                <GitLabDiscussionCard
-                  key={discussion.id}
-                  discussion={discussion}
-                  mergeRequest={reviewState.mergeRequest!}
-                  isReadOnly={isReadOnly}
-                  onSendToGemini={handleSendToGemini}
-                  onResolve={(id, resolved) =>
-                    resolveDiscussion(
-                      reviewState.mergeRequest!.targetProjectId,
-                      reviewState.mergeRequest!.iid,
-                      id,
-                      resolved,
-                    ).then(() => undefined)
-                  }
-                  onReply={(id, body) =>
-                    replyToDiscussion(
-                      reviewState.mergeRequest!.targetProjectId,
-                      reviewState.mergeRequest!.iid,
-                      id,
-                      body,
-                    ).then(() => undefined)
-                  }
-                  onOpenExternal={onOpenExternal}
-                />
-              ))
-            )}
-          </div>
-        )}
+          {loading && !reviewState && enabledBindings.length > 0 && (
+            <div className="gitlab-loading">
+              <span className="mini-spinner" /> Review-Threads werden geladen …
+            </div>
+          )}
 
-        {reviewState && !reviewState.mergeRequest && !loading && (
-          <div className="gitlab-discussions-empty">
-            <Icon name="link" size={24} />
-            <p>Kein Merge Request ausgewählt. Wählen Sie oben einen MR aus oder verbinden Sie eine MR-URL.</p>
-          </div>
-        )}
+          {/* Kein MR gewählt: offene Merge Requests direkt zur Auswahl anbieten */}
+          {enabledBindings.length > 0 && !mergeRequest && !loading && (
+            <GitLabMergeRequestList
+              mergeRequests={mergeRequests}
+              loading={mergeRequestsLoading}
+              currentBranch={selectedCandidate?.branch ?? null}
+              onSelectMr={selectMergeRequest}
+              onReload={() => void loadMergeRequests()}
+            />
+          )}
+
+          {reviewState && mergeRequest && (
+            <div className="gitlab-discussions-list">
+              {filteredDiscussions.length === 0 ? (
+                <div className="gitlab-panel-state gitlab-panel-state--calm">
+                  <span className="gitlab-state-icon gitlab-state-icon--ok">
+                    <Icon name="check" size={22} />
+                  </span>
+                  <strong>
+                    {filterTab === "unresolved" ? "Alles abgearbeitet" : "Keine Threads"}
+                  </strong>
+                  <p>
+                    {filterTab === "unresolved"
+                      ? "In diesem Merge Request ist kein Review-Thread mehr offen."
+                      : "Für diesen Filter wurden keine Review-Threads gefunden."}
+                  </p>
+                </div>
+              ) : (
+                filteredDiscussions.map((discussion) => (
+                  <GitLabDiscussionCard
+                    key={discussion.id}
+                    discussion={discussion}
+                    mergeRequest={mergeRequest}
+                    isReadOnly={isReadOnly}
+                    onSendToGemini={handleSendToGemini}
+                    onResolve={(id, resolved) =>
+                      resolveDiscussion(
+                        mergeRequest.targetProjectId,
+                        mergeRequest.iid,
+                        id,
+                        resolved,
+                      ).then(() => undefined)
+                    }
+                    onReply={(id, body) =>
+                      replyToDiscussion(
+                        mergeRequest.targetProjectId,
+                        mergeRequest.iid,
+                        id,
+                        body,
+                      ).then(() => undefined)
+                    }
+                    onOpenExternal={onOpenExternal}
+                  />
+                ))
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </aside>
   );

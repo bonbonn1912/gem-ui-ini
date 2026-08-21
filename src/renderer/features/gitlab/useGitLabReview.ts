@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import type {
   GitLabDiscussion,
   GitLabMergeRequestSummary,
-  GitLabRepositoryBinding,
   GitLabRepositoryCandidate,
   GitLabReviewState,
   PreparedExternalContext,
@@ -14,6 +13,8 @@ export function useGitLabReview(projectId: string | null, rootRevision = 1) {
   const [reviewState, setReviewState] = useState<GitLabReviewState | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mergeRequests, setMergeRequests] = useState<GitLabMergeRequestSummary[]>([]);
+  const [mergeRequestsLoading, setMergeRequestsLoading] = useState(false);
 
   const loadCandidates = useCallback(async () => {
     if (!projectId) {
@@ -83,6 +84,33 @@ export function useGitLabReview(projectId: string | null, rootRevision = 1) {
     };
   }, [projectId, selectedBindingId, rootRevision]);
 
+  // Offene Merge Requests werden selbstständig geladen, sobald ein Repository
+  // gewählt ist — es gibt bewusst keine manuelle MR-URL-Eingabe mehr.
+  const loadMergeRequests = useCallback(async () => {
+    if (!projectId || !selectedBindingId) {
+      setMergeRequests([]);
+      return;
+    }
+    setMergeRequestsLoading(true);
+    try {
+      const list = await window.gemUi.gitlab.listMergeRequests({
+        projectId,
+        expectedRootRevision: rootRevision,
+        bindingId: selectedBindingId,
+      });
+      setMergeRequests(list);
+    } catch (err) {
+      setMergeRequests([]);
+      setError((err as Error).message);
+    } finally {
+      setMergeRequestsLoading(false);
+    }
+  }, [projectId, selectedBindingId, rootRevision]);
+
+  useEffect(() => {
+    void loadMergeRequests();
+  }, [loadMergeRequests]);
+
   const refresh = useCallback(async () => {
     if (!projectId || !selectedBindingId) return;
     setLoading(true);
@@ -94,12 +122,13 @@ export function useGitLabReview(projectId: string | null, rootRevision = 1) {
         bindingId: selectedBindingId,
       });
       setReviewState(state);
+      void loadMergeRequests();
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [projectId, selectedBindingId, rootRevision]);
+  }, [projectId, selectedBindingId, rootRevision, loadMergeRequests]);
 
   const selectMergeRequest = useCallback(
     async (targetProjectId: number, targetProjectPath: string, mergeRequestIid: number) => {
@@ -115,29 +144,6 @@ export function useGitLabReview(projectId: string | null, rootRevision = 1) {
           targetProjectId,
           targetProjectPath,
           mergeRequestIid,
-        });
-        await refresh();
-      } catch (err) {
-        setError((err as Error).message);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [projectId, selectedBindingId, rootRevision, refresh],
-  );
-
-  const connectMergeRequestUrl = useCallback(
-    async (mergeRequestUrl: string) => {
-      if (!projectId || !selectedBindingId) return;
-      setLoading(true);
-      try {
-        const clientRequestId = globalThis.crypto.randomUUID();
-        await window.gemUi.gitlab.connectMergeRequestUrl({
-          clientRequestId,
-          projectId,
-          expectedRootRevision: rootRevision,
-          bindingId: selectedBindingId,
-          mergeRequestUrl,
         });
         await refresh();
       } catch (err) {
@@ -253,10 +259,12 @@ export function useGitLabReview(projectId: string | null, rootRevision = 1) {
     reviewState,
     loading,
     error,
+    mergeRequests,
+    mergeRequestsLoading,
+    loadMergeRequests,
     refresh,
     loadCandidates,
     selectMergeRequest,
-    connectMergeRequestUrl,
     resolveDiscussion,
     replyToDiscussion,
     prepareReviewContext,

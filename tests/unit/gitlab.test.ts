@@ -7,6 +7,7 @@ import { GitLabRepository } from "../../src/main/storage/repositories/gitlab-rep
 import { openSqliteDatabase } from "../../src/main/storage/database";
 import { ProjectRepository } from "../../src/main/storage/repositories/project-repository";
 import { randomUUID } from "node:crypto";
+import { GitLabDiscussionSchema } from "../../src/shared/contracts/gitlab";
 
 describe("GitLab Remote URL Parser", () => {
   it("parses HTTPS URLs with and without .git", () => {
@@ -159,6 +160,91 @@ describe("GitLab Discussion Mapper", () => {
     expect(mapped[1]?.resolved).toBe(true);
     expect(mapped[1]?.notes[0]?.position?.outdated).toBe(false);
     expect(mapped[1]?.notes[0]?.resolvedBy?.username).toBe("alice");
+  });
+
+  it("accepts unexpected line_range types (expanded/null/missing) without failing contract validation", () => {
+    const sha = "a".repeat(40);
+    const author = { id: 1, username: "alice", name: "Alice", avatar_url: null };
+    const makeNote = (id: number, lineType: unknown, includeType: boolean) => ({
+      id,
+      type: "DiffNote",
+      body: "Multi-line Kommentar",
+      author,
+      created_at: "2026-08-20T10:00:00Z",
+      updated_at: "2026-08-20T10:00:00Z",
+      system: false,
+      resolvable: true,
+      resolved: false,
+      resolved_by: null,
+      position: {
+        position_type: "text",
+        base_sha: sha,
+        start_sha: sha,
+        head_sha: sha,
+        old_path: "src/utils.ts",
+        new_path: "src/utils.ts",
+        old_line: null,
+        new_line: 12,
+        line_range: {
+          start: { line_code: "abc_10_10", old_line: null, new_line: 10, ...(includeType ? { type: lineType } : {}) },
+          end: { line_code: "abc_12_12", old_line: null, new_line: 12, ...(includeType ? { type: lineType } : {}) },
+        },
+      },
+    });
+
+    const rawDiscussions = [
+      { id: "disc-expanded", individual_note: false, notes: [makeNote(201, "expanded", true)] },
+      { id: "disc-null-type", individual_note: false, notes: [makeNote(202, null, true)] },
+      { id: "disc-no-type", individual_note: false, notes: [makeNote(203, undefined, false)] },
+      { id: "disc-future-type", individual_note: false, notes: [makeNote(204, "something_new", true)] },
+    ];
+
+    const mapped = mapGitLabDiscussions(rawDiscussions as never, sha);
+    expect(mapped).toHaveLength(4);
+
+    // Every mapped discussion must satisfy the IPC contract schema — one odd thread
+    // must never invalidate the whole review state.
+    for (const discussion of mapped) {
+      expect(GitLabDiscussionSchema.safeParse(discussion).success).toBe(true);
+    }
+
+    expect(mapped[0]?.notes[0]?.position?.lineRange?.start.type).toBe("expanded");
+    expect(mapped[1]?.notes[0]?.position?.lineRange?.start.type).toBeNull();
+    expect(mapped[2]?.notes[0]?.position?.lineRange?.end.type).toBeNull();
+    expect(mapped[3]?.notes[0]?.position?.lineRange?.start.type).toBe("something_new");
+
+    // Line numbers used by the renderer stay intact.
+    expect(mapped[0]?.notes[0]?.position?.lineRange?.start.newLine).toBe(10);
+    expect(mapped[0]?.notes[0]?.position?.lineRange?.end.newLine).toBe(12);
+  });
+
+  it("maps unknown note types to \"unknown\" and drops non-absolute avatar URLs", () => {
+    const rawDiscussions = [
+      {
+        id: "disc-unknown-note-type",
+        individual_note: true,
+        notes: [
+          {
+            id: 301,
+            type: "SomeFutureNote",
+            body: "Hinweis",
+            author: { id: 3, username: "carol", name: "Carol", avatar_url: "/uploads/-/system/user/avatar/3/avatar.png" },
+            created_at: "2026-08-20T10:00:00Z",
+            updated_at: "2026-08-20T10:00:00Z",
+            system: false,
+            resolvable: false,
+            resolved: false,
+            resolved_by: null,
+            position: null,
+          },
+        ],
+      },
+    ];
+
+    const mapped = mapGitLabDiscussions(rawDiscussions as never, null);
+    expect(GitLabDiscussionSchema.safeParse(mapped[0]).success).toBe(true);
+    expect(mapped[0]?.notes[0]?.type).toBe("unknown");
+    expect(mapped[0]?.notes[0]?.author.avatarUrl).toBeNull();
   });
 });
 

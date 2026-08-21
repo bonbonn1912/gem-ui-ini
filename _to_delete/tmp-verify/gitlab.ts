@@ -8,7 +8,7 @@ import {
   IsoTimestampSchema,
   RootRevisionSchema,
   ShaSchema,
-} from "./common";
+} from "./common.ts";
 
 export const GitLabRepoPathSchema = z
   .string()
