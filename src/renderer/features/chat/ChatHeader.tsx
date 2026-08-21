@@ -40,10 +40,6 @@ function rootName(path: string, label?: string): string {
   return label || path.split(/[\\/]/).filter(Boolean).at(-1) || path;
 }
 
-function compactNumber(value: number): string {
-  return new Intl.NumberFormat("de-DE", { notation: "compact", maximumFractionDigits: 1 }).format(value);
-}
-
 function exactNumber(value: number): string {
   return value.toLocaleString("de-DE");
 }
@@ -56,25 +52,53 @@ const TOKEN_SOURCE_LABELS: Record<string, string> = {
   acp_usage_update: "ACP usage_update",
 };
 
-function counterLines(tokens: TokenCounters): string[] {
+const NOT_REPORTED = "nicht gemeldet";
+
+function tokenLine(label: string, value: number | null, suffix = ""): string {
+  return value === null
+    ? `${label}: ${NOT_REPORTED}`
+    : `${label}: ${exactNumber(value)} Token${suffix}`;
+}
+
+/**
+ * Tooltip breakdown of one counter set.
+ *
+ * `verbose` spells out every counter including the ones the agent did not send.
+ * That is what makes "Gemini reports no cache tokens" visible instead of the
+ * value simply being absent and looking like zero.
+ */
+function counterLines(tokens: TokenCounters, verbose = false): string[] {
   const lines: string[] = [];
-  if (tokens.input !== null) lines.push(`Eingabe: ${exactNumber(tokens.input)} Token`);
-  if (tokens.output !== null) lines.push(`Ausgabe: ${exactNumber(tokens.output)} Token`);
-  if (tokens.total !== null) {
-    lines.push(
-      tokens.totalKind === "derived_input_plus_output"
-        ? `Gesamt: ${exactNumber(tokens.total)} Token (aus Eingabe + Ausgabe berechnet)`
-        : `Gesamt: ${exactNumber(tokens.total)} Token`,
-    );
+  if (verbose || tokens.input !== null) lines.push(tokenLine("Eingabe", tokens.input));
+  if (verbose || tokens.output !== null) lines.push(tokenLine("Ausgabe", tokens.output));
+  if (verbose || tokens.cachedRead !== null) {
+    lines.push(tokenLine("Cache gelesen", tokens.cachedRead));
   }
-  if (tokens.thought !== null) lines.push(`Gedanken: ${exactNumber(tokens.thought)} Token`);
-  if (tokens.cachedRead !== null) lines.push(`Cache gelesen: ${exactNumber(tokens.cachedRead)} Token`);
-  if (tokens.tool !== null) lines.push(`Werkzeuge: ${exactNumber(tokens.tool)} Token`);
+  if (tokens.cachedWrite !== null) lines.push(tokenLine("Cache geschrieben", tokens.cachedWrite));
+  if (verbose || tokens.thought !== null) lines.push(tokenLine("Gedanken", tokens.thought));
+  if (tokens.tool !== null) lines.push(tokenLine("Werkzeuge", tokens.tool));
+  lines.push(
+    tokenLine(
+      "Gesamt",
+      tokens.total,
+      tokens.totalKind === "derived_input_plus_output"
+        ? " (aus Eingabe + Ausgabe berechnet)"
+        : "",
+    ),
+  );
   return lines;
 }
 
-type UsagePresentation = {
+export type UsageMetric = {
+  key: string;
   label: string;
+  value: string;
+};
+
+type UsagePresentation = {
+  /** Segments rendered inside the pill. Empty means nothing was reported yet. */
+  metrics: UsageMetric[];
+  placeholder: string | null;
   title: string;
   percent?: number;
 };
@@ -82,81 +106,87 @@ type UsagePresentation = {
 /**
  * Presents exactly what the agent reported.
  *
- * The pill is always visible: an empty display means "not reported yet", not a
- * broken feature. Consumption is never shown as a context percentage, and no
- * context-window size is invented when the agent did not send one.
+ * The pill is always visible and names each counter separately: context
+ * occupancy, session input, session output and session cache. A counter the
+ * agent never sent shows a dash instead of a zero, and consumption is never
+ * rendered as a context percentage.
  */
 function usagePresentation(chat: ChatState, working: boolean): UsagePresentation {
   const snapshot = chat.usage;
-  const pending = working
-    ? "Der laufende Turn ist noch nicht enthalten. Gemini CLI meldet Tokenzahlen erst nach Abschluss des Turns."
-    : null;
-
-  const lastTurn = snapshot?.lastTurn;
-  const details: string[] = [];
-  if (lastTurn) {
-    details.push(
-      `Letzter Turn (${TOKEN_SOURCE_LABELS[lastTurn.source] ?? lastTurn.source}):`,
-      ...counterLines(lastTurn.tokens).map((line) => `  ${line}`),
-    );
-    for (const model of lastTurn.byModel) {
-      details.push(`  ${model.model}: ${exactNumber(model.input)} ein / ${exactNumber(model.output)} aus`);
-    }
-  }
-  if (snapshot?.cost) {
-    details.push(`Kosten: ${snapshot.cost.amount} ${snapshot.cost.currency}`);
-  }
-
+  const context = snapshot?.context ?? null;
   const session = snapshot?.session ?? null;
-  const coverageNote = session
-    ? session.coverage === "partial"
-      ? "Erfasst seit Aktivierung der Zählung, nicht die vollständige Sessionhistorie."
-      : session.coverage === "provider_reported"
-        ? "Vom Agenten kumulativ für die Session gemeldet."
-        : "Vollständig für alle von GeminUI beobachteten Turns."
-    : null;
+  const lastTurn = snapshot?.lastTurn ?? null;
+
+  const metrics: UsageMetric[] = [];
+  const lines: string[] = [];
+  let percent: number | undefined;
+
+  if (context) {
+    percent = Math.round((context.used / context.size) * 100);
+    metrics.push({ key: "context", label: "Kontext", value: `${percent} %` });
+    lines.push(
+      `Kontextfenster: ${exactNumber(context.used)} von ${exactNumber(context.size)} Token belegt (${percent} %).`,
+    );
+  } else {
+    lines.push("Kontextbelegung wurde von Gemini nicht gemeldet, deshalb gibt es keinen Prozentwert.");
+  }
 
   if (session) {
-    details.push(
-      `Sessionverbrauch (${TOKEN_SOURCE_LABELS[session.source] ?? session.source}):`,
-      ...counterLines(session.tokens).map((line) => `  ${line}`),
+    // "≥" is literal, not decorative: with partial coverage the true session
+    // total is at least this large, because turns before tracking are missing.
+    const atLeast = session.coverage === "partial" ? "≥ " : "";
+    const value = (count: number | null) =>
+      count === null ? "–" : `${atLeast}${exactNumber(count)}`;
+    metrics.push(
+      { key: "input", label: "In", value: value(session.tokens.input) },
+      { key: "output", label: "Out", value: value(session.tokens.output) },
+      { key: "cache", label: "Cache", value: value(session.tokens.cachedRead) },
     );
-    if (coverageNote) details.push(coverageNote);
+
+    lines.push(
+      `Sessionverbrauch (${TOKEN_SOURCE_LABELS[session.source] ?? session.source}):`,
+      ...counterLines(session.tokens, true).map((line) => `  ${line}`),
+      session.coverage === "partial"
+        ? "≥ bedeutet: erfasst seit Aktivierung der Zählung, nicht die vollständige Sessionhistorie."
+        : session.coverage === "provider_reported"
+          ? "Vom Agenten kumulativ für die Session gemeldet."
+          : "Vollständig für alle von GeminUI beobachteten Turns.",
+    );
   }
 
-  const context = snapshot?.context ?? null;
-  if (context) {
-    const percent = Math.round((context.used / context.size) * 100);
-    return {
-      label: `Kontext ${exactNumber(context.used)} / ${exactNumber(context.size)} · ${percent} %`,
-      title: [
-        `Kontextfenster: ${exactNumber(context.used)} von ${exactNumber(context.size)} Token belegt (${percent} %).`,
-        ...details,
-        ...(pending ? [pending] : []),
-      ].join("\n"),
-      percent,
-    };
+  if (lastTurn) {
+    lines.push(
+      `Letzter Turn (${TOKEN_SOURCE_LABELS[lastTurn.source] ?? lastTurn.source}):`,
+      ...counterLines(lastTurn.tokens).map((line) => `  ${line}`),
+      ...lastTurn.byModel.map(
+        (model) =>
+          `  ${model.model}: ${exactNumber(model.input)} ein / ${exactNumber(model.output)} aus`,
+      ),
+    );
   }
 
-  const sessionTotal = session?.tokens.total ?? session?.tokens.input ?? null;
-  if (session && sessionTotal !== null) {
+  if (snapshot?.cost) {
+    lines.push(`Kosten: ${snapshot.cost.amount} ${snapshot.cost.currency}`);
+  }
+  if (working) {
+    lines.push(
+      "Der laufende Turn ist noch nicht enthalten. Gemini CLI meldet Tokenzahlen erst nach Abschluss des Turns.",
+    );
+  }
+
+  if (metrics.length === 0) {
     return {
-      label: `${session.coverage === "partial" ? "Seit Erfassung" : "Session"} ${compactNumber(sessionTotal)} Token`,
-      title: [
-        "Kontextbelegung wurde von Gemini nicht gemeldet, deshalb gibt es keinen Prozentwert.",
-        ...details,
-        ...(pending ? [pending] : []),
-      ].join("\n"),
+      metrics,
+      placeholder: "Token: –",
+      title: ["Gemini hat für diese Session noch keine Nutzung gemeldet.", ...lines.slice(1)].join("\n"),
     };
   }
 
   return {
-    label: "Token: –",
-    title: [
-      "Gemini hat für diese Session noch keine Nutzung gemeldet.",
-      ...details,
-      ...(pending ? [pending] : []),
-    ].join("\n"),
+    metrics,
+    placeholder: null,
+    title: lines.join("\n"),
+    ...(percent !== undefined ? { percent } : {}),
   };
 }
 
@@ -209,7 +239,16 @@ export function ChatHeader({
           {usage.percent !== undefined && (
             <i aria-hidden="true"><span style={{ width: `${Math.min(100, Math.max(0, usage.percent))}%` }} /></i>
           )}
-          <span>{usage.label}</span>
+          {usage.placeholder !== null ? (
+            <span>{usage.placeholder}</span>
+          ) : (
+            usage.metrics.map((metric) => (
+              <span className={`usage-metric usage-metric--${metric.key}`} key={metric.key}>
+                <span>{metric.label}</span>
+                <strong>{metric.value}</strong>
+              </span>
+            ))
+          )}
         </span>
         <button
           className={`changes-toggle ${changesOpen ? "changes-toggle--active" : ""}`}

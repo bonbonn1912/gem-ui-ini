@@ -431,7 +431,10 @@ describe("Renderer UI", () => {
 
     const modelSelect = await screen.findByRole("combobox", { name: "Gemini-Modell" });
     expect(modelSelect).toHaveValue("gemini-2.5-flash");
-    expect(screen.getByText("Kontext 2.048 / 8.192 · 25 %")).toBeVisible();
+    expect(screen.getByText("25 %")).toBeVisible();
+    expect(screen.getByText("25 %").closest(".usage-pill")?.getAttribute("title")).toContain(
+      "2.048 von 8.192 Token belegt",
+    );
 
     await user.selectOptions(modelSelect, "gemini-2.5-pro");
     await waitFor(() => expect(api.sessions.setModel).toHaveBeenCalledWith(expect.objectContaining({
@@ -508,12 +511,22 @@ describe("Renderer UI", () => {
       ]);
     });
 
-    expect(await screen.findByText("Seit Erfassung 18.400 Token")).toBeVisible();
-    const pill = screen.getByText("Seit Erfassung 18.400 Token").parentElement;
-    expect(pill?.getAttribute("title")).toContain("keinen Prozentwert");
-    expect(pill?.getAttribute("title")).toContain("Erfasst seit Aktivierung der Zählung");
-    expect(pill?.getAttribute("title")).toContain("aus Eingabe + Ausgabe berechnet");
-    expect(pill?.getAttribute("title")).not.toContain("Kosten");
+    // Input, output and cache are readable straight from the header.
+    const pill = (await screen.findByText("In")).closest(".usage-pill");
+    expect(pill).toBeVisible();
+    expect(within(pill as HTMLElement).getByText("≥ 12.000")).toBeVisible();
+    expect(within(pill as HTMLElement).getByText("≥ 6.400")).toBeVisible();
+    // Gemini reports no cache tokens, so a dash appears instead of a fake zero.
+    expect(within(pill as HTMLElement).getByText("Cache").nextElementSibling).toHaveTextContent("–");
+    // No context window was reported, so no percentage is shown at all.
+    expect(within(pill as HTMLElement).queryByText("Kontext")).not.toBeInTheDocument();
+
+    const title = pill?.getAttribute("title") ?? "";
+    expect(title).toContain("keinen Prozentwert");
+    expect(title).toContain("Cache gelesen: nicht gemeldet");
+    expect(title).toContain("≥ bedeutet: erfasst seit Aktivierung der Zählung");
+    expect(title).toContain("aus Eingabe + Ausgabe berechnet");
+    expect(title).not.toContain("Kosten");
   });
 
   it("zeigt bei fehlender Modell-Capability ehrlich an, dass kein Modell gemeldet wurde", async () => {

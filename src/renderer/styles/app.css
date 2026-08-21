@@ -155,6 +155,12 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .usage-pill, .mode-pill, .model-pill { height: 30px; max-width: 190px; padding: 0 10px; flex: 0 1 auto; display: inline-flex; align-items: center; gap: 6px; overflow: hidden; border: 1px solid var(--border-soft); border-radius: 8px; color: var(--muted); background: var(--surface); font-size: 10.5px; white-space: nowrap; }
 .usage-pill > i { width: 26px; height: 3px; flex: 0 0 auto; overflow: hidden; border-radius: 99px; background: var(--border); }.usage-pill > i > span { height: 100%; display: block; border-radius: inherit; background: var(--accent); }
 .usage-pill > span, .model-pill strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; }.model-pill > span { color: var(--faint); font-size: 8px; font-weight: 720; text-transform: uppercase; }.model-pill strong { color: var(--text-soft); font-size: 10.5px; font-weight: 620; }
+.usage-pill { max-width: min(430px, 46vw); gap: 9px; }
+.usage-metric { flex: 0 0 auto; display: inline-flex; align-items: baseline; gap: 4px; }
+.usage-metric > span { flex: 0 0 auto; color: var(--faint); font-size: 8px; font-weight: 720; text-transform: uppercase; }
+/* Token counts are never ellipsized: a clipped "1..." would misinform. If the
+   header runs out of room the media queries below drop the context segment. */
+.usage-metric > strong { flex: 0 0 auto; overflow: visible; color: var(--text-soft); font-size: 10.5px; font-weight: 620; font-variant-numeric: tabular-nums; }
 .roots-menu { position: relative; }
 .roots-menu > summary { height: 32px; padding: 0 9px; display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 9px; color: var(--text-soft); background: var(--surface); font-size: 11px; font-weight: 590; cursor: pointer; list-style: none; }
 .roots-menu > summary::-webkit-details-marker { display: none; }
@@ -363,6 +369,16 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
   .project-dialog { max-height:calc(100vh - 20px); border-radius:14px; }.modal-layer { padding:10px; }.dialog-body { padding:16px; }.project-dialog > footer { padding:10px 16px; }.selected-folder { grid-template-columns:32px minmax(0,1fr) auto; }.folder-tile { width:31px;height:31px; }.onboarding-card { padding:28px 22px; }.onboarding-steps p { grid-template-columns:1fr; }.onboarding-actions { flex-direction:column; }
   .workspace-empty,.project-empty { padding:28px 20px; }.empty-benefits { gap:8px; }
   .changes-toggle { width:32px;padding:0;justify-content:center; }.changes-toggle i { min-width:14px;height:14px;padding:0 3px;position:absolute;margin:-23px 0 0 22px;font-size:6.5px; }.changes-panel { width:100vw; }.changes-panel-header { height:61px; }.changes-panel-body { height:calc(100% - 61px);grid-template-rows:minmax(0,1fr); }.changes-diff-pane { display:none; }.changes-panel-body--diff .changes-list-pane { display:none; }.changes-panel-body--diff .changes-diff-pane { display:block; }.git-diff-back { display:grid; }
+}
+
+@media (max-width: 1200px) {
+  .usage-metric--context > span { display: none; }
+}
+
+@media (max-width: 1040px) {
+  .usage-pill { gap: 7px; }
+  /* The bar keeps showing the context ratio, the counters keep their numbers. */
+  .usage-metric--context { display: none; }
 }
 
 @media (max-width: 480px) {
