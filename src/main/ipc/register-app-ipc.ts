@@ -632,7 +632,7 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
     return { ok: true };
   });
   register(IPC_CHANNELS.openLinkPreviewView, (input) =>
-    linkPreview.open((input as OpenLinkPreviewInput).attachmentId),
+    linkPreview.open(input as OpenLinkPreviewInput),
   );
   register(IPC_CHANNELS.setLinkPreviewBounds, (input) => {
     linkPreview.setBounds(input as SetLinkPreviewBoundsInput);

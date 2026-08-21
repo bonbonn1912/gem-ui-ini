@@ -153,7 +153,7 @@ export const CancelTurnInputSchema = z
   .object({
     clientRequestId: ClientRequestIdSchema,
     sessionId: EntityIdSchema,
-    turnId: EntityIdSchema,
+    turnId: EntityIdSchema.optional(),
   })
   .strict();
 

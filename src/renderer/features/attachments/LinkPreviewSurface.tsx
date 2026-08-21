@@ -3,8 +3,8 @@ import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "../../components/Icon";
 
 type LinkPreviewSurfaceProps = {
-  attachmentId: string;
-  host: string;
+  attachmentId?: string;
+  host?: string;
   url: string;
   onOpenExternal: (url: string) => void;
   onClose: () => void;
@@ -100,6 +100,14 @@ export function LinkPreviewSurface({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const displayHost = host || (() => {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return url;
+    }
+  })();
+
   const publishBounds = useCallback(() => {
     frameRef.current = null;
     const surface = surfaceRef.current;
@@ -123,14 +131,18 @@ export function LinkPreviewSurface({
     setLoading(true);
     setError(null);
     try {
-      await window.gemUi.linkPreview.open({ attachmentId });
+      if (attachmentId) {
+        await window.gemUi.linkPreview.open({ attachmentId, url });
+      } else {
+        await window.gemUi.linkPreview.open({ url });
+      }
       scheduleBounds();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Die Live-Ansicht konnte nicht geladen werden.");
     } finally {
       setLoading(false);
     }
-  }, [attachmentId, scheduleBounds]);
+  }, [attachmentId, url, scheduleBounds]);
 
   useLayoutEffect(() => {
     void open();
@@ -151,7 +163,7 @@ export function LinkPreviewSurface({
     <section className={`link-live-preview ${isExpanded ? "link-live-preview--expanded" : ""}`}>
       {showHeader && (
         <header>
-          <span><Icon name="globe" size={14} />{host}</span>
+          <span><Icon name="globe" size={14} />{displayHost}</span>
           {loading && <span className="mini-spinner" aria-label="Seite wird geladen" />}
           <button type="button" onClick={() => void open()} aria-label="Live-Ansicht neu laden" title="Neu laden"><Icon name="refresh" size={14} /></button>
           <button type="button" onClick={() => onOpenExternal(url)} aria-label="Im Browser öffnen" title="Im Browser öffnen"><Icon name="external" size={14} /></button>
@@ -162,10 +174,10 @@ export function LinkPreviewSurface({
       <div
         ref={surfaceRef}
         className="link-preview-surface"
-        aria-label={`Live-Ansicht von ${host}`}
+        aria-label={`Live-Ansicht von ${displayHost}`}
         style={height ? { height: `${height}px` } : undefined}
       >
-        <span>Die sichere Live-Ansicht von {host} wird hier eingebettet.</span>
+        <span>Die sichere Live-Ansicht von {displayHost} wird hier eingebettet.</span>
       </div>
     </section>
   );
