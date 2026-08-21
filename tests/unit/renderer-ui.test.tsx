@@ -196,15 +196,23 @@ function createApi(options: { projects?: AppProject[]; sessions?: AppSession[]; 
   return { api, emit: (events: StreamEnvelope[]) => subscriber?.(events) };
 }
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.stubGlobal("confirm", vi.fn(() => true));
-  // The changes panel remembers its open state in localStorage, and jsdom keeps
-  // that store alive across the tests in this file. Without clearing it a test
-  // that opens the panel would leave the next one mounted with it already open.
-  window.localStorage.clear?.();
+  const storage = new Map<string, string>();
+  vi.stubGlobal("localStorage", {
+    getItem: vi.fn((key: string) => storage.get(key) ?? null),
+    setItem: vi.fn((key: string, value: string) => storage.set(key, String(value))),
+    removeItem: vi.fn((key: string) => storage.delete(key)),
+    clear: vi.fn(() => storage.clear()),
+    key: vi.fn((index: number) => [...storage.keys()][index] ?? null),
+    get length() { return storage.size; },
+  });
 });
 
 function populatedContextList(overBudget = false): ContextAttachmentList {
@@ -290,6 +298,25 @@ describe("Renderer UI", () => {
     await user.click(screen.getByRole("button", { name: /^Änderungen öffnen/ }));
     expect(screen.queryByRole("complementary", { name: "Anhänge" })).not.toBeInTheDocument();
     expect(await screen.findByRole("complementary", { name: "Git-Änderungen" })).toBeVisible();
+  });
+
+  it("ändert die Breite des rechten Panels per Tastatur und speichert sie", async () => {
+    const user = userEvent.setup();
+    const { api } = createApi({ contextList: populatedContextList() });
+    window.gemUi = api;
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Anhänge öffnen, 2 Anhänge, 1 im Kontext" }));
+    const separator = screen.getByRole("separator", { name: "Breite von Chat und rechtem Panel ändern" });
+    expect(separator).toHaveAttribute("aria-valuenow", "520");
+
+    separator.focus();
+    await user.keyboard("{ArrowLeft}");
+    expect(separator).toHaveAttribute("aria-valuenow", "544");
+    expect(window.localStorage.getItem("geminui.right-panel.width")).toBe("544");
+
+    await user.keyboard("{ArrowRight}");
+    expect(separator).toHaveAttribute("aria-valuenow", "520");
   });
 
   it("zeigt gemischte Gruppenauswahl und wählt bei Klick alle Anhänge aus", async () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from "react";
 import { Icon } from "../components/Icon";
 import { Composer, type ComposerAttachment } from "../features/attachments/Composer";
 import { AttachmentsPanel } from "../features/attachments/AttachmentsPanel";
@@ -200,6 +200,11 @@ function RootChangeBanner() {
 }
 
 type RightPanel = "none" | "changes" | "attachments";
+const DEFAULT_RIGHT_PANEL_WIDTH = 520;
+const MIN_RIGHT_PANEL_WIDTH = 300;
+const MIN_CHAT_WIDTH = 260;
+const MAX_RIGHT_PANEL_WIDTH = 1_600;
+const RIGHT_PANEL_OVERLAY_BREAKPOINT = 640;
 
 function initialRightPanel(): RightPanel {
   try {
@@ -209,6 +214,96 @@ function initialRightPanel(): RightPanel {
   } catch {
     return "none";
   }
+}
+
+function initialRightPanelWidth(): number {
+  try {
+    const storedValue = window.localStorage.getItem("geminui.right-panel.width");
+    const stored = storedValue === null ? Number.NaN : Number(storedValue);
+    if (Number.isFinite(stored)) {
+      return Math.min(MAX_RIGHT_PANEL_WIDTH, Math.max(MIN_RIGHT_PANEL_WIDTH, Math.round(stored)));
+    }
+  } catch {
+    // The default remains usable when preferences are unavailable.
+  }
+  return DEFAULT_RIGHT_PANEL_WIDTH;
+}
+
+function RightPanelResizeHandle({
+  width,
+  onChange,
+}: {
+  width: number;
+  onChange: (width: number) => void;
+}) {
+  const drag = useRef<{ pointerId: number; right: number; maximum: number } | null>(null);
+  const clamp = (value: number, maximum = MAX_RIGHT_PANEL_WIDTH) =>
+    Math.round(Math.min(maximum, Math.max(MIN_RIGHT_PANEL_WIDTH, value)));
+  const maximumFor = (handle: HTMLDivElement) => {
+    const workspaceWidth = handle.parentElement?.getBoundingClientRect().width ?? 0;
+    return workspaceWidth > MIN_CHAT_WIDTH + MIN_RIGHT_PANEL_WIDTH
+      ? Math.min(MAX_RIGHT_PANEL_WIDTH, workspaceWidth - MIN_CHAT_WIDTH)
+      : MAX_RIGHT_PANEL_WIDTH;
+  };
+
+  return (
+    <div
+      className="right-panel-resize-handle"
+      role="separator"
+      aria-label="Breite von Chat und rechtem Panel ändern"
+      aria-orientation="vertical"
+      aria-valuemin={MIN_RIGHT_PANEL_WIDTH}
+      aria-valuemax={MAX_RIGHT_PANEL_WIDTH}
+      aria-valuenow={width}
+      tabIndex={0}
+      title="Ziehen, um Chat und Panel in der Breite zu ändern · Doppelklick setzt zurück"
+      onDoubleClick={(event) => onChange(clamp(DEFAULT_RIGHT_PANEL_WIDTH, maximumFor(event.currentTarget)))}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          onChange(clamp(width + 24, maximumFor(event.currentTarget)));
+        } else if (event.key === "ArrowRight") {
+          event.preventDefault();
+          onChange(clamp(width - 24));
+        }
+      }}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        const workspace = event.currentTarget.parentElement;
+        if (!workspace) return;
+        const bounds = workspace.getBoundingClientRect();
+        drag.current = {
+          pointerId: event.pointerId,
+          right: bounds.right,
+          maximum: Math.max(MIN_RIGHT_PANEL_WIDTH, bounds.width - MIN_CHAT_WIDTH),
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        event.currentTarget.classList.add("right-panel-resize-handle--dragging");
+        event.preventDefault();
+      }}
+      onPointerMove={(event) => {
+        const active = drag.current;
+        if (!active || active.pointerId !== event.pointerId) return;
+        onChange(clamp(active.right - event.clientX, active.maximum));
+      }}
+      onPointerUp={(event) => {
+        if (drag.current?.pointerId !== event.pointerId) return;
+        drag.current = null;
+        event.currentTarget.classList.remove("right-panel-resize-handle--dragging");
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+      }}
+      onPointerCancel={(event) => {
+        drag.current = null;
+        event.currentTarget.classList.remove("right-panel-resize-handle--dragging");
+      }}
+      onLostPointerCapture={(event) => {
+        drag.current = null;
+        event.currentTarget.classList.remove("right-panel-resize-handle--dragging");
+      }}
+    />
+  );
 }
 
 function supportsGitArea(change: GitFileChange, area: DiffSelection["area"]): boolean {
@@ -229,6 +324,7 @@ export function App() {
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [rightPanel, setRightPanel] = useState<RightPanel>(initialRightPanel);
+  const [rightPanelWidth, setRightPanelWidth] = useState(initialRightPanelWidth);
   const [gitSelection, setGitSelection] = useState<DiffSelection | null>(null);
   const [gitRefreshToken, setGitRefreshToken] = useState(0);
   const [gitPreviewTrigger, setGitPreviewTrigger] = useState<GitPreviewTrigger | null>(null);
@@ -236,6 +332,7 @@ export function App() {
   const [fatalError, setFatalError] = useState<string | null>(null);
   const [chat, dispatch] = useReducer(chatReducer, null, () => createChatState());
   const gitStatusRef = useRef<GitProjectStatus | null>(null);
+  const workspaceRef = useRef<HTMLDivElement>(null);
   const gitToolBaselinesRef = useRef(new Map<string, ReadonlyMap<string, string>>());
   const gitPreviewSequenceRef = useRef(0);
 
@@ -308,6 +405,29 @@ export function App() {
       // A disabled preference store must not disable the viewer itself.
     }
   }, [changesOpen, rightPanel]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("geminui.right-panel.width", String(rightPanelWidth));
+    } catch {
+      // Resizing remains available without persistent preferences.
+    }
+  }, [rightPanelWidth]);
+
+  useEffect(() => {
+    const workspace = workspaceRef.current;
+    if (!workspace || typeof ResizeObserver === "undefined") return;
+    const fitToWorkspace = () => {
+      if (window.innerWidth <= RIGHT_PANEL_OVERLAY_BREAKPOINT) return;
+      if (workspace.clientWidth <= MIN_CHAT_WIDTH + MIN_RIGHT_PANEL_WIDTH) return;
+      const maximum = Math.max(MIN_RIGHT_PANEL_WIDTH, workspace.clientWidth - MIN_CHAT_WIDTH);
+      setRightPanelWidth((current) => Math.min(current, maximum));
+    };
+    fitToWorkspace();
+    const observer = new ResizeObserver(fitToWorkspace);
+    observer.observe(workspace);
+    return () => observer.disconnect();
+  }, [activeProject?.id, activeSession?.id, rightPanel]);
 
   useLayoutEffect(() => {
     if (rightPanel !== "attachments" || projectDialogOpen || projectSettingsOpen) {
@@ -700,7 +820,11 @@ export function App() {
         {!projects.length ? (
           <EmptyWorkspace onCreateProject={() => setProjectDialogOpen(true)} />
         ) : activeProject && !activeSession ? (
-          <div className={`chat-workspace ${rightPanel !== "none" ? "chat-workspace--panel" : ""}`}>
+          <div
+            ref={workspaceRef}
+            className={`chat-workspace ${rightPanel !== "none" ? "chat-workspace--panel" : ""}`}
+            style={{ "--right-panel-width": `${rightPanelWidth}px` } as CSSProperties}
+          >
             <div className="project-empty-host">
               <button type="button" className="icon-button mobile-empty-menu" onClick={() => setSidebarOpen(true)} aria-label="Seitenleiste öffnen"><Icon name="menu" size={19} /></button>
               <EmptyProject
@@ -740,9 +864,14 @@ export function App() {
               onError={(error) => showError("Anhang konnte nicht verarbeitet werden", error)}
               onOpenExternal={openExternal}
             />}
+            {rightPanel !== "none" && <RightPanelResizeHandle width={rightPanelWidth} onChange={setRightPanelWidth} />}
           </div>
         ) : activeProject && activeSession ? (
-          <div className={`chat-workspace ${rightPanel !== "none" ? "chat-workspace--panel" : ""}`}>
+          <div
+            ref={workspaceRef}
+            className={`chat-workspace ${rightPanel !== "none" ? "chat-workspace--panel" : ""}`}
+            style={{ "--right-panel-width": `${rightPanelWidth}px` } as CSSProperties}
+          >
             <div className="chat-view">
               <ChatHeader
                 project={activeProject}
@@ -812,6 +941,7 @@ export function App() {
               onError={(error) => showError("Anhang konnte nicht verarbeitet werden", error)}
               onOpenExternal={openExternal}
             />}
+            {rightPanel !== "none" && <RightPanelResizeHandle width={rightPanelWidth} onChange={setRightPanelWidth} />}
           </div>
         ) : null}
       </section>
