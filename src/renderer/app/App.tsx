@@ -4,6 +4,7 @@ import { Composer, type ComposerAttachment } from "../features/attachments/Compo
 import { ChatHeader } from "../features/chat/ChatHeader";
 import { Timeline } from "../features/chat/Timeline";
 import { chatReducer, createChatState, type TurnPhase } from "../features/chat/reducer";
+import { ChangesPanel } from "../features/git/ChangesPanel";
 import { ProjectDialog } from "../features/projects/ProjectDialog";
 import { ProjectSettingsDialog } from "../features/projects/ProjectSettingsDialog";
 import { Sidebar } from "../features/sessions/Sidebar";
@@ -143,7 +144,17 @@ function EmptyWorkspace({ onCreateProject }: { onCreateProject: () => void }) {
   );
 }
 
-function EmptyProject({ project, onCreateSession }: { project: AppProject; onCreateSession: () => void }) {
+function EmptyProject({
+  project,
+  changesCount,
+  onCreateSession,
+  onToggleChanges,
+}: {
+  project: AppProject;
+  changesCount: number;
+  onCreateSession: () => void;
+  onToggleChanges: () => void;
+}) {
   return (
     <main className="project-empty">
       <div className="project-empty-icon"><Icon name="chat" size={27} /></div>
@@ -155,7 +166,10 @@ function EmptyProject({ project, onCreateSession }: { project: AppProject; onCre
           <span key={root.id}><Icon name="folder" size={14} /> {root.label || root.path.split(/[\\/]/).at(-1)} {root.kind === "primary" && <i>Primär</i>}</span>
         ))}
       </div>
-      <button className="primary-button" type="button" onClick={onCreateSession}><Icon name="plus" size={17} /> Neue Session</button>
+      <div className="project-empty-actions">
+        <button className="primary-button" type="button" onClick={onCreateSession}><Icon name="plus" size={17} /> Neue Session</button>
+        <button className="secondary-button" type="button" onClick={onToggleChanges}><Icon name="changes" size={16} /> Änderungen{changesCount > 0 ? ` (${changesCount})` : ""}</button>
+      </div>
     </main>
   );
 }
@@ -169,6 +183,14 @@ function RootChangeBanner() {
   );
 }
 
+function initialChangesPanelOpen(): boolean {
+  try {
+    return window.localStorage.getItem("geminui.changes-panel.open") === "true";
+  } catch {
+    return false;
+  }
+}
+
 export function App() {
   const [booting, setBooting] = useState(true);
   const [capabilities, setCapabilities] = useState<AppCapabilities | null>(null);
@@ -180,6 +202,9 @@ export function App() {
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [changesOpen, setChangesOpen] = useState(initialChangesPanelOpen);
+  const [changesCount, setChangesCount] = useState(0);
+  const [gitRefreshToken, setGitRefreshToken] = useState(0);
   const [uiError, setUiError] = useState<UiError | null>(null);
   const [fatalError, setFatalError] = useState<string | null>(null);
   const [chat, dispatch] = useReducer(chatReducer, null, () => createChatState());
@@ -216,6 +241,14 @@ export function App() {
   }, []);
 
   useEffect(() => { void bootstrap(); }, [bootstrap]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("geminui.changes-panel.open", String(changesOpen));
+    } catch {
+      // A disabled preference store must not disable the viewer itself.
+    }
+  }, [changesOpen]);
 
   useEffect(() => {
     if (!activeProjectId) {
@@ -259,6 +292,15 @@ export function App() {
           setSessions((currentSessions) => currentSessions.map((session) =>
             session.id === activeSessionId ? { ...session, status } : session,
           ));
+        }
+        if (events.some(({ event }) => [
+          "turn.completed",
+          "turn.failed",
+          "turn.cancelled",
+          "tool.completed",
+          "tool.failed",
+        ].includes(event.type))) {
+          setGitRefreshToken((currentToken) => currentToken + 1);
         }
       },
       (snapshot) => {
@@ -550,37 +592,65 @@ export function App() {
         {!projects.length ? (
           <EmptyWorkspace onCreateProject={() => setProjectDialogOpen(true)} />
         ) : activeProject && !activeSession ? (
-          <>
-            <button type="button" className="icon-button mobile-empty-menu" onClick={() => setSidebarOpen(true)} aria-label="Seitenleiste öffnen"><Icon name="menu" size={19} /></button>
-            <EmptyProject project={activeProject} onCreateSession={() => void createSession()} />
-          </>
-        ) : activeProject && activeSession ? (
-          <div className="chat-view">
-            <ChatHeader
+          <div className={`chat-workspace ${changesOpen ? "chat-workspace--changes" : ""}`}>
+            <div className="project-empty-host">
+              <button type="button" className="icon-button mobile-empty-menu" onClick={() => setSidebarOpen(true)} aria-label="Seitenleiste öffnen"><Icon name="menu" size={19} /></button>
+              <EmptyProject
+                project={activeProject}
+                changesCount={changesCount}
+                onCreateSession={() => void createSession()}
+                onToggleChanges={() => setChangesOpen((current) => !current)}
+              />
+            </div>
+            <ChangesPanel
+              key={`${activeProject.id}:${activeProject.rootRevision}`}
+              open={changesOpen}
               project={activeProject}
-              session={activeSession}
-              chat={{ ...chat, phase: effectivePhase }}
-              modelsSupported={capabilities.gemini.models}
-              onOpenSidebar={() => setSidebarOpen(true)}
-              onEditProject={() => setProjectSettingsOpen(true)}
-              onSetMode={(mode) => void setSessionMode(activeSession.id, mode)}
-              onSetModel={(model) => void setSessionModel(activeSession.id, model)}
+              refreshToken={gitRefreshToken}
+              onClose={() => setChangesOpen(false)}
+              onCountChange={setChangesCount}
             />
-            {activeSession.status === "roots_changed" && <RootChangeBanner />}
-            <Timeline
-              items={chat.items}
-              sessionTitle={activeSession.title}
-              onOpenExternal={openExternal}
-              onRespondToPermission={(request, option) => void respondToPermission(request, option)}
-            />
-            <Composer
-              key={activeSession.id}
-              sessionId={activeSession.id}
-              phase={effectivePhase}
-              imagesSupported={capabilities.gemini.images}
-              onSend={sendPrompt}
-              onCancel={cancelTurn}
-              onError={(error) => showError("Anhang konnte nicht verarbeitet werden", new Error(error))}
+          </div>
+        ) : activeProject && activeSession ? (
+          <div className={`chat-workspace ${changesOpen ? "chat-workspace--changes" : ""}`}>
+            <div className="chat-view">
+              <ChatHeader
+                project={activeProject}
+                session={activeSession}
+                chat={{ ...chat, phase: effectivePhase }}
+                modelsSupported={capabilities.gemini.models}
+                changesOpen={changesOpen}
+                changesCount={changesCount}
+                onToggleChanges={() => setChangesOpen((current) => !current)}
+                onOpenSidebar={() => setSidebarOpen(true)}
+                onEditProject={() => setProjectSettingsOpen(true)}
+                onSetMode={(mode) => void setSessionMode(activeSession.id, mode)}
+                onSetModel={(model) => void setSessionModel(activeSession.id, model)}
+              />
+              {activeSession.status === "roots_changed" && <RootChangeBanner />}
+              <Timeline
+                items={chat.items}
+                sessionTitle={activeSession.title}
+                onOpenExternal={openExternal}
+                onRespondToPermission={(request, option) => void respondToPermission(request, option)}
+              />
+              <Composer
+                key={activeSession.id}
+                sessionId={activeSession.id}
+                phase={effectivePhase}
+                imagesSupported={capabilities.gemini.images}
+                onSend={sendPrompt}
+                onCancel={cancelTurn}
+                onError={(error) => showError("Anhang konnte nicht verarbeitet werden", new Error(error))}
+              />
+            </div>
+            <ChangesPanel
+              key={`${activeProject.id}:${activeProject.rootRevision}`}
+              open={changesOpen}
+              project={activeProject}
+              refreshToken={gitRefreshToken}
+              onClose={() => setChangesOpen(false)}
+              onCountChange={setChangesCount}
             />
           </div>
         ) : null}

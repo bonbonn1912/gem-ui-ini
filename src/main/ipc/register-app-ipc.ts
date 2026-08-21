@@ -13,6 +13,8 @@ import {
   type DeleteSessionInput,
   type GetProjectInput,
   type GetProjectApprovalPolicyInput,
+  type GetGitFileDiffInput,
+  type GetGitProjectStatusInput,
   type ListProjectsInput,
   type ListSessionsInput,
   type PermissionResponse,
@@ -27,11 +29,13 @@ import {
   type SetSessionModelInput,
   type StageDroppedPathInput,
   type SubscribeSessionEventsInput,
+  type SubscribeGitProjectStatusInput,
   type UpdateSessionInput,
 } from "../../shared/contracts";
 import type { AppController } from "../app-controller";
 import type { AttachmentService } from "../attachments/attachment-service";
 import type { GeminiCapabilityService } from "../capability-service";
+import type { GitService, GitStatusSubscriptionHub } from "../git";
 import type { ProjectService } from "../projects";
 import type { ClientRequestRepository } from "../storage";
 import { openExternalHttps } from "../security/main-window";
@@ -46,10 +50,14 @@ export type RegisterAppIpcOptions = {
   attachments: AttachmentService;
   clientRequests: ClientRequestRepository;
   eventHub: SessionEventHub;
+  git: GitService;
+  gitStatusHub: GitStatusSubscriptionHub;
 };
 
 export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
   const cleanups: Array<() => void> = [];
+  const latestGitStatus = new Map<number, AbortController>();
+  const latestGitDiff = new Map<number, AbortController>();
   const register = (
     channel: Parameters<typeof registerValidatedIpcHandler>[0],
     handler: Parameters<typeof registerValidatedIpcHandler>[2],
@@ -72,6 +80,20 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
     if (result.canceled || !binaryPath) return options.capabilities.snapshot();
     await options.controller.resetGeminiManager();
     return options.capabilities.choose(binaryPath);
+  });
+
+  register(IPC_CHANNELS.chooseGitBinary, async () => {
+    const result = await dialog.showOpenDialog(options.mainWindow, {
+      title: "Git auswählen",
+      buttonLabel: "Git verwenden",
+      properties: ["openFile"],
+      filters: process.platform === "win32"
+        ? [{ name: "Git", extensions: ["exe"] }]
+        : undefined,
+    });
+    const binaryPath = result.filePaths[0];
+    if (result.canceled || !binaryPath) return options.capabilities.snapshot();
+    return options.capabilities.chooseGit(binaryPath);
   });
 
   register(IPC_CHANNELS.listProjects, (input) =>
@@ -362,14 +384,63 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
     return { ok: true };
   });
 
+  register(IPC_CHANNELS.listGitProjectRepositories, (input) =>
+    options.git.listProjectRepositories(input as GetGitProjectStatusInput),
+  );
+  register(IPC_CHANNELS.getGitProjectStatus, (input, event) =>
+    runLatestGitRequest(latestGitStatus, event.sender.id, (signal) =>
+      options.git.getProjectStatus(input as GetGitProjectStatusInput, signal),
+    ),
+  );
+  register(IPC_CHANNELS.getGitFileDiff, (input, event) =>
+    runLatestGitRequest(latestGitDiff, event.sender.id, (signal) =>
+      options.git.getFileDiff(input as GetGitFileDiffInput, signal),
+    ),
+  );
+  register(IPC_CHANNELS.subscribeGitProjectStatus, (input, event) =>
+    runLatestGitRequest(latestGitStatus, event.sender.id, (signal) =>
+      options.gitStatusHub.subscribe({
+        value: input as SubscribeGitProjectStatusInput,
+        webContents: event.sender,
+        signal,
+      }),
+    ),
+  );
+  register(IPC_CHANNELS.unsubscribeGitProjectStatus, (input, event) => {
+    options.gitStatusHub.unsubscribe(
+      (input as { subscriptionId: string }).subscriptionId,
+      event.sender,
+    );
+    return { ok: true };
+  });
+
   register(IPC_CHANNELS.openExternalHttpsUrl, async (input) => {
     await openExternalHttps((input as { url: string }).url);
     return { ok: true };
   });
 
   return () => {
+    for (const controller of latestGitStatus.values()) controller.abort();
+    for (const controller of latestGitDiff.values()) controller.abort();
+    latestGitStatus.clear();
+    latestGitDiff.clear();
     for (const cleanup of cleanups.reverse()) cleanup();
   };
+}
+
+async function runLatestGitRequest<TResult>(
+  controllers: Map<number, AbortController>,
+  senderId: number,
+  action: (signal: AbortSignal) => Promise<TResult>,
+): Promise<TResult> {
+  controllers.get(senderId)?.abort();
+  const controller = new AbortController();
+  controllers.set(senderId, controller);
+  try {
+    return await action(controller.signal);
+  } finally {
+    if (controllers.get(senderId) === controller) controllers.delete(senderId);
+  }
 }
 
 async function idempotent<

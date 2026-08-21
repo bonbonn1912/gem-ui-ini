@@ -4,6 +4,10 @@ import type {
   AppSession as ContractAppSession,
   Attachment as ContractAttachment,
   GemUiDesktopApi as ContractGemUiDesktopApi,
+  GitFileChange as ContractGitFileChange,
+  GitFileDiff as ContractGitFileDiff,
+  GitProjectStatus as ContractGitProjectStatus,
+  GitRepositorySummary as ContractGitRepositorySummary,
   PermissionOption as ContractPermissionOption,
   ProjectRoot as ContractProjectRoot,
   ProjectRootCandidate as ContractProjectRootCandidate,
@@ -25,6 +29,10 @@ export type AgentEvent = ContractAgentEvent;
 export type StreamEnvelope = ContractStreamEnvelope;
 export type UsageSnapshot = ContractUsageSnapshot;
 export type TokenCounters = ContractTokenCounters;
+export type GitFileChange = ContractGitFileChange;
+export type GitFileDiff = ContractGitFileDiff;
+export type GitProjectStatus = ContractGitProjectStatus;
+export type GitRepositorySummary = ContractGitRepositorySummary;
 
 export type SessionStatus = ContractAppSession["status"] | "queued";
 

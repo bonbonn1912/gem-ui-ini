@@ -1,9 +1,12 @@
 import {
   GEMINI_SETTINGS_KEY,
   GeminiSettingsSchema,
+  GIT_SETTINGS_KEY,
+  GitSettingsSchema,
   IsoTimestampSchema,
   JsonValueSchema,
   type GeminiSettings,
+  type GitSettings,
   type JsonValue,
 } from "../../../shared";
 import type { SqliteDatabase } from "../database";
@@ -94,6 +97,25 @@ export class SettingsRepository {
   ): GeminiSettings {
     const settings = GeminiSettingsSchema.parse({ binaryPath, updatedAt });
     this.set(GEMINI_SETTINGS_KEY, settings.binaryPath, { updatedAt });
+    return settings;
+  }
+
+  getGitSettings(): GitSettings | null {
+    const setting = this.get(GIT_SETTINGS_KEY);
+    return setting
+      ? GitSettingsSchema.parse({
+          binaryPath: setting.value,
+          updatedAt: setting.updatedAt,
+        })
+      : null;
+  }
+
+  setGitBinaryPath(
+    binaryPath: string | null,
+    updatedAt = new Date().toISOString(),
+  ): GitSettings {
+    const settings = GitSettingsSchema.parse({ binaryPath, updatedAt });
+    this.set(GIT_SETTINGS_KEY, settings.binaryPath, { updatedAt });
     return settings;
   }
 }

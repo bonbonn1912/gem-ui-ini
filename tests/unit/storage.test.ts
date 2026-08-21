@@ -220,13 +220,18 @@ describe("repositories", () => {
     }
   });
 
-  it("stores typed Gemini settings", () => {
+  it("stores typed Gemini and Git binary settings", () => {
     const database = openSqliteDatabase(":memory:");
     try {
       const settings = new SettingsRepository(database);
       settings.setGeminiBinaryPath("/opt/gemini/bin/gemini", timestamp);
       expect(settings.getGeminiSettings()).toEqual({
         binaryPath: "/opt/gemini/bin/gemini",
+        updatedAt: timestamp,
+      });
+      settings.setGitBinaryPath("/usr/bin/git", timestamp);
+      expect(settings.getGitSettings()).toEqual({
+        binaryPath: "/usr/bin/git",
         updatedAt: timestamp,
       });
       settings.set("ui", { theme: "system" }, { version: 2, updatedAt: timestamp });

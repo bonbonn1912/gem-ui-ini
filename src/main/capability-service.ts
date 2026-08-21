@@ -3,12 +3,14 @@ import {
   probeGeminiBinary,
   type GeminiBinaryProbeResult,
 } from "./gemini";
+import { probeGitBinary, type GitBinaryProbeResult } from "./git";
 import type { SettingsRepository } from "./storage";
 
 export class GeminiCapabilityService {
   readonly #settings: SettingsRepository;
   readonly #appVersion: string;
   #probe: GeminiBinaryProbeResult | null = null;
+  #gitProbe: GitBinaryProbeResult | null = null;
   #refreshPromise: Promise<AppCapabilities> | null = null;
 
   constructor(settings: SettingsRepository, appVersion: string) {
@@ -16,9 +18,9 @@ export class GeminiCapabilityService {
     this.#appVersion = appVersion;
   }
 
-  refresh(candidate?: string): Promise<AppCapabilities> {
+  refresh(candidate?: string, gitCandidate?: string): Promise<AppCapabilities> {
     if (this.#refreshPromise) return this.#refreshPromise;
-    this.#refreshPromise = this.#refresh(candidate).finally(() => {
+    this.#refreshPromise = this.#refresh(candidate, gitCandidate).finally(() => {
       this.#refreshPromise = null;
     });
     return this.#refreshPromise;
@@ -33,8 +35,19 @@ export class GeminiCapabilityService {
     return capabilities;
   }
 
+  async chooseGit(candidate: string): Promise<AppCapabilities> {
+    const capabilities = await this.refresh(undefined, candidate);
+    if (!this.#gitProbe?.ok) {
+      throw new Error(
+        this.#gitProbe?.message ?? "Die ausgewählte Git-Binary ist nicht kompatibel.",
+      );
+    }
+    this.#settings.setGitBinaryPath(this.#gitProbe.binaryPath);
+    return capabilities;
+  }
+
   snapshot(): AppCapabilities {
-    return toCapabilities(this.#probe, this.#appVersion);
+    return toCapabilities(this.#probe, this.#gitProbe, this.#appVersion);
   }
 
   requireBinaryPath(): string {
@@ -65,17 +78,28 @@ export class GeminiCapabilityService {
     return this.#probe;
   }
 
-  async #refresh(candidate?: string): Promise<AppCapabilities> {
+  get gitBinaryPath(): string | null {
+    return this.#gitProbe?.ok ? this.#gitProbe.binaryPath : null;
+  }
+
+  async #refresh(candidate?: string, gitCandidate?: string): Promise<AppCapabilities> {
     const configured = this.#settings.getGeminiSettings()?.binaryPath;
-    this.#probe = await probeGeminiBinary({
-      candidate: candidate ?? configured ?? "gemini",
-    });
+    const configuredGit = this.#settings.getGitSettings()?.binaryPath;
+    const [geminiProbe, gitProbe] = await Promise.all([
+      probeGeminiBinary({
+        candidate: candidate ?? configured ?? "gemini",
+      }),
+      probeGitBinary({ candidate: gitCandidate ?? configuredGit ?? undefined }),
+    ]);
+    this.#probe = geminiProbe;
+    this.#gitProbe = gitProbe;
     return this.snapshot();
   }
 }
 
 function toCapabilities(
   probe: GeminiBinaryProbeResult | null,
+  gitProbe: GitBinaryProbeResult | null,
   appVersion: string,
 ): AppCapabilities {
   const supportedPlatform =
@@ -86,6 +110,7 @@ function toCapabilities(
       : "linux";
   const available = probe?.ok === true;
 
+  const gitAvailable = gitProbe?.ok === true;
   return {
     appVersion,
     platform: supportedPlatform,
@@ -101,6 +126,11 @@ function toCapabilities(
       models: available && probe.features.acp,
       maxAdditionalRoots:
         available && probe.features.includeDirectories ? 5 : 0,
+    },
+    git: {
+      available: gitAvailable,
+      binaryPath: gitAvailable ? gitProbe.binaryPath : null,
+      version: gitAvailable ? gitProbe.version : null,
     },
   };
 }

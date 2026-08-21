@@ -27,6 +27,11 @@ const capabilities: AppCapabilities = {
     models: false,
     maxAdditionalRoots: 5,
   },
+  git: {
+    available: true,
+    binaryPath: "/usr/bin/git",
+    version: "2.50.1",
+  },
 };
 
 const project: AppProject = {
@@ -121,8 +126,25 @@ function createApi(options: { projects?: AppProject[]; sessions?: AppSession[] }
       getPreviewBytes: vi.fn().mockResolvedValue(new Uint8Array()),
       remove: vi.fn().mockResolvedValue(undefined),
     },
+    git: {
+      listProjectRepositories: vi.fn().mockResolvedValue({
+        projectId: project.id,
+        rootRevision: project.rootRevision,
+        repositories: [],
+      }),
+      getProjectStatus: vi.fn().mockResolvedValue({
+        projectId: project.id,
+        rootRevision: project.rootRevision,
+        refreshedAt: "2026-08-20T12:00:00.000Z",
+        repositories: [],
+        changes: [],
+      }),
+      getFileDiff: vi.fn(),
+      subscribeProjectStatus: vi.fn().mockResolvedValue(() => undefined),
+    },
     settings: {
       chooseGeminiBinary: vi.fn().mockResolvedValue(capabilities),
+      chooseGitBinary: vi.fn().mockResolvedValue(capabilities),
     },
     subscribeSessionEvents: vi.fn().mockImplementation(async (_input, callback) => {
       subscriber = callback;
@@ -141,6 +163,124 @@ beforeEach(() => {
 });
 
 describe("Renderer UI", () => {
+  it("macht Git-Änderungen auch ohne angelegte Chat-Session erreichbar", async () => {
+    const user = userEvent.setup();
+    const { api } = createApi({ sessions: [] });
+    vi.mocked(api.git.subscribeProjectStatus).mockImplementation(async (_input, callback) => {
+      callback({
+        projectId: project.id,
+        rootRevision: project.rootRevision,
+        refreshedAt: "2026-08-21T12:00:00.000Z",
+        repositories: [{
+          repositoryId: "10000000-0000-4000-8000-000000000001",
+          rootIds: [project.roots[0]!.id],
+          displayName: "portal",
+          worktreeLabel: "portal",
+          branch: "main",
+          headOid: "a".repeat(40),
+          upstream: null,
+          ahead: 0,
+          behind: 0,
+          state: "ready",
+          message: null,
+        }],
+        changes: [],
+      });
+      return () => undefined;
+    });
+    window.gemUi = api;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Starte eine neue Session" });
+    await user.click(screen.getByRole("button", { name: "Änderungen" }));
+    expect(await screen.findByText("Arbeitsverzeichnis sauber")).toBeVisible();
+  });
+
+  it("öffnet den read-only Changes-Viewer, trennt staged/unstaged und hält den Composer sichtbar", async () => {
+    const user = userEvent.setup();
+    const { api } = createApi();
+    const repositoryId = "10000000-0000-4000-8000-000000000001";
+    const fileId = "20000000-0000-4000-8000-000000000002";
+    const gitStatus = {
+      projectId: project.id,
+      rootRevision: project.rootRevision,
+      refreshedAt: "2026-08-21T12:00:00.000Z",
+      repositories: [{
+        repositoryId,
+        rootIds: [project.roots[0]!.id],
+        displayName: "portal",
+        worktreeLabel: "portal",
+        branch: "main",
+        headOid: "a".repeat(40),
+        upstream: "origin/main",
+        ahead: 1,
+        behind: 0,
+        state: "ready" as const,
+        message: null,
+      }],
+      changes: [{
+        fileId,
+        repositoryId,
+        path: "src/auth.ts",
+        previousPath: null,
+        indexStatus: "M",
+        worktreeStatus: "M",
+        conflict: false,
+        untracked: false,
+        submodule: false,
+        renameScore: null,
+      }],
+    };
+    vi.mocked(api.git.subscribeProjectStatus).mockImplementation(async (_input, callback) => {
+      callback(gitStatus);
+      return () => undefined;
+    });
+    vi.mocked(api.git.getFileDiff).mockResolvedValue({
+      snapshotId: "30000000-0000-4000-8000-000000000003",
+      repositoryId,
+      fileId,
+      area: "unstaged",
+      path: "src/auth.ts",
+      previousPath: null,
+      state: "text",
+      message: null,
+      additions: 1,
+      deletions: 1,
+      metadata: ["index 1234567..7654321 100644"],
+      hunks: [{
+        hunkId: "d".repeat(64),
+        header: "@@ -1,2 +1,2 @@",
+        oldStart: 1,
+        oldLines: 2,
+        newStart: 1,
+        newLines: 2,
+        lines: [
+          { kind: "deletion", content: "const oldValue = 1;", oldLine: 1, newLine: null },
+          { kind: "addition", content: "const newValue = 2;", oldLine: null, newLine: 1 },
+        ],
+      }],
+    });
+    window.gemUi = api;
+
+    render(<App />);
+    const composer = await screen.findByRole("textbox", { name: "Nachricht an Gemini" });
+    await user.click(screen.getByRole("button", { name: "Änderungen öffnen" }));
+
+    expect(await screen.findByRole("complementary", { name: "Git-Änderungen" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Vorgemerkt: Diff für src/auth.ts" })).toBeVisible();
+    const unstaged = screen.getByRole("button", { name: "Änderungen: Diff für src/auth.ts" });
+    await user.click(unstaged);
+
+    expect(await screen.findByText("const newValue = 2;")).toBeVisible();
+    expect(screen.getByText("const oldValue = 1;")).toBeVisible();
+    expect(composer).toBeVisible();
+    expect(api.git.getFileDiff).toHaveBeenCalledWith(expect.objectContaining({
+      repositoryId,
+      fileId,
+      area: "unstaged",
+    }));
+  });
+
   it("legt ein Multi-Root-Projekt über den nativen Ordner-Picker an", async () => {
     const user = userEvent.setup();
     const { api } = createApi({ projects: [], sessions: [] });

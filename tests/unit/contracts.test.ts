@@ -8,6 +8,8 @@ import {
   ClipboardImageInputSchema,
   CreateProjectInputSchema,
   GEMINI_SETTINGS_KEY,
+  GIT_SETTINGS_KEY,
+  GetGitFileDiffInputSchema,
   GeminiSettingsSchema,
   IPC_CHANNELS,
   MAX_ADDITIONAL_ROOTS,
@@ -127,6 +129,27 @@ describe("shared Zod contracts", () => {
     expect(IPC_CHANNELS.chooseGeminiBinary).toBe(
       "settings:choose-gemini-binary",
     );
+    expect(IPC_CHANNELS.chooseGitBinary).toBe("settings:choose-git-binary");
+  });
+
+  it("keeps Git diff requests opaque and rejects renderer paths or patch text", () => {
+    const input = {
+      projectId: randomUUID(),
+      expectedRootRevision: 1,
+      repositoryId: randomUUID(),
+      fileId: randomUUID(),
+      area: "unstaged" as const,
+    };
+    expect(GetGitFileDiffInputSchema.parse(input)).toEqual(input);
+    expect(GetGitFileDiffInputSchema.safeParse({
+      ...input,
+      path: "../../outside",
+    }).success).toBe(false);
+    expect(GetGitFileDiffInputSchema.safeParse({
+      ...input,
+      patch: "diff --git a/x b/x",
+    }).success).toBe(false);
+    expect(IPC_CHANNELS.getGitFileDiff).toBe("git:get-file-diff");
   });
 
   it("types single-root reauthorization without accepting a renderer path", () => {
@@ -161,6 +184,7 @@ describe("shared Zod contracts", () => {
     ).toBe(false);
 
     expect(GEMINI_SETTINGS_KEY).toBe("gemini.binaryPath");
+    expect(GIT_SETTINGS_KEY).toBe("git.binaryPath");
     expect(
       GeminiSettingsSchema.parse({
         binaryPath: "/usr/local/bin/gemini",

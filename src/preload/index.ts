@@ -1,9 +1,12 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import {
   EventSubscriptionResultSchema,
+  GitStatusPushSchema,
+  GitStatusSubscriptionResultSchema,
   IPC_CHANNELS,
   StreamEnvelopeBatchSchema,
   type GemUiDesktopApi,
+  type GitProjectStatus,
   type StreamEnvelope,
   type UsageSnapshot,
 } from "../shared/contracts";
@@ -17,6 +20,8 @@ type EventCallback = (events: StreamEnvelope[]) => void;
 
 const callbacks = new Map<string, EventCallback>();
 const pendingBatches = new Map<string, StreamEnvelope[][]>();
+const gitCallbacks = new Map<string, (status: GitProjectStatus) => void>();
+const pendingGitStatuses = new Map<string, GitProjectStatus[]>();
 
 ipcRenderer.on(IPC_CHANNELS.sessionEventBatch, (_event, payload: unknown) => {
   const parsed = parseEventBatch(payload);
@@ -32,6 +37,22 @@ ipcRenderer.on(IPC_CHANNELS.sessionEventBatch, (_event, payload: unknown) => {
   pendingBatches.set(parsed.subscriptionId, queued);
 });
 
+ipcRenderer.on(
+  IPC_CHANNELS.gitProjectStatusChanged,
+  (_event, payload: unknown) => {
+    const parsed = GitStatusPushSchema.safeParse(payload);
+    if (!parsed.success) return;
+    const callback = gitCallbacks.get(parsed.data.subscriptionId);
+    if (callback) {
+      callback(parsed.data.status);
+      return;
+    }
+    const queued = pendingGitStatuses.get(parsed.data.subscriptionId) ?? [];
+    if (queued.length < 10) queued.push(parsed.data.status);
+    pendingGitStatuses.set(parsed.data.subscriptionId, queued);
+  },
+);
+
 const desktopApi: GemUiDesktopApi = {
   getCapabilities: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getCapabilities, {}),
@@ -39,6 +60,8 @@ const desktopApi: GemUiDesktopApi = {
   settings: {
     chooseGeminiBinary: () =>
       ipcRenderer.invoke(IPC_CHANNELS.chooseGeminiBinary, {}),
+    chooseGitBinary: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.chooseGitBinary, {}),
   },
 
   projects: {
@@ -95,6 +118,32 @@ const desktopApi: GemUiDesktopApi = {
     remove: (input) => ipcRenderer.invoke(IPC_CHANNELS.removeAttachment, input),
   },
 
+  git: {
+    listProjectRepositories: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.listGitProjectRepositories, input),
+    getProjectStatus: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.getGitProjectStatus, input),
+    getFileDiff: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.getGitFileDiff, input),
+    subscribeProjectStatus: async (input, callback) => {
+      const result = GitStatusSubscriptionResultSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.subscribeGitProjectStatus, input),
+      );
+      gitCallbacks.set(result.subscriptionId, callback);
+      callback(result.status);
+      const queued = pendingGitStatuses.get(result.subscriptionId) ?? [];
+      pendingGitStatuses.delete(result.subscriptionId);
+      for (const status of queued) callback(status);
+      return () => {
+        gitCallbacks.delete(result.subscriptionId);
+        pendingGitStatuses.delete(result.subscriptionId);
+        void ipcRenderer.invoke(IPC_CHANNELS.unsubscribeGitProjectStatus, {
+          subscriptionId: result.subscriptionId,
+        });
+      };
+    },
+  },
+
   subscribeSessionEvents: async (
     input: unknown,
     callback: EventCallback,
@@ -129,6 +178,7 @@ const desktopApi: GemUiDesktopApi = {
 Object.freeze(desktopApi.projects);
 Object.freeze(desktopApi.sessions);
 Object.freeze(desktopApi.attachments);
+Object.freeze(desktopApi.git);
 Object.freeze(desktopApi.settings);
 contextBridge.exposeInMainWorld("gemUi", Object.freeze(desktopApi));
 

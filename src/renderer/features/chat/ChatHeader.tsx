@@ -14,6 +14,9 @@ type ChatHeaderProps = {
   modelsSupported: boolean;
   onOpenSidebar: () => void;
   onEditProject: () => void;
+  changesOpen: boolean;
+  changesCount: number;
+  onToggleChanges: () => void;
   onSetMode: (mode: string) => void;
   onSetModel: (model: string) => void;
 };
@@ -164,6 +167,9 @@ export function ChatHeader({
   modelsSupported,
   onOpenSidebar,
   onEditProject,
+  changesOpen,
+  changesCount,
+  onToggleChanges,
   onSetMode,
   onSetModel,
 }: ChatHeaderProps) {
@@ -205,6 +211,17 @@ export function ChatHeader({
           )}
           <span>{usage.label}</span>
         </span>
+        <button
+          className={`changes-toggle ${changesOpen ? "changes-toggle--active" : ""}`}
+          type="button"
+          onClick={onToggleChanges}
+          aria-pressed={changesOpen}
+          aria-label={`Änderungen ${changesOpen ? "schließen" : "öffnen"}${changesCount > 0 ? `, ${changesCount} Dateien` : ""}`}
+        >
+          <Icon name="changes" size={15} />
+          <span>Änderungen</span>
+          {changesCount > 0 && <i>{changesCount > 999 ? "999+" : changesCount}</i>}
+        </button>
         <details className="roots-menu">
           <summary>
             <Icon name="folder" size={15} />

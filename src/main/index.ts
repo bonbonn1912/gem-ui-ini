@@ -5,6 +5,7 @@ import path from "node:path";
 import { AppController } from "./app-controller";
 import { AttachmentService } from "./attachments/attachment-service";
 import { GeminiCapabilityService } from "./capability-service";
+import { GitService, GitStatusSubscriptionHub } from "./git";
 import { SessionEventHub } from "./ipc/event-hub";
 import { registerAppIpc } from "./ipc/register-app-ipc";
 import { ProjectService } from "./projects";
@@ -37,6 +38,7 @@ let mainWindow: BrowserWindow | null = null;
 let database: SqliteDatabase | null = null;
 let controller: AppController | null = null;
 let eventHub: SessionEventHub | null = null;
+let gitStatusHub: GitStatusSubscriptionHub | null = null;
 let runtimeServices: Omit<
   Parameters<typeof registerAppIpc>[0],
   "mainWindow"
@@ -109,6 +111,9 @@ async function bootstrap(): Promise<void> {
   );
   await attachmentService.initialize();
 
+  const gitService = new GitService(projectService, capabilityService);
+  gitStatusHub = new GitStatusSubscriptionHub(gitService);
+
   eventHub = new SessionEventHub({
     eventsAfter: (sessionId, afterSeq) =>
       eventRepository.listAfter(sessionId, afterSeq),
@@ -133,6 +138,8 @@ async function bootstrap(): Promise<void> {
     attachments: attachmentService,
     clientRequests: clientRequestRepository,
     eventHub,
+    git: gitService,
+    gitStatusHub,
   };
   await openApplicationWindow();
 }
@@ -156,9 +163,11 @@ async function cleanup(): Promise<void> {
     unregisterIpc?.();
     unregisterIpc = null;
     eventHub?.close();
+    gitStatusHub?.close();
     await controller?.dispose();
     controller = null;
     eventHub = null;
+    gitStatusHub = null;
     runtimeServices = null;
     if (database?.open) database.close();
     database = null;

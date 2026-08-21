@@ -27,6 +27,24 @@ import {
   type UsageSnapshot,
 } from "./events";
 import {
+  GetGitFileDiffInputSchema,
+  GetGitProjectStatusInputSchema,
+  GitFileDiffSchema,
+  GitProjectStatusSchema,
+  GitRepositoryListSchema,
+  GitStatusSubscriptionResultSchema,
+  ListGitProjectRepositoriesInputSchema,
+  SubscribeGitProjectStatusInputSchema,
+  UnsubscribeGitProjectStatusInputSchema,
+  type GetGitFileDiffInput,
+  type GetGitProjectStatusInput,
+  type GitFileDiff,
+  type GitProjectStatus,
+  type GitRepositorySummary,
+  type ListGitProjectRepositoriesInput,
+  type SubscribeGitProjectStatusInput,
+} from "./git";
+import {
   ArchiveProjectInputSchema,
   CreateProjectInputSchema,
   DeleteProjectInputSchema,
@@ -94,6 +112,13 @@ export const AppCapabilitiesSchema = z
         modes: z.boolean(),
         models: z.boolean(),
         maxAdditionalRoots: z.int().min(0).max(5),
+      })
+      .strict(),
+    git: z
+      .object({
+        available: z.boolean(),
+        binaryPath: FileSystemPathSchema.nullable(),
+        version: z.string().trim().min(1).max(100).nullable(),
       })
       .strict(),
   })
@@ -170,6 +195,7 @@ export const IPC_CHANNELS = {
   setSessionMode: "sessions:set-mode",
   setSessionModel: "sessions:set-model",
   chooseGeminiBinary: "settings:choose-gemini-binary",
+  chooseGitBinary: "settings:choose-git-binary",
   pickImages: "attachments:pick-images",
   stageDroppedPaths: "attachments:stage-dropped-paths",
   stageClipboardImage: "attachments:stage-clipboard-image",
@@ -178,6 +204,12 @@ export const IPC_CHANNELS = {
   subscribeSessionEvents: "events:subscribe-session",
   unsubscribeSessionEvents: "events:unsubscribe-session",
   sessionEventBatch: "events:session-batch",
+  listGitProjectRepositories: "git:list-project-repositories",
+  getGitProjectStatus: "git:get-project-status",
+  getGitFileDiff: "git:get-file-diff",
+  subscribeGitProjectStatus: "git:subscribe-project-status",
+  unsubscribeGitProjectStatus: "git:unsubscribe-project-status",
+  gitProjectStatusChanged: "git:project-status-changed",
   openExternalHttpsUrl: "external:open-https-url",
 } as const;
 
@@ -204,6 +236,7 @@ export const IpcRequestSchemas = {
   [IPC_CHANNELS.setSessionMode]: SetSessionModeInputSchema,
   [IPC_CHANNELS.setSessionModel]: SetSessionModelInputSchema,
   [IPC_CHANNELS.chooseGeminiBinary]: EmptyInputSchema,
+  [IPC_CHANNELS.chooseGitBinary]: EmptyInputSchema,
   [IPC_CHANNELS.pickImages]: PickImagesInputSchema,
   [IPC_CHANNELS.stageDroppedPaths]: StageDroppedPathInputSchema,
   [IPC_CHANNELS.stageClipboardImage]: ClipboardImageInputSchema,
@@ -211,6 +244,11 @@ export const IpcRequestSchemas = {
   [IPC_CHANNELS.removeAttachment]: RemoveAttachmentInputSchema,
   [IPC_CHANNELS.subscribeSessionEvents]: SubscribeSessionEventsInputSchema,
   [IPC_CHANNELS.unsubscribeSessionEvents]: UnsubscribeSessionEventsInputSchema,
+  [IPC_CHANNELS.listGitProjectRepositories]: ListGitProjectRepositoriesInputSchema,
+  [IPC_CHANNELS.getGitProjectStatus]: GetGitProjectStatusInputSchema,
+  [IPC_CHANNELS.getGitFileDiff]: GetGitFileDiffInputSchema,
+  [IPC_CHANNELS.subscribeGitProjectStatus]: SubscribeGitProjectStatusInputSchema,
+  [IPC_CHANNELS.unsubscribeGitProjectStatus]: UnsubscribeGitProjectStatusInputSchema,
   [IPC_CHANNELS.openExternalHttpsUrl]: OpenExternalHttpsUrlInputSchema,
 } as const;
 
@@ -237,6 +275,7 @@ export const IpcResponseSchemas = {
   [IPC_CHANNELS.setSessionMode]: AppSessionSchema,
   [IPC_CHANNELS.setSessionModel]: AppSessionSchema,
   [IPC_CHANNELS.chooseGeminiBinary]: AppCapabilitiesSchema,
+  [IPC_CHANNELS.chooseGitBinary]: AppCapabilitiesSchema,
   [IPC_CHANNELS.pickImages]: z.array(AttachmentSchema).max(4),
   [IPC_CHANNELS.stageDroppedPaths]: z.array(AttachmentSchema).max(4),
   [IPC_CHANNELS.stageClipboardImage]: AttachmentSchema,
@@ -244,6 +283,11 @@ export const IpcResponseSchemas = {
   [IPC_CHANNELS.removeAttachment]: VoidResultSchema,
   [IPC_CHANNELS.subscribeSessionEvents]: EventSubscriptionResultSchema,
   [IPC_CHANNELS.unsubscribeSessionEvents]: VoidResultSchema,
+  [IPC_CHANNELS.listGitProjectRepositories]: GitRepositoryListSchema,
+  [IPC_CHANNELS.getGitProjectStatus]: GitProjectStatusSchema,
+  [IPC_CHANNELS.getGitFileDiff]: GitFileDiffSchema,
+  [IPC_CHANNELS.subscribeGitProjectStatus]: GitStatusSubscriptionResultSchema,
+  [IPC_CHANNELS.unsubscribeGitProjectStatus]: VoidResultSchema,
   [IPC_CHANNELS.openExternalHttpsUrl]: VoidResultSchema,
 } as const;
 
@@ -291,6 +335,7 @@ export interface GemUiDesktopApi {
   };
   settings: {
     chooseGeminiBinary(): Promise<AppCapabilities>;
+    chooseGitBinary(): Promise<AppCapabilities>;
   };
   attachments: {
     pickImages(input: PickImagesInput): Promise<Attachment[]>;
@@ -301,6 +346,21 @@ export interface GemUiDesktopApi {
     stageClipboardImage(input: ClipboardImageInput): Promise<Attachment>;
     getPreviewBytes(input: AttachmentPreviewInput): Promise<Uint8Array>;
     remove(input: RemoveAttachmentInput): Promise<VoidResult>;
+  };
+  git: {
+    listProjectRepositories(
+      input: ListGitProjectRepositoriesInput,
+    ): Promise<{
+      projectId: string;
+      rootRevision: number;
+      repositories: GitRepositorySummary[];
+    }>;
+    getProjectStatus(input: GetGitProjectStatusInput): Promise<GitProjectStatus>;
+    getFileDiff(input: GetGitFileDiffInput): Promise<GitFileDiff>;
+    subscribeProjectStatus(
+      input: SubscribeGitProjectStatusInput,
+      callback: (status: GitProjectStatus) => void,
+    ): Promise<() => void>;
   };
   subscribeSessionEvents(
     input: SubscribeSessionEventsInput,

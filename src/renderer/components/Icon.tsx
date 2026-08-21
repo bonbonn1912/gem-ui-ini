@@ -2,11 +2,14 @@ import type { SVGProps } from "react";
 
 export type IconName =
   | "archive"
+  | "arrow-left"
   | "arrow-up"
+  | "branch"
   | "brain"
   | "check"
   | "chevron-down"
   | "chat"
+  | "changes"
   | "clock"
   | "copy"
   | "folder"
@@ -55,6 +58,12 @@ export function Icon({ name, size = 18, ...props }: IconProps) {
           <path d="M3 4h18v4H3zM9 12h6" />
         </svg>
       );
+    case "arrow-left":
+      return (
+        <svg {...common}>
+          <path d="M19 12H5m6-6-6 6 6 6" />
+        </svg>
+      );
     case "arrow-up":
       return (
         <svg {...common}>
@@ -66,6 +75,15 @@ export function Icon({ name, size = 18, ...props }: IconProps) {
         <svg {...common}>
           <path d="M9.5 4.4A3 3 0 0 0 4.7 7a3.1 3.1 0 0 0 .1 5.4A3.4 3.4 0 0 0 8 17a3 3 0 0 0 4 2.8V6.2a2.8 2.8 0 0 0-2.5-1.8Z" />
           <path d="M14.5 4.4A3 3 0 0 1 19.3 7a3.1 3.1 0 0 1-.1 5.4A3.4 3.4 0 0 1 16 17a3 3 0 0 1-4 2.8M8 8.5a4 4 0 0 0 4 3.8m4-3.8a4 4 0 0 1-4 3.8" />
+        </svg>
+      );
+    case "branch":
+      return (
+        <svg {...common}>
+          <circle cx="6" cy="5" r="2" />
+          <circle cx="18" cy="7" r="2" />
+          <circle cx="6" cy="19" r="2" />
+          <path d="M6 7v10M8 9h4a6 6 0 0 0 6-6v2" />
         </svg>
       );
     case "check":
@@ -84,6 +102,12 @@ export function Icon({ name, size = 18, ...props }: IconProps) {
       return (
         <svg {...common}>
           <path d="M20 15a3 3 0 0 1-3 3H9l-5 3v-6a3 3 0 0 1-1-2.2V7a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3Z" />
+        </svg>
+      );
+    case "changes":
+      return (
+        <svg {...common}>
+          <path d="M7 4v10m0 0-3-3m3 3 3-3M17 20V10m0 0-3 3m3-3 3 3" />
         </svg>
       );
     case "clock":
