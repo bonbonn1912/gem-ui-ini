@@ -1314,4 +1314,62 @@ describe("Renderer UI", () => {
     );
     expect(within(dialog).getByText("Erlaubt")).toBeVisible();
   });
+
+  it("bietet im Planmodus Buttons zum Akzeptieren und Ablehnen des Plans", async () => {
+    const user = userEvent.setup();
+    const { api } = createApi();
+    const planSession = {
+      ...session,
+      id: "session-plan",
+      title: "Architektur planen",
+      mode: "plan",
+      status: "idle" as const,
+    };
+    vi.mocked(api.sessions.list).mockResolvedValue([planSession]);
+    window.gemUi = api;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Architektur planen" });
+
+    const acceptButton = screen.getByRole("button", { name: "Plan akzeptieren" });
+    const rejectButton = screen.getByRole("button", { name: "Plan ablehnen" });
+    expect(acceptButton).toBeVisible();
+    expect(rejectButton).toBeVisible();
+
+    await user.click(acceptButton);
+    await waitFor(() => expect(api.sessions.sendPrompt).toHaveBeenCalledTimes(1));
+    expect(api.sessions.sendPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "session-plan",
+        text: "Plan akzeptiert. Bitte mit der Umsetzung beginnen.",
+      }),
+    );
+  });
+
+  it("rendert Markdown-Dateien wie plan.md formatiert und bietet einen Toggle für Raw Markdown", async () => {
+    const user = userEvent.setup();
+    const { api } = createApi({ contextList: populatedContextList() });
+    vi.mocked(api.contextAttachments.getBytes).mockResolvedValue(
+      new TextEncoder().encode("# Implementierungsplan\n- [ ] Schritt 1\n- [ ] Schritt 2"),
+    );
+    window.gemUi = api;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Login reparieren" });
+
+    // Open context attachments panel
+    await user.click(screen.getByRole("button", { name: /Anhänge öffnen/ }));
+    expect(await screen.findByText("Architektur.md")).toBeVisible();
+
+    // Click on Architektur.md to open AttachmentDetail
+    await user.click(screen.getByText("Architektur.md"));
+    expect(await screen.findByRole("heading", { name: "Implementierungsplan" })).toBeVisible();
+
+    // Toggle to Raw
+    const rawToggle = screen.getByTitle("Raw Markdown anzeigen");
+    expect(rawToggle).toBeVisible();
+    await user.click(rawToggle);
+
+    expect(screen.getByText(/# Implementierungsplan/)).toBeVisible();
+  });
 });

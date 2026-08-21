@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { PermissionItem, TimelineItem, ToolItem } from "./reducer";
+import type { MessageItem, PermissionItem, TimelineItem, ToolItem } from "./reducer";
 import { MarkdownContent } from "../../components/MarkdownContent";
 import { Icon } from "../../components/Icon";
 import type { DiffSelection } from "../git/DiffViewer";
@@ -24,7 +24,36 @@ function formatPayload(value: unknown): string {
   }
 }
 
-function ToolCard({ item }: { item: ToolItem }) {
+function extractMarkdownPayload(input: unknown, output: unknown, locations?: { path: string }[]): string | null {
+  const isMdLocation = locations?.some((loc) => loc.path.toLowerCase().endsWith(".md")) || false;
+  if (typeof input === "object" && input !== null) {
+    const record = input as Record<string, unknown>;
+    const target = String(record.TargetFile ?? record.target_file ?? record.path ?? record.filePath ?? "");
+    const content = record.CodeContent ?? record.content ?? record.replacementContent ?? record.text;
+    if ((target.toLowerCase().endsWith(".md") || target.toLowerCase().includes("plan.md") || isMdLocation) && typeof content === "string" && content.trim()) {
+      return content;
+    }
+  }
+  if (typeof output === "string" && (isMdLocation || output.trim().startsWith("#"))) {
+    return output;
+  }
+  if (typeof output === "object" && output !== null) {
+    const record = output as Record<string, unknown>;
+    const content = record.content ?? record.text ?? record.output;
+    if (isMdLocation && typeof content === "string" && content.trim()) {
+      return content;
+    }
+  }
+  return null;
+}
+
+function ToolCard({ item, onOpenExternal }: { item: ToolItem; onOpenExternal?: (url: string) => void }) {
+  const [showRaw, setShowRaw] = useState(false);
+  const markdownPayload = useMemo(
+    () => extractMarkdownPayload(item.input, item.output, item.locations),
+    [item.input, item.output, item.locations],
+  );
+
   const statusLabel =
     item.status === "running"
       ? "Läuft"
@@ -62,7 +91,32 @@ function ToolCard({ item }: { item: ToolItem }) {
             ))}
           </div>
         ) : null}
-        {item.input !== undefined && (
+
+        {markdownPayload && (
+          <section className="tool-markdown-section">
+            <div className="tool-section-header">
+              <h4>Dokumentinhalt</h4>
+              <button
+                type="button"
+                className="raw-toggle-btn"
+                onClick={() => setShowRaw((v) => !v)}
+                title={showRaw ? "Formatiertes Markdown anzeigen" : "Raw Markdown anzeigen"}
+              >
+                <Icon name={showRaw ? "sparkle" : "file-text"} size={13} />
+                <span>{showRaw ? "Formatiert" : "Raw"}</span>
+              </button>
+            </div>
+            {!showRaw ? (
+              <div className="tool-markdown-container">
+                <MarkdownContent onOpenExternal={onOpenExternal ?? ((url) => window.open(url, "_blank"))}>{markdownPayload}</MarkdownContent>
+              </div>
+            ) : (
+              <pre>{markdownPayload}</pre>
+            )}
+          </section>
+        )}
+
+        {item.input !== undefined && !markdownPayload && (
           <section>
             <h4>Eingabe</h4>
             <pre>{formatPayload(item.input)}</pre>
@@ -84,7 +138,7 @@ function ToolCard({ item }: { item: ToolItem }) {
             </pre>
           </section>
         )}
-        {item.output !== undefined && (
+        {item.output !== undefined && !markdownPayload && (
           <section>
             <h4>Ergebnis</h4>
             <pre>{formatPayload(item.output)}</pre>
@@ -106,10 +160,12 @@ function ToolRunGroup({
   items,
   gitPreviewGroups,
   onOpenGitDiff,
+  onOpenExternal,
 }: {
   items: ToolItem[];
   gitPreviewGroups: ReadonlyMap<string, GitPreviewGroup>;
   onOpenGitDiff: (selection: DiffSelection) => void;
+  onOpenExternal: (url: string) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
@@ -182,7 +238,7 @@ function ToolRunGroup({
             const previewGroup = gitPreviewGroups.get(item.toolCallId);
             return (
               <div className="tool-run-step" key={item.id}>
-                <ToolCard item={item} />
+                <ToolCard item={item} onOpenExternal={onOpenExternal} />
                 {previewGroup && (
                   <InlineDiffPreviews group={previewGroup} onOpenDiff={onOpenGitDiff} />
                 )}
@@ -192,6 +248,49 @@ function ToolRunGroup({
         </div>
       )}
     </section>
+  );
+}
+
+function AssistantMessage({
+  item,
+  onOpenExternal,
+}: {
+  item: MessageItem;
+  onOpenExternal: (url: string) => void;
+}) {
+  const [showRaw, setShowRaw] = useState(false);
+  const isPlanOrMarkdown =
+    item.text.includes("#") ||
+    item.text.includes("```") ||
+    item.text.includes("- [ ]") ||
+    item.text.includes("- [x]") ||
+    item.text.length > 250;
+
+  return (
+    <article className="message message--assistant">
+      <div className="assistant-mark">
+        <Icon name="sparkle" size={15} />
+      </div>
+      <div className="assistant-content">
+        {isPlanOrMarkdown && !item.streaming && (
+          <button
+            type="button"
+            className="message-raw-toggle"
+            onClick={() => setShowRaw((v) => !v)}
+            title={showRaw ? "Formatiertes Markdown anzeigen" : "Raw Markdown anzeigen"}
+          >
+            <Icon name={showRaw ? "sparkle" : "file-text"} size={12} />
+            <span>{showRaw ? "Formatiert" : "Raw"}</span>
+          </button>
+        )}
+        {!showRaw ? (
+          <MarkdownContent onOpenExternal={onOpenExternal}>{item.text}</MarkdownContent>
+        ) : (
+          <pre className="message-raw-content">{item.text}</pre>
+        )}
+        {item.streaming && <span className="stream-cursor" aria-label="Gemini schreibt" />}
+      </div>
+    </article>
   );
 }
 
@@ -218,25 +317,31 @@ function PermissionCard({
 
   const choose = (optionId: string, kind?: string | null) => {
     if (kind === "allow_always") {
-      const confirmed = window.confirm(
-        "Gemini diese Aktion dauerhaft erlauben? Diese Entscheidung gilt auch für spätere Aufrufe dieser Regel.",
-      );
-      if (!confirmed) return;
+      onRespond(item.requestId, optionId);
+    } else {
+      onRespond(item.requestId, optionId);
     }
-    onRespond(item.requestId, optionId);
   };
 
-  const options = [...item.options].sort((a, b) => {
-    const order: Record<string, number> = { allow_once: 0, reject_once: 1, allow_always: 2, reject_always: 3 };
-    return (order[a.kind ?? "allow_once"] ?? 4) - (order[b.kind ?? "allow_once"] ?? 4);
-  });
+  const options = item.options.length
+    ? item.options
+    : [
+        { optionId: "allow_once", label: "Einmal erlauben", kind: "allow_once" as const },
+        { optionId: "allow_always", label: "Immer erlauben", kind: "allow_always" as const },
+        { optionId: "reject_once", label: "Ablehnen", kind: "reject_once" as const },
+      ];
 
   return (
-    <section className={`permission-card permission-card--${item.status}`} aria-live="polite">
-      <div className="permission-heading">
-        <span className="permission-icon"><Icon name="shield" size={19} /></span>
+    <section
+      className={`permission-card permission-card--${item.status}`}
+      aria-label={`Freigabe: ${item.title}`}
+    >
+      <div className="permission-header">
+        <span className="permission-badge">
+          <Icon name="shield" size={16} />
+        </span>
         <div>
-          <p className="eyebrow">Freigabe erforderlich</p>
+          <small>Freigabe erforderlich</small>
           <h3>{item.title}</h3>
         </div>
       </div>
@@ -342,17 +447,7 @@ function TimelineEntry({
   }
 
   if (item.kind === "message") {
-    return (
-      <article className="message message--assistant">
-        <div className="assistant-mark">
-          <Icon name="sparkle" size={15} />
-        </div>
-        <div className="assistant-content">
-          <MarkdownContent onOpenExternal={onOpenExternal}>{item.text}</MarkdownContent>
-          {item.streaming && <span className="stream-cursor" aria-label="Gemini schreibt" />}
-        </div>
-      </article>
-    );
+    return <AssistantMessage item={item} onOpenExternal={onOpenExternal} />;
   }
 
   if (item.kind === "thought") {
@@ -372,7 +467,7 @@ function TimelineEntry({
   if (item.kind === "tool") {
     return (
       <>
-        <ToolCard item={item} />
+        <ToolCard item={item} onOpenExternal={onOpenExternal} />
         {gitPreviewGroup && (
           <InlineDiffPreviews group={gitPreviewGroup} onOpenDiff={onOpenGitDiff} />
         )}
@@ -500,6 +595,7 @@ export function Timeline({
                 items={row.items}
                 gitPreviewGroups={gitPreviewGroups}
                 onOpenGitDiff={onOpenGitDiff}
+                onOpenExternal={onOpenExternal}
               />
             );
           }

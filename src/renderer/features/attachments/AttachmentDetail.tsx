@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { Icon } from "../../components/Icon";
+import { MarkdownContent } from "../../components/MarkdownContent";
 import type { ContextAttachment } from "../../types";
 import { LinkPreviewSurface } from "./LinkPreviewSurface";
 
@@ -55,9 +56,20 @@ function PreviewImage({ attachment, variant }: {
     : <div className="attachment-preview-loading"><span className="mini-spinner" />Vorschau wird geladen …</div>;
 }
 
-function TextPreview({ attachment }: { attachment: ContextAttachment }) {
+function TextPreview({
+  attachment,
+  onOpenExternal,
+}: {
+  attachment: ContextAttachment;
+  onOpenExternal: (url: string) => void;
+}) {
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [rawView, setRawView] = useState(false);
+  const isMarkdown =
+    attachment.title.toLowerCase().endsWith(".md") ||
+    attachment.title.toLowerCase().endsWith(".markdown") ||
+    attachment.file?.mimeType === "text/markdown";
 
   useEffect(() => {
     let current = true;
@@ -75,9 +87,28 @@ function TextPreview({ attachment }: { attachment: ContextAttachment }) {
     <section className="attachment-text-preview">
       <header>
         <span>{text.length.toLocaleString("de-DE")} Zeichen Vorschau</span>
-        <button type="button" onClick={() => void navigator.clipboard.writeText(text)}><Icon name="copy" size={13} />Kopieren</button>
+        <div className="preview-header-actions">
+          {isMarkdown && (
+            <button
+              type="button"
+              className="raw-toggle-btn"
+              onClick={() => setRawView((v) => !v)}
+              title={rawView ? "Formatiertes Markdown anzeigen" : "Raw Markdown anzeigen"}
+            >
+              <Icon name={rawView ? "sparkle" : "file-text"} size={13} />
+              <span>{rawView ? "Formatiert" : "Raw"}</span>
+            </button>
+          )}
+          <button type="button" onClick={() => void navigator.clipboard.writeText(text)}><Icon name="copy" size={13} />Kopieren</button>
+        </div>
       </header>
-      <pre>{text || "Diese Datei enthält keinen auslesbaren Text."}</pre>
+      {isMarkdown && !rawView ? (
+        <div className="attachment-markdown-container">
+          <MarkdownContent onOpenExternal={onOpenExternal}>{text}</MarkdownContent>
+        </div>
+      ) : (
+        <pre>{text || "Diese Datei enthält keinen auslesbaren Text."}</pre>
+      )}
     </section>
   );
 }
@@ -106,7 +137,7 @@ export function AttachmentDetail({
       {attachment.note && <p className="attachment-detail-note">{attachment.note}</p>}
 
       {isImage && <PreviewImage attachment={attachment} variant="original" />}
-      {file && hasText && !isImage && <TextPreview attachment={attachment} />}
+      {file && hasText && !isImage && <TextPreview attachment={attachment} onOpenExternal={onOpenExternal} />}
       {file && !hasText && !isImage && (
         <p className="attachment-binary-note">
           <Icon name={file.extractionState === "failed" ? "warning" : "file-text"} size={18} />
