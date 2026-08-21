@@ -1,11 +1,19 @@
 import type {
   AgentEvent as ContractAgentEvent,
+  AgentExtensionScope as ContractAgentExtensionScope,
   AppCapabilities as ContractAppCapabilities,
   AppSession as ContractAppSession,
+  AppUpdateInfo as ContractAppUpdateInfo,
+  SessionReconnectState as ContractSessionReconnectState,
   Attachment as ContractAttachment,
   ContextAttachment as ContractContextAttachment,
   ContextAttachmentList as ContractContextAttachmentList,
   GemUiDesktopApi as ContractGemUiDesktopApi,
+  GeminiSkill as ContractGeminiSkill,
+  GeminiSkillList as ContractGeminiSkillList,
+  McpServer as ContractMcpServer,
+  McpServerList as ContractMcpServerList,
+  McpTransport as ContractMcpTransport,
   GitFileChange as ContractGitFileChange,
   GitDiffLine as ContractGitDiffLine,
   GitFileDiff as ContractGitFileDiff,
@@ -41,6 +49,8 @@ import type {
 export type ExternalPromptContextRef = ContractExternalPromptContextRef;
 export type ExternalPromptContextSnapshot = ContractExternalPromptContextSnapshot;
 export type AppCapabilities = ContractAppCapabilities;
+export type AppUpdateInfo = ContractAppUpdateInfo;
+export type SessionReconnectState = ContractSessionReconnectState;
 export type AppProject = ProjectWithRoots;
 export type ProjectRoot = ContractProjectRoot;
 export type ProjectRootCandidate = ContractProjectRootCandidate;
@@ -73,6 +83,13 @@ export type GitLabReviewState = ContractGitLabReviewState;
 export type PreparedExternalContext = ContractPreparedExternalContext;
 export type IntegrationDescriptor = ContractIntegrationDescriptor;
 export type ProjectIntegrationStatus = ContractProjectIntegrationStatus;
+
+export type AgentExtensionScope = ContractAgentExtensionScope;
+export type GeminiSkill = ContractGeminiSkill;
+export type GeminiSkillList = ContractGeminiSkillList;
+export type McpServer = ContractMcpServer;
+export type McpServerList = ContractMcpServerList;
+export type McpTransport = ContractMcpTransport;
 
 export type SessionStatus = ContractAppSession["status"] | "queued";
 

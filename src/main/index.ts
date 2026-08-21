@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog } from "electron";
 import electronSquirrelStartup from "electron-squirrel-startup";
 import { existsSync, renameSync } from "node:fs";
 import path from "node:path";
+import { AgentExtensionService } from "./agent-extensions";
 import { AppController } from "./app-controller";
 import { AttachmentService } from "./attachments/attachment-service";
 import { GeminiCapabilityService } from "./capability-service";
@@ -115,6 +116,7 @@ async function bootstrap(): Promise<void> {
 
   const projectService = new ProjectService(projectRepository);
   const projectFileService = new ProjectFileService(projectService);
+  const agentExtensionService = new AgentExtensionService(projectService);
   const capabilityService = new GeminiCapabilityService(
     settingsRepository,
     app.getVersion(),
@@ -188,6 +190,7 @@ async function bootstrap(): Promise<void> {
   runtimeServices = {
     projects: projectService,
     projectFiles: projectFileService,
+    agentExtensions: agentExtensionService,
     controller,
     capabilities: capabilityService,
     attachments: attachmentService,

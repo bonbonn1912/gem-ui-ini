@@ -1,6 +1,14 @@
 import { z } from "zod";
 
 import {
+  GeminiSkillListSchema,
+  ListAgentExtensionsInputSchema,
+  McpServerListSchema,
+  type GeminiSkillList,
+  type ListAgentExtensionsInput,
+  type McpServerList,
+} from "./agent-extensions";
+import {
   AttachmentPreviewInputSchema,
   AttachmentSchema,
   ClipboardImageInputSchema,
@@ -36,6 +44,7 @@ import {
   type ClearLinkPreviewStorageInput,
   type ContextAttachmentBytesInput,
   type ContextAttachmentList,
+  type ContextAttachmentOrigin,
   type ContextTarget,
   type LinkPreviewViewState,
   type ListContextAttachmentsInput,
@@ -50,6 +59,8 @@ import {
 import {
   EntityIdSchema,
   FileSystemPathSchema,
+  HttpsUrlSchema,
+  IsoTimestampSchema,
   VoidResultSchema,
   type VoidResult,
 } from "./common";
@@ -198,6 +209,41 @@ export const SendPromptResultSchema = z
   })
   .strict();
 
+export const AppUpdateInfoSchema = z
+  .object({
+    currentVersion: z.string().trim(),
+    latestVersion: z.string().trim().nullable(),
+    updateAvailable: z.boolean(),
+    releaseName: z.string().trim().nullable().optional(),
+    releaseNotes: z.string().trim().nullable().optional(),
+    publishedAt: IsoTimestampSchema.nullable().optional(),
+    htmlUrl: HttpsUrlSchema.nullable().optional(),
+    downloadUrl: HttpsUrlSchema.nullable().optional(),
+    error: z.string().nullable().optional(),
+  })
+  .strict();
+
+export type AppUpdateInfo = z.infer<typeof AppUpdateInfoSchema>;
+
+export const GetSessionReconnectStateInputSchema = z
+  .object({
+    sessionId: EntityIdSchema,
+  })
+  .strict();
+
+export const SessionReconnectStateSchema = z
+  .object({
+    sessionId: EntityIdSchema,
+    reconnected: z.boolean(),
+    hasHistory: z.boolean(),
+  })
+  .strict();
+
+export type GetSessionReconnectStateInput = z.infer<
+  typeof GetSessionReconnectStateInputSchema
+>;
+export type SessionReconnectState = z.infer<typeof SessionReconnectStateSchema>;
+
 export const EventSubscriptionResultSchema = z
   .object({
     subscriptionId: EntityIdSchema,
@@ -288,6 +334,7 @@ export const IPC_CHANNELS = {
   respondToPermission: "sessions:respond-to-permission",
   setSessionMode: "sessions:set-mode",
   setSessionModel: "sessions:set-model",
+  getSessionReconnectState: "sessions:get-reconnect-state",
   chooseGeminiBinary: "settings:choose-gemini-binary",
   chooseGitBinary: "settings:choose-git-binary",
   pickImages: "attachments:pick-images",
@@ -339,11 +386,15 @@ export const IPC_CHANNELS = {
   prepareGitLabReviewContext: "gitlab:prepare-review-context",
   resolveGitLabDiscussion: "gitlab:resolve-discussion",
   replyToGitLabDiscussion: "gitlab:reply-to-discussion",
+  listGeminiSkills: "agent-extensions:list-skills",
+  listMcpServers: "agent-extensions:list-mcp-servers",
   openExternalHttpsUrl: "external:open-https-url",
+  checkForUpdates: "app:check-for-updates",
 } as const;
 
 export const IpcRequestSchemas = {
   [IPC_CHANNELS.getCapabilities]: EmptyInputSchema,
+  [IPC_CHANNELS.checkForUpdates]: EmptyInputSchema,
   [IPC_CHANNELS.listProjects]: ListProjectsInputSchema,
   [IPC_CHANNELS.getProject]: GetProjectInputSchema,
   [IPC_CHANNELS.reauthorizeProjectRoot]: ReauthorizeProjectRootInputSchema,
@@ -365,6 +416,7 @@ export const IpcRequestSchemas = {
   [IPC_CHANNELS.respondToPermission]: PermissionResponseSchema,
   [IPC_CHANNELS.setSessionMode]: SetSessionModeInputSchema,
   [IPC_CHANNELS.setSessionModel]: SetSessionModelInputSchema,
+  [IPC_CHANNELS.getSessionReconnectState]: GetSessionReconnectStateInputSchema,
   [IPC_CHANNELS.chooseGeminiBinary]: EmptyInputSchema,
   [IPC_CHANNELS.chooseGitBinary]: EmptyInputSchema,
   [IPC_CHANNELS.pickImages]: PickImagesInputSchema,
@@ -412,6 +464,8 @@ export const IpcRequestSchemas = {
   [IPC_CHANNELS.prepareGitLabReviewContext]: PrepareGitLabReviewContextInputSchema,
   [IPC_CHANNELS.resolveGitLabDiscussion]: ResolveGitLabDiscussionInputSchema,
   [IPC_CHANNELS.replyToGitLabDiscussion]: ReplyToGitLabDiscussionInputSchema,
+  [IPC_CHANNELS.listGeminiSkills]: ListAgentExtensionsInputSchema,
+  [IPC_CHANNELS.listMcpServers]: ListAgentExtensionsInputSchema,
   [IPC_CHANNELS.openExternalHttpsUrl]: OpenExternalHttpsUrlInputSchema,
 } as const;
 
@@ -438,6 +492,7 @@ export const IpcResponseSchemas = {
   [IPC_CHANNELS.respondToPermission]: VoidResultSchema,
   [IPC_CHANNELS.setSessionMode]: AppSessionSchema,
   [IPC_CHANNELS.setSessionModel]: AppSessionSchema,
+  [IPC_CHANNELS.getSessionReconnectState]: SessionReconnectStateSchema,
   [IPC_CHANNELS.chooseGeminiBinary]: AppCapabilitiesSchema,
   [IPC_CHANNELS.chooseGitBinary]: AppCapabilitiesSchema,
   [IPC_CHANNELS.pickImages]: z.array(AttachmentSchema).max(4),
@@ -485,7 +540,10 @@ export const IpcResponseSchemas = {
   [IPC_CHANNELS.prepareGitLabReviewContext]: PreparedExternalContextSchema,
   [IPC_CHANNELS.resolveGitLabDiscussion]: GitLabDiscussionSchema,
   [IPC_CHANNELS.replyToGitLabDiscussion]: GitLabDiscussionSchema,
+  [IPC_CHANNELS.listGeminiSkills]: GeminiSkillListSchema,
+  [IPC_CHANNELS.listMcpServers]: McpServerListSchema,
   [IPC_CHANNELS.openExternalHttpsUrl]: VoidResultSchema,
+  [IPC_CHANNELS.checkForUpdates]: AppUpdateInfoSchema,
 } as const;
 
 export type IpcRequestChannel = keyof typeof IpcRequestSchemas;
@@ -500,6 +558,9 @@ export type OpenExternalHttpsUrlInput = z.input<
 
 export interface GemUiDesktopApi {
   getCapabilities(): Promise<AppCapabilities>;
+  app: {
+    checkForUpdates(): Promise<AppUpdateInfo>;
+  };
   projects: {
     list(input?: ListProjectsInput): Promise<ProjectWithRoots[]>;
     get(input: GetProjectInput): Promise<ProjectWithRoots>;
@@ -532,6 +593,9 @@ export interface GemUiDesktopApi {
     respondToPermission(input: PermissionResponse): Promise<VoidResult>;
     setMode(input: SetSessionModeInput): Promise<AppSession>;
     setModel(input: SetSessionModelInput): Promise<AppSession>;
+    getReconnectState(
+      input: GetSessionReconnectStateInput,
+    ): Promise<SessionReconnectState>;
   };
   settings: {
     chooseGeminiBinary(): Promise<AppCapabilities>;
@@ -550,7 +614,11 @@ export interface GemUiDesktopApi {
   contextAttachments: {
     list(input: ListContextAttachmentsInput): Promise<ContextAttachmentList>;
     addFiles(input: AddContextFilesInput): Promise<ContextAttachmentList>;
-    addDroppedFiles(files: File[], target: ContextTarget): Promise<ContextAttachmentList>;
+    addDroppedFiles(
+      files: File[],
+      target: ContextTarget,
+      options?: { origin?: ContextAttachmentOrigin },
+    ): Promise<ContextAttachmentList>;
     addLink(input: AddContextLinkInput): Promise<ContextAttachmentList>;
     update(input: UpdateContextAttachmentInput): Promise<ContextAttachmentList>;
     setInclusion(input: SetContextInclusionInput): Promise<ContextAttachmentList>;
@@ -621,6 +689,10 @@ export interface GemUiDesktopApi {
     replyToDiscussion(
       input: ReplyToGitLabDiscussionInput,
     ): Promise<GitLabDiscussion>;
+  };
+  agentExtensions: {
+    listSkills(input: ListAgentExtensionsInput): Promise<GeminiSkillList>;
+    listMcpServers(input: ListAgentExtensionsInput): Promise<McpServerList>;
   };
   subscribeSessionEvents(
     input: SubscribeSessionEventsInput,

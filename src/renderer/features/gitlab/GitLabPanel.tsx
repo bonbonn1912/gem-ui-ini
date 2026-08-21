@@ -11,6 +11,7 @@ type FilterTab = "unresolved" | "all" | "mine";
 
 type GitLabPanelProps = {
   projectId: string;
+  rootRevision: number;
   activeSession: AppSession | null;
   onClose: () => void;
   onSendExternalContextPrompt: (ref: ExternalPromptContextRef) => Promise<void>;
@@ -20,6 +21,7 @@ type GitLabPanelProps = {
 
 export function GitLabPanel({
   projectId,
+  rootRevision,
   activeSession,
   onClose,
   onSendExternalContextPrompt,
@@ -42,7 +44,7 @@ export function GitLabPanel({
     resolveDiscussion,
     replyToDiscussion,
     prepareReviewContext,
-  } = useGitLabReview(projectId);
+  } = useGitLabReview(projectId, rootRevision);
 
   const [filterTab, setFilterTab] = useState<FilterTab>("unresolved");
 

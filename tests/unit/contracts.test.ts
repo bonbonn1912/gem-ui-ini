@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import {
+  AddContextFilesInputSchema,
+  AddContextLinkInputSchema,
   AgentEventSchema,
   AppProjectSchema,
   ClipboardImageInputSchema,
@@ -115,6 +117,7 @@ describe("shared Zod contracts", () => {
       scope: "project" as const,
       sessionId: null,
       kind: "link" as const,
+      origin: "manual" as const,
       title: "Ticket",
       note: null,
       sortOrder: 0,
@@ -138,6 +141,22 @@ describe("shared Zod contracts", () => {
     expect(ContextAttachmentSchema.parse(base).kind).toBe("link");
     expect(ContextAttachmentSchema.safeParse({ ...base, kind: "file" }).success).toBe(false);
     expect(ContextAttachmentSchema.safeParse({ ...base, scope: "session" }).success).toBe(false);
+    expect(ContextAttachmentSchema.safeParse({ ...base, origin: undefined }).success).toBe(false);
+    expect(ContextAttachmentSchema.safeParse({ ...base, origin: "drop" }).success).toBe(false);
+  });
+
+  it("setzt die Herkunft eines Anhangs standardmäßig auf \"manual\" und erlaubt \"chat\"", () => {
+    const target = {
+      clientRequestId: randomUUID(),
+      projectId: randomUUID(),
+      scope: "project" as const,
+      sessionId: null,
+    };
+    expect(AddContextFilesInputSchema.parse({ ...target, paths: [] }).origin).toBe("manual");
+    expect(AddContextFilesInputSchema.parse({ ...target, paths: [], origin: "chat" }).origin).toBe("chat");
+    expect(AddContextLinkInputSchema.parse({ ...target, url: "https://example.com/a" }).origin).toBe("manual");
+    expect(AddContextLinkInputSchema.parse({ ...target, url: "https://example.com/a", origin: "chat" }).origin).toBe("chat");
+    expect(AddContextFilesInputSchema.safeParse({ ...target, paths: [], origin: "drop" }).success).toBe(false);
   });
 
   it("öffnet eine Live-Vorschau nur über eine opaque Anhang-ID", () => {

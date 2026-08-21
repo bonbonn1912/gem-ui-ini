@@ -5,6 +5,10 @@ import { AttachmentsPanel } from "../features/attachments/AttachmentsPanel";
 import { useContextAttachments } from "../features/attachments/useContextAttachments";
 import { ChatHeader } from "../features/chat/ChatHeader";
 import { Timeline } from "../features/chat/Timeline";
+import {
+  ReconnectHistoryBanner,
+  ReconnectHistoryModal,
+} from "../features/chat/ReconnectHistoryDialog";
 import { chatReducer, createChatState, type TurnPhase } from "../features/chat/reducer";
 import { ChangesPanel } from "../features/git/ChangesPanel";
 import type { DiffSelection } from "../features/git/DiffViewer";
@@ -18,6 +22,8 @@ import { ProjectDialog } from "../features/projects/ProjectDialog";
 import { ProjectSettingsDialog } from "../features/projects/ProjectSettingsDialog";
 import { Sidebar } from "../features/sessions/Sidebar";
 import { GitLabPanel } from "../features/gitlab/GitLabPanel";
+import { McpPanel } from "../features/mcp/McpPanel";
+import { SkillsPanel } from "../features/skills/SkillsPanel";
 import type {
   AppCapabilities,
   AppProject,
@@ -166,6 +172,8 @@ function EmptyProject({
   onCreateSession,
   onToggleChanges,
   onToggleAttachments,
+  onToggleSkills,
+  onToggleMcp,
 }: {
   project: AppProject;
   changesCount: number;
@@ -173,6 +181,8 @@ function EmptyProject({
   onCreateSession: () => void;
   onToggleChanges: () => void;
   onToggleAttachments: () => void;
+  onToggleSkills: () => void;
+  onToggleMcp: () => void;
 }) {
   return (
     <main className="project-empty">
@@ -189,6 +199,8 @@ function EmptyProject({
         <button className="primary-button" type="button" onClick={onCreateSession}><Icon name="plus" size={17} /> Neue Session</button>
         <button className="secondary-button" type="button" onClick={onToggleAttachments}><Icon name="paperclip" size={16} /> Anhänge{attachmentsCount > 0 ? ` (${attachmentsCount})` : ""}</button>
         <button className="secondary-button" type="button" onClick={onToggleChanges}><Icon name="changes" size={16} /> Änderungen{changesCount > 0 ? ` (${changesCount})` : ""}</button>
+        <button className="secondary-button" type="button" onClick={onToggleSkills}><Icon name="skill" size={16} /> Skills</button>
+        <button className="secondary-button" type="button" onClick={onToggleMcp}><Icon name="server" size={16} /> MCP</button>
       </div>
     </main>
   );
@@ -203,7 +215,25 @@ function RootChangeBanner() {
   );
 }
 
-type RightPanel = "none" | "changes" | "attachments" | "gitlab";
+type RightPanel =
+  | "none"
+  | "changes"
+  | "attachments"
+  | "gitlab"
+  | "skills"
+  | "mcp";
+
+const RESTORABLE_RIGHT_PANELS = [
+  "changes",
+  "attachments",
+  "gitlab",
+  "skills",
+  "mcp",
+] as const satisfies readonly RightPanel[];
+
+function isRestorableRightPanel(value: string | null): value is RightPanel {
+  return value !== null && (RESTORABLE_RIGHT_PANELS as readonly string[]).includes(value);
+}
 const DEFAULT_RIGHT_PANEL_WIDTH = 520;
 const MIN_RIGHT_PANEL_WIDTH = 300;
 const MIN_CHAT_WIDTH = 260;
@@ -213,7 +243,9 @@ const RIGHT_PANEL_OVERLAY_BREAKPOINT = 640;
 function initialRightPanel(): RightPanel {
   try {
     const stored = window.localStorage.getItem("geminui.right-panel");
-    if (stored === "changes" || stored === "attachments" || stored === "gitlab") return stored;
+    // "gitlab" may be restored here but is only honoured once the project's
+    // bindings say the integration is actually enabled — see the effect below.
+    if (isRestorableRightPanel(stored)) return stored;
     return window.localStorage.getItem("geminui.changes-panel.open") === "true" ? "changes" : "none";
   } catch {
     return "none";
@@ -334,6 +366,14 @@ export function App() {
   const [gitPreviewTrigger, setGitPreviewTrigger] = useState<GitPreviewTrigger | null>(null);
   const [uiError, setUiError] = useState<UiError | null>(null);
   const [fatalError, setFatalError] = useState<string | null>(null);
+  const [reconnectedSessions, setReconnectedSessions] = useState<Record<string, boolean>>({});
+  const [sessionHistoryModes, setSessionHistoryModes] = useState<Record<string, "compressed" | "fresh">>({});
+  const [pendingPrompt, setPendingPrompt] = useState<{
+    text: string;
+    attachments: ComposerAttachment[];
+    projectFiles: ProjectFileSearchEntry[];
+    externalContextRefs: ExternalPromptContextRef[];
+  } | null>(null);
   const [chat, dispatch] = useReducer(chatReducer, null, () => createChatState());
   const gitStatusRef = useRef<GitProjectStatus | null>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
@@ -361,10 +401,16 @@ export function App() {
   });
   const changesCount = gitState.status?.changes.length ?? 0;
   const [gitlabCandidates, setGitlabCandidates] = useState<GitLabRepositoryCandidate[]>([]);
+  const [gitlabCandidatesLoaded, setGitlabCandidatesLoaded] = useState(false);
 
   useEffect(() => {
+    // Cleared before the request, not after it: keeping the previous project's
+    // candidates would leave `gitlabEnabled` true for a moment and flash a
+    // GitLab tab into a project that never enabled the integration.
+    setGitlabCandidates([]);
+    setGitlabCandidatesLoaded(false);
     if (!activeProject) {
-      setGitlabCandidates([]);
+      setGitlabCandidatesLoaded(true);
       return;
     }
     let current = true;
@@ -375,6 +421,9 @@ export function App() {
       })
       .catch(() => {
         if (current) setGitlabCandidates([]);
+      })
+      .finally(() => {
+        if (current) setGitlabCandidatesLoaded(true);
       });
     return () => {
       current = false;
@@ -382,6 +431,22 @@ export function App() {
   }, [activeProject?.id, activeProject?.rootRevision, projectSettingsOpen]);
 
   const gitlabEnabled = gitlabCandidates.some((c) => c.binding?.enabled);
+
+  /**
+   * The GitLab panel lives under the same condition as its toggle. Without
+   * this, a `rightPanel` of "gitlab" restored from localStorage — or left over
+   * from a project that does have a binding — renders the panel in a project
+   * that offers no way to close or even reach it.
+   *
+   * The fallback waits for the candidate list: resetting before it arrives
+   * would close the panel on every start for projects that legitimately use
+   * GitLab.
+   */
+  useEffect(() => {
+    if (rightPanel !== "gitlab") return;
+    if (!gitlabCandidatesLoaded || gitlabEnabled) return;
+    setRightPanel("none");
+  }, [gitlabCandidatesLoaded, gitlabEnabled, rightPanel]);
 
   useEffect(() => {
     gitToolBaselinesRef.current.clear();
@@ -548,6 +613,22 @@ export function App() {
   }, [activeSessionId, showError]);
 
   useEffect(() => {
+    if (!activeSessionId) return;
+    let current = true;
+    window.gemUi.sessions.getReconnectState?.({ sessionId: activeSessionId })
+      .then((state) => {
+        if (!current) return;
+        if (state?.reconnected && state?.hasHistory) {
+          setReconnectedSessions((prev) => ({ ...prev, [activeSessionId]: true }));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [activeSessionId]);
+
+  useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.key.toLocaleLowerCase() !== "n") return;
       event.preventDefault();
@@ -691,6 +772,22 @@ export function App() {
     }
   };
 
+  const handleChooseReconnectMode = (sessionId: string, mode: "compressed" | "fresh") => {
+    setSessionHistoryModes((prev) => ({ ...prev, [sessionId]: mode }));
+    setReconnectedSessions((prev) => ({ ...prev, [sessionId]: false }));
+    if (pendingPrompt && activeSession?.id === sessionId) {
+      const promptToRun = pendingPrompt;
+      setPendingPrompt(null);
+      void executeSendPrompt(
+        promptToRun.text,
+        promptToRun.attachments,
+        promptToRun.projectFiles,
+        promptToRun.externalContextRefs,
+        mode,
+      );
+    }
+  };
+
   const sendPrompt = async (
     text: string,
     attachments: ComposerAttachment[] = [],
@@ -698,6 +795,32 @@ export function App() {
     externalContextRefs: ExternalPromptContextRef[] = [],
   ) => {
     if (!activeSession) return;
+    const isReconnected = reconnectedSessions[activeSession.id];
+    const preChosenMode = sessionHistoryModes[activeSession.id];
+
+    if (isReconnected && !preChosenMode) {
+      setPendingPrompt({ text, attachments, projectFiles, externalContextRefs });
+      return;
+    }
+
+    await executeSendPrompt(
+      text,
+      attachments,
+      projectFiles,
+      externalContextRefs,
+      preChosenMode ?? "compressed",
+    );
+  };
+
+  const executeSendPrompt = async (
+    text: string,
+    attachments: ComposerAttachment[] = [],
+    projectFiles: ProjectFileSearchEntry[] = [],
+    externalContextRefs: ExternalPromptContextRef[] = [],
+    historyMode?: "compressed" | "fresh",
+  ) => {
+    if (!activeSession) return;
+    setReconnectedSessions((prev) => ({ ...prev, [activeSession.id]: false }));
     const clientRequestId = createClientRequestId();
     dispatch({
       type: "optimistic-user",
@@ -724,9 +847,11 @@ export function App() {
         externalContextRefs,
         expectedRootRevision: activeProject?.rootRevision ?? 1,
         clientRequestId,
+        historyMode,
       });
       dispatch({ type: "turn-started", turnId: result.turnId });
     } catch (error) {
+      console.error("[sendPrompt Error]:", error);
       const message = messageFrom(error);
       dispatch({ type: "prompt-failed", clientRequestId, message });
       setSessions((current) => current.map((session) => session.id === activeSession.id ? { ...session, status: "error" } : session));
@@ -869,6 +994,8 @@ export function App() {
                 onCreateSession={() => void createSession()}
                 onToggleAttachments={() => setRightPanel((current) => current === "attachments" ? "none" : "attachments")}
                 onToggleChanges={() => setRightPanel((current) => current === "changes" ? "none" : "changes")}
+                onToggleSkills={() => setRightPanel((current) => current === "skills" ? "none" : "skills")}
+                onToggleMcp={() => setRightPanel((current) => current === "mcp" ? "none" : "mcp")}
               />
             </div>
             {changesOpen ? (
@@ -902,9 +1029,14 @@ export function App() {
                 onError={(error) => showError("Anhang konnte nicht verarbeitet werden", error)}
                 onOpenExternal={openExternal}
               />
-            ) : rightPanel === "gitlab" ? (
+            ) : rightPanel === "skills" ? (
+              <SkillsPanel projectId={activeProject.id} onClose={() => setRightPanel("none")} />
+            ) : rightPanel === "mcp" ? (
+              <McpPanel projectId={activeProject.id} onClose={() => setRightPanel("none")} />
+            ) : rightPanel === "gitlab" && gitlabEnabled ? (
               <GitLabPanel
                 projectId={activeProject.id}
+                rootRevision={activeProject.rootRevision}
                 activeSession={null}
                 onClose={() => setRightPanel("none")}
                 onSendExternalContextPrompt={async () => {
@@ -938,12 +1070,21 @@ export function App() {
                 gitlabEnabled={gitlabEnabled}
                 gitlabOpen={rightPanel === "gitlab"}
                 onToggleGitlab={() => setRightPanel((current) => current === "gitlab" ? "none" : "gitlab")}
+                skillsOpen={rightPanel === "skills"}
+                onToggleSkills={() => setRightPanel((current) => current === "skills" ? "none" : "skills")}
+                mcpOpen={rightPanel === "mcp"}
+                onToggleMcp={() => setRightPanel((current) => current === "mcp" ? "none" : "mcp")}
                 onOpenSidebar={() => setSidebarOpen(true)}
                 onEditProject={() => setProjectSettingsOpen(true)}
                 onSetMode={(mode) => void setSessionMode(activeSession.id, mode)}
                 onSetModel={(model) => void setSessionModel(activeSession.id, model)}
               />
               {activeSession.status === "roots_changed" && <RootChangeBanner />}
+              {Boolean(reconnectedSessions[activeSession.id]) && (
+                <ReconnectHistoryBanner
+                  onChoose={(mode) => handleChooseReconnectMode(activeSession.id, mode)}
+                />
+              )}
               <Timeline
                 items={chat.items}
                 sessionTitle={activeSession.title}
@@ -999,9 +1140,14 @@ export function App() {
                 onError={(error) => showError("Anhang konnte nicht verarbeitet werden", error)}
                 onOpenExternal={openExternal}
               />
-            ) : rightPanel === "gitlab" ? (
+            ) : rightPanel === "skills" ? (
+              <SkillsPanel projectId={activeProject.id} onClose={() => setRightPanel("none")} />
+            ) : rightPanel === "mcp" ? (
+              <McpPanel projectId={activeProject.id} onClose={() => setRightPanel("none")} />
+            ) : rightPanel === "gitlab" && gitlabEnabled ? (
               <GitLabPanel
                 projectId={activeProject.id}
+                rootRevision={activeProject.rootRevision}
                 activeSession={activeSession}
                 onClose={() => setRightPanel("none")}
                 onSendExternalContextPrompt={async (ref) => {
@@ -1036,6 +1182,14 @@ export function App() {
         onClose={() => setProjectSettingsOpen(false)}
         onSave={updateProject}
         onDelete={deleteProject}
+      />
+
+      <ReconnectHistoryModal
+        open={Boolean(pendingPrompt)}
+        onChoose={(mode) => {
+          if (activeSession) handleChooseReconnectMode(activeSession.id, mode);
+        }}
+        onCancel={() => setPendingPrompt(null)}
       />
 
       {uiError && (

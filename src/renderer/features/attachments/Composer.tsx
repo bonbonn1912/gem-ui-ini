@@ -143,8 +143,30 @@ export function Composer({
 
   const addFiles = useCallback((files: File[]) => {
     if (!files.length) return;
-    void addStaged(() => window.gemUi.attachments.stageDroppedFiles(files, sessionId));
-  }, [addStaged, sessionId]);
+
+    // Alles, was in den Chat gezogen wird, wird dauerhaft als Session-Anhang
+    // gesichert — Dokumente ebenso wie Bilder. Der Anhänge-Reiter „Diese
+    // Session" zeigt es danach unter „Aus dem Chat".
+    void window.gemUi.contextAttachments
+      .addDroppedFiles(
+        files,
+        { projectId, scope: "session", sessionId },
+        { origin: "chat" },
+      )
+      .catch((error) =>
+        onError(
+          error instanceof Error
+            ? error.message
+            : "Die Datei konnte nicht als Session-Anhang gespeichert werden.",
+        ),
+      );
+
+    // Bilder gehen zusätzlich als Anhang dieses Turns an Gemini.
+    const images = files.filter((file) => isSupportedImageMime(file.type));
+    if (images.length > 0) {
+      void addStaged(() => window.gemUi.attachments.stageDroppedFiles(images, sessionId));
+    }
+  }, [addStaged, onError, projectId, sessionId]);
 
   useEffect(() => {
     const hasFiles = (event: DragEvent) => Array.from(event.dataTransfer?.types ?? []).includes("Files");

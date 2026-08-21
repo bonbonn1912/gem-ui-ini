@@ -372,4 +372,30 @@ describe("GitLabRepository Storage", () => {
       db.close();
     }
   });
+
+  it("encrypts and decrypts tokens seamlessly via AES-GCM fallback", async () => {
+    const { GitLabTokenVault, AesGcmSecretStorageAdapter, HybridSecretStorageAdapter } = await import(
+      "../../src/main/integrations/gitlab/gitlab-token-vault"
+    );
+
+    const rawKey = Buffer.alloc(32, 7);
+    const adapter = new AesGcmSecretStorageAdapter(rawKey);
+    const cipher = await adapter.encrypt("glpat-secret-test-token-12345");
+    expect(cipher.length).toBeGreaterThan(28);
+
+    const decrypted = await adapter.decrypt(cipher);
+    expect(decrypted).toBe("glpat-secret-test-token-12345");
+
+    // Test Hybrid Vault with fallback
+    const hybrid = new HybridSecretStorageAdapter(undefined, adapter);
+    const hybridVault = new GitLabTokenVault(hybrid);
+
+    const tokenCipher = await hybridVault.encryptToken("glpat-my-secure-personal-token");
+    expect(tokenCipher.length).toBeGreaterThan(28);
+
+    const result = await hybridVault.withDecryptedToken(tokenCipher, async (token) => {
+      return `Used token: ${token}`;
+    });
+    expect(result).toBe("Used token: glpat-my-secure-personal-token");
+  });
 });

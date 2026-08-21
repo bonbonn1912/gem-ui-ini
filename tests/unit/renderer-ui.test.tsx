@@ -88,6 +88,14 @@ function createApi(options: { projects?: AppProject[]; sessions?: AppSession[]; 
   let subscriber: ((events: StreamEnvelope[]) => void) | undefined;
   const api: GemUiDesktopApi = {
     getCapabilities: vi.fn().mockResolvedValue(capabilities),
+    app: {
+      checkForUpdates: vi.fn().mockResolvedValue({
+        currentVersion: "0.5.0",
+        latestVersion: "0.5.0",
+        updateAvailable: false,
+        error: null,
+      }),
+    },
     projects: {
       list: vi.fn().mockResolvedValue(options.projects ?? [project]),
       get: vi.fn().mockResolvedValue(project),
@@ -133,6 +141,11 @@ function createApi(options: { projects?: AppProject[]; sessions?: AppSession[]; 
       respondToPermission: vi.fn().mockResolvedValue(undefined),
       setMode: vi.fn().mockImplementation(async (input) => ({ ...session, mode: input.modeId })),
       setModel: vi.fn().mockImplementation(async (input) => ({ ...session, model: input.modelId })),
+      getReconnectState: vi.fn().mockResolvedValue({
+        sessionId: session.id,
+        reconnected: false,
+        hasHistory: false,
+      }),
     },
     attachments: {
       pickImages: vi.fn().mockResolvedValue([]),
@@ -193,6 +206,10 @@ function createApi(options: { projects?: AppProject[]; sessions?: AppSession[]; 
     },
     integrations: {
       listProject: vi.fn().mockResolvedValue([]),
+    },
+    agentExtensions: {
+      listSkills: vi.fn().mockResolvedValue({ projectId: project.id, skills: [] }),
+      listMcpServers: vi.fn().mockResolvedValue({ projectId: project.id, servers: [] }),
     },
     gitlab: {
       listRepositoryCandidates: vi.fn().mockResolvedValue([]),
@@ -256,6 +273,7 @@ function populatedContextList(overBudget = false): ContextAttachmentList {
         scope: "project",
         sessionId: null,
         kind: "file",
+        origin: "manual",
         title: "Architektur.md",
         note: null,
         sortOrder: 0,
@@ -282,6 +300,7 @@ function populatedContextList(overBudget = false): ContextAttachmentList {
         scope: "project",
         sessionId: null,
         kind: "link",
+        origin: "chat",
         title: "Jira LOGIN-42",
         note: null,
         sortOrder: 1,

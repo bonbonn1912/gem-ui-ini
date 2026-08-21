@@ -354,6 +354,15 @@ const migrations: readonly Migration[] = [
         CHECK(allow_self_signed_tls IN (0, 1));
     `,
   },
+  {
+    version: 9,
+    name: "009_context_attachment_origin",
+    sql: `
+      ALTER TABLE context_attachments
+        ADD COLUMN origin TEXT NOT NULL DEFAULT 'manual'
+        CHECK(origin IN ('manual', 'chat'));
+    `,
+  },
 ];
 
 export function runMigrations(database: SqliteDatabase): void {

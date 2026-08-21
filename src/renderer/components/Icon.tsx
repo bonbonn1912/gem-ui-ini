@@ -13,6 +13,7 @@ export type IconName =
   | "changes"
   | "clock"
   | "copy"
+  | "download"
   | "folder"
   | "folder-plus"
   | "external"
@@ -20,6 +21,7 @@ export type IconName =
   | "gitlab"
   | "globe"
   | "image"
+  | "info"
   | "link"
   | "menu"
   | "more"
@@ -28,8 +30,10 @@ export type IconName =
   | "plus"
   | "refresh"
   | "search"
+  | "server"
   | "settings"
   | "shield"
+  | "skill"
   | "sparkle"
   | "stop"
   | "tool"
@@ -136,6 +140,22 @@ export function Icon({ name, size = 18, ...props }: IconProps) {
           <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
         </svg>
       );
+    case "download":
+      return (
+        <svg {...common}>
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" y1="15" x2="12" y2="3" />
+        </svg>
+      );
+    case "info":
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="16" x2="12" y2="12" />
+          <line x1="12" y1="8" x2="12.01" y2="8" />
+        </svg>
+      );
     case "folder":
       return (
         <svg {...common}>
@@ -237,6 +257,14 @@ export function Icon({ name, size = 18, ...props }: IconProps) {
           <path d="m15.5 15.5 4 4" />
         </svg>
       );
+    case "server":
+      return (
+        <svg {...common}>
+          <rect x="3.5" y="4" width="17" height="6.5" rx="2" />
+          <rect x="3.5" y="13.5" width="17" height="6.5" rx="2" />
+          <path d="M7.3 7.25h.01M7.3 16.75h.01M15 7.25h2.5M15 16.75h2.5" />
+        </svg>
+      );
     case "settings":
       return (
         <svg {...common}>
@@ -249,6 +277,13 @@ export function Icon({ name, size = 18, ...props }: IconProps) {
         <svg {...common}>
           <path d="M12 3 5 6v5c0 4.4 2.8 7.7 7 10 4.2-2.3 7-5.6 7-10V6Z" />
           <path d="m9 12 2 2 4-4" />
+        </svg>
+      );
+    case "skill":
+      return (
+        <svg {...common}>
+          <path d="M4 5.6A1.6 1.6 0 0 1 5.6 4H10a2.4 2.4 0 0 1 2 1.1A2.4 2.4 0 0 1 14 4h4.4A1.6 1.6 0 0 1 20 5.6v10.8a1.6 1.6 0 0 1-1.6 1.6H14a2 2 0 0 0-2 2 2 2 0 0 0-2-2H5.6A1.6 1.6 0 0 1 4 16.4Z" />
+          <path d="M12 5.1V20" />
         </svg>
       );
     case "sparkle":

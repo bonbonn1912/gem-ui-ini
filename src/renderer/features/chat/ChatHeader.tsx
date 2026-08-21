@@ -1,4 +1,5 @@
 import { Icon } from "../../components/Icon";
+import { useDismissOnOutsideClick } from "../../hooks/useDismissOnOutsideClick";
 import type {
   AppProject,
   AppSession,
@@ -25,6 +26,10 @@ type ChatHeaderProps = {
   gitlabOpen?: boolean;
   gitlabUnresolvedCount?: number;
   onToggleGitlab?: () => void;
+  skillsOpen: boolean;
+  onToggleSkills: () => void;
+  mcpOpen: boolean;
+  onToggleMcp: () => void;
   onSetMode: (mode: string) => void;
   onSetModel: (model: string) => void;
 };
@@ -247,9 +252,14 @@ export function ChatHeader({
   gitlabOpen,
   gitlabUnresolvedCount,
   onToggleGitlab,
+  skillsOpen,
+  onToggleSkills,
+  mcpOpen,
+  onToggleMcp,
   onSetMode,
   onSetModel,
 }: ChatHeaderProps) {
+  const menuRef = useDismissOnOutsideClick<HTMLDetailsElement>();
   // Two sources, both incomplete on their own: the cached lists carry display
   // names and are there from app start, the live event carries only IDs but is
   // the fresher one once a session runs. The current selection is appended so
@@ -335,7 +345,30 @@ export function ChatHeader({
             {(gitlabUnresolvedCount ?? 0) > 0 && <i>{gitlabUnresolvedCount}</i>}
           </button>
         )}
-        <details className="roots-menu">
+        {/* Skills and MCP describe the installed Gemini CLI, not this project,
+            so unlike GitLab they are always offered — an empty list is a
+            statement in itself. */}
+        <button
+          className={`skills-toggle ${skillsOpen ? "skills-toggle--active" : ""}`}
+          type="button"
+          onClick={onToggleSkills}
+          aria-pressed={skillsOpen}
+          aria-label={`Skills ${skillsOpen ? "schließen" : "öffnen"}`}
+        >
+          <Icon name="skill" size={15} />
+          <span>Skills</span>
+        </button>
+        <button
+          className={`mcp-toggle ${mcpOpen ? "mcp-toggle--active" : ""}`}
+          type="button"
+          onClick={onToggleMcp}
+          aria-pressed={mcpOpen}
+          aria-label={`MCP-Server ${mcpOpen ? "schließen" : "öffnen"}`}
+        >
+          <Icon name="server" size={15} />
+          <span>MCP</span>
+        </button>
+        <details ref={menuRef} className="roots-menu">
           <summary>
             <Icon name="folder" size={15} />
             <span>{project.roots.length} {project.roots.length === 1 ? "Root" : "Roots"}</span>

@@ -1,5 +1,6 @@
 import {
   ContextAttachmentListSchema,
+  ContextAttachmentOriginSchema,
   ContextAttachmentSchema,
   MAX_CONTEXT_ATTACHMENTS_PER_SCOPE,
   MAX_CONTEXT_CHARS_PER_ATTACHMENT,
@@ -7,6 +8,7 @@ import {
   type ContextAttachment,
   type ContextAttachmentKind,
   type ContextAttachmentList,
+  type ContextAttachmentOrigin,
   type ContextAttachmentScope,
   type ExtractionState,
   type LinkPreviewState,
@@ -21,6 +23,7 @@ type ContextAttachmentRow = {
   session_id: string | null;
   session_key: string;
   kind: ContextAttachmentKind;
+  origin: string | null;
   title: string;
   note: string | null;
   dedupe_key: string;
@@ -69,6 +72,7 @@ type FileInsert = {
   scope: ContextAttachmentScope;
   sessionId: string | null;
   title: string;
+  origin?: ContextAttachmentOrigin;
   displayName: string;
   mimeType: string;
   size: number;
@@ -85,6 +89,7 @@ type LinkInsert = {
   scope: ContextAttachmentScope;
   sessionId: string | null;
   title: string;
+  origin?: ContextAttachmentOrigin;
   url: string;
   normalizedUrl: string;
   host: string;
@@ -94,7 +99,7 @@ type LinkInsert = {
 
 const SELECT_COLUMNS = `
   SELECT a.id, a.project_id, a.scope, a.session_id, a.session_key,
-         a.kind, a.title, a.note, a.dedupe_key, a.sort_order,
+         a.kind, a.origin, a.title, a.note, a.dedupe_key, a.sort_order,
          a.default_include, a.created_at, a.updated_at,
          COALESCE(sel.included, a.default_include) AS effective_included,
          f.display_name, f.mime_type, f.size AS file_size, f.sha256,
@@ -177,15 +182,16 @@ export class ContextAttachmentRepository {
     this.database.transaction(() => {
       this.database.prepare(
         `INSERT INTO context_attachments (
-           id, project_id, scope, session_id, session_key, kind, title, note,
+           id, project_id, scope, session_id, session_key, kind, origin, title, note,
            dedupe_key, sort_order, default_include, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, 'file', ?, NULL, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, 'file', ?, ?, NULL, ?, ?, ?, ?, ?)`,
       ).run(
         input.id,
         input.projectId,
         input.scope,
         input.sessionId,
         sessionKey,
+        input.origin ?? "manual",
         input.title,
         input.sha256,
         sortOrder,
@@ -219,15 +225,16 @@ export class ContextAttachmentRepository {
     this.database.transaction(() => {
       this.database.prepare(
         `INSERT INTO context_attachments (
-           id, project_id, scope, session_id, session_key, kind, title, note,
+           id, project_id, scope, session_id, session_key, kind, origin, title, note,
            dedupe_key, sort_order, default_include, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, 'link', ?, NULL, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, 'link', ?, ?, NULL, ?, ?, ?, ?, ?)`,
       ).run(
         input.id,
         input.projectId,
         input.scope,
         input.sessionId,
         sessionKey,
+        input.origin ?? "manual",
         input.title,
         input.normalizedUrl,
         sortOrder,
@@ -456,6 +463,7 @@ function parseStoredAttachment(row: ContextAttachmentRow): StoredContextAttachme
     scope: row.scope,
     sessionId: row.session_id,
     kind: row.kind,
+    origin: normalizeOrigin(row.origin),
     title: row.title,
     note: row.note,
     sortOrder: row.sort_order,
@@ -476,6 +484,11 @@ function parseStoredAttachment(row: ContextAttachmentRow): StoredContextAttachme
       : null,
     internalLink: link ? { previewImageFile: row.preview_image_file } : null,
   };
+}
+
+function normalizeOrigin(value: string | null): ContextAttachmentOrigin {
+  const parsed = ContextAttachmentOriginSchema.safeParse(value);
+  return parsed.success ? parsed.data : "manual";
 }
 
 function estimateTokens(row: ContextAttachmentRow): number | null {

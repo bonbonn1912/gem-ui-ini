@@ -60,9 +60,36 @@ export function toPublicError(error: unknown): Error {
   ) {
     return error;
   }
+  if (error instanceof Error) {
+    let message = error.message || error.name;
+    if (error.cause) {
+      const causeMsg =
+        error.cause instanceof Error
+          ? error.cause.message
+          : typeof error.cause === "string"
+            ? error.cause
+            : JSON.stringify(error.cause);
+      if (causeMsg && !message.includes(causeMsg)) {
+        message += ` (Ursache: ${causeMsg})`;
+      }
+    }
+    if (
+      "details" in error &&
+      error.details &&
+      typeof error.details === "object"
+    ) {
+      try {
+        const detailsStr = JSON.stringify(error.details);
+        if (detailsStr !== "{}") {
+          message += ` [Details: ${detailsStr}]`;
+        }
+      } catch {
+        // ignore JSON circular refs
+      }
+    }
+    return new Error(message.slice(0, 2000));
+  }
   return new Error(
-    error instanceof Error
-      ? error.message.slice(0, 500)
-      : "Die Aktion konnte nicht ausgeführt werden.",
+    String(error).slice(0, 2000) || "Die Aktion konnte nicht ausgeführt werden.",
   );
 }

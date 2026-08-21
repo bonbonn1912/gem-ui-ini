@@ -53,9 +53,9 @@ export function GitLabDiscussionCard({
     }
   };
 
-  const handleSendReply = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!replyText.trim()) return;
+  const handleSendReply = async (e?: React.FormEvent | React.KeyboardEvent) => {
+    if (e) e.preventDefault();
+    if (!replyText.trim() || submittingReply) return;
     setSubmittingReply(true);
     setError(null);
     try {
@@ -66,6 +66,17 @@ export function GitLabDiscussionCard({
       setError((err as Error).message);
     } finally {
       setSubmittingReply(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      void handleSendReply(e);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setReplyOpen(false);
+      setReplyText("");
     }
   };
 
@@ -205,7 +216,8 @@ export function GitLabDiscussionCard({
           <textarea
             value={replyText}
             onChange={(e) => setReplyText(e.target.value)}
-            placeholder="Auf Thread antworten …"
+            onKeyDown={handleKeyDown}
+            placeholder="Auf Thread antworten … (Strg+Enter zum Senden)"
             rows={2}
             autoFocus
           />

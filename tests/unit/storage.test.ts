@@ -40,8 +40,8 @@ describe("SQLite setup and migrations", () => {
       const versions = database
         .prepare("SELECT version FROM schema_migrations ORDER BY version")
         .all() as Array<{ version: number }>;
-      expect(versions.map(({ version }) => version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
-      expect(getLatestSchemaVersion()).toBe(8);
+      expect(versions.map(({ version }) => version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+      expect(getLatestSchemaVersion()).toBe(9);
       const clientRequests = database
         .prepare(
           "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'client_requests'",
@@ -155,6 +155,31 @@ describe("repositories", () => {
       expect(list.projectAttachments[0]?.includedInContext).toBe(false);
       expect(list.sessionAttachments[0]?.includedInContext).toBe(true);
       expect(attachments.countFileReferences(sha256)).toBe(2);
+      expect(projectAttachment.origin).toBe("manual");
+      expect(list.projectAttachments[0]?.origin).toBe("manual");
+
+      const chatSha256 = "c".repeat(64);
+      const chatAttachment = attachments.insertFile({
+        id: randomUUID(),
+        projectId: fixture.project.id,
+        scope: "session",
+        sessionId,
+        title: "Screenshot.png",
+        origin: "chat",
+        displayName: "Screenshot.png",
+        mimeType: "image/png",
+        size: 24,
+        sha256: chatSha256,
+        storageDir: "/internal/blobs/cc",
+        fileName: chatSha256,
+        defaultInclude: true,
+        createdAt: timestamp,
+      });
+      expect(chatAttachment.origin).toBe("chat");
+      expect(
+        attachments.list(fixture.project.id, sessionId).sessionAttachments
+          .find(({ id }) => id === chatAttachment.id)?.origin,
+      ).toBe("chat");
 
       attachments.setInclusion(sessionId, [projectAttachment.id], true, timestamp);
       list = attachments.list(fixture.project.id, sessionId);

@@ -1,3 +1,4 @@
+export * from "./agent-extensions";
 export * from "./attachments";
 export * from "./common";
 export * from "./context-attachments";

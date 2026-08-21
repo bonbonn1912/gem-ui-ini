@@ -99,6 +99,11 @@ const desktopApi: GemUiDesktopApi = {
   getCapabilities: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getCapabilities, {}),
 
+  app: {
+    checkForUpdates: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.checkForUpdates, {}),
+  },
+
   settings: {
     chooseGeminiBinary: () =>
       ipcRenderer.invoke(IPC_CHANNELS.chooseGeminiBinary, {}),
@@ -141,6 +146,8 @@ const desktopApi: GemUiDesktopApi = {
       ipcRenderer.invoke(IPC_CHANNELS.respondToPermission, input),
     setMode: (input) => ipcRenderer.invoke(IPC_CHANNELS.setSessionMode, input),
     setModel: (input) => ipcRenderer.invoke(IPC_CHANNELS.setSessionModel, input),
+    getReconnectState: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.getSessionReconnectState, input),
   },
 
   attachments: {
@@ -165,11 +172,11 @@ const desktopApi: GemUiDesktopApi = {
   contextAttachments: {
     list: (input) => ipcRenderer.invoke(IPC_CHANNELS.listContextAttachments, input),
     addFiles: (input) => ipcRenderer.invoke(IPC_CHANNELS.addContextFiles, input),
-    addDroppedFiles: async (files, target) => {
-      const filePaths = files
+    addDroppedFiles: async (files, target, options) => {
+      const paths = files
         .map((file) => webUtils.getPathForFile(file))
         .filter((filePath): filePath is string => Boolean(filePath));
-      if (filePaths.length === 0) {
+      if (paths.length === 0) {
         return ipcRenderer.invoke(IPC_CHANNELS.listContextAttachments, {
           projectId: target.projectId,
           sessionId: target.scope === "session" ? target.sessionId : null,
@@ -177,7 +184,9 @@ const desktopApi: GemUiDesktopApi = {
       }
       return ipcRenderer.invoke(IPC_CHANNELS.addContextFiles, {
         ...target,
-        filePaths,
+        clientRequestId: createClientRequestId(),
+        paths,
+        origin: options?.origin ?? "manual",
       });
     },
     addLink: (input) => ipcRenderer.invoke(IPC_CHANNELS.addContextLink, input),
@@ -237,6 +246,13 @@ const desktopApi: GemUiDesktopApi = {
         });
       };
     },
+  },
+
+  agentExtensions: {
+    listSkills: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.listGeminiSkills, input),
+    listMcpServers: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.listMcpServers, input),
   },
 
   integrations: {
@@ -333,9 +349,28 @@ Object.freeze(desktopApi.contextAttachments);
 Object.freeze(desktopApi.git);
 Object.freeze(desktopApi.linkPreview);
 Object.freeze(desktopApi.settings);
+Object.freeze(desktopApi.agentExtensions);
 Object.freeze(desktopApi.integrations);
 Object.freeze(desktopApi.gitlab);
 contextBridge.exposeInMainWorld("gemUi", Object.freeze(desktopApi));
+
+function createClientRequestId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  const bytes = new Uint8Array(16);
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40;
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 function parseEventBatch(value: unknown): EventBatch | null {
   if (!value || typeof value !== "object") return null;

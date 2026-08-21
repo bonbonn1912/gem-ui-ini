@@ -134,6 +134,7 @@ export const SendPromptInputSchema = z
       .array(ExternalPromptContextRefSchema)
       .max(5)
       .default([]),
+    historyMode: z.enum(["compressed", "fresh"]).optional(),
   })
   .strict()
   .refine(

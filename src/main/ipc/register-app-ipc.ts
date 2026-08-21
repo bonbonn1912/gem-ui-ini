@@ -15,6 +15,7 @@ import {
   type DeleteSessionInput,
   type ContextAttachmentBytesInput,
   type GetProjectInput,
+  type ListAgentExtensionsInput,
   type GetProjectApprovalPolicyInput,
   type GetGitFileDiffInput,
   type GetGitProjectStatusInput,
@@ -44,6 +45,7 @@ import {
   type UpdateSessionInput,
   type UpdateContextAttachmentInput,
 } from "../../shared/contracts";
+import type { AgentExtensionService } from "../agent-extensions";
 import type { AppController } from "../app-controller";
 import type { AttachmentService } from "../attachments/attachment-service";
 import type {
@@ -62,11 +64,13 @@ import { registerValidatedIpcHandler } from "./register-handler";
 
 import type { IntegrationRegistry } from "../integrations/integration-registry";
 import type { GitLabService, GitLabSubscriptionHub } from "../integrations/gitlab";
+import { AppUpdateService } from "../updates/app-update-service";
 
 export type RegisterAppIpcOptions = {
   mainWindow: BrowserWindow;
   projects: ProjectService;
   projectFiles: ProjectFileService;
+  agentExtensions: AgentExtensionService;
   controller: AppController;
   capabilities: GeminiCapabilityService;
   attachments: AttachmentService;
@@ -80,6 +84,7 @@ export type RegisterAppIpcOptions = {
   integrations?: IntegrationRegistry;
   gitlab?: GitLabService;
   gitlabSubscriptionHub?: GitLabSubscriptionHub;
+  updateService?: AppUpdateService;
 };
 
 export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
@@ -322,6 +327,12 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
       input as SetSessionModelInput,
       "sessions.set-model",
       () => options.controller.setModel(input as SetSessionModelInput),
+    ),
+  );
+
+  register(IPC_CHANNELS.getSessionReconnectState, (input) =>
+    options.controller.getSessionReconnectState(
+      input as { sessionId: string },
     ),
   );
 
@@ -569,10 +580,20 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
     return { ok: true };
   });
 
+  register(IPC_CHANNELS.listGeminiSkills, (input) =>
+    options.agentExtensions.listSkills(input as ListAgentExtensionsInput),
+  );
+  register(IPC_CHANNELS.listMcpServers, (input) =>
+    options.agentExtensions.listMcpServers(input as ListAgentExtensionsInput),
+  );
+
   register(IPC_CHANNELS.openExternalHttpsUrl, async (input) => {
     await openExternalHttps((input as { url: string }).url);
     return { ok: true };
   });
+
+  const updateService = options.updateService ?? new AppUpdateService();
+  register(IPC_CHANNELS.checkForUpdates, () => updateService.checkForUpdates());
 
   if (options.integrations) {
     register(IPC_CHANNELS.listProjectIntegrations, (input) =>

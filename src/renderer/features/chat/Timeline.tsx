@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { PermissionItem, TimelineItem, ToolItem } from "./reducer";
 import { MarkdownContent } from "../../components/MarkdownContent";
 import { Icon } from "../../components/Icon";
@@ -93,6 +93,105 @@ function ToolCard({ item }: { item: ToolItem }) {
         {item.error && <p className="tool-error">{item.error}</p>}
       </div>
     </details>
+  );
+}
+
+/**
+ * Bündelt aufeinanderfolgende Tool-Schritte in eine einzige, scrollbare Box,
+ * statt für jede gelesene Datei eine eigene Klappbox in den Verlauf zu hängen.
+ * Unterbrochen wird die Gruppe von allem, was keine Tool-Ausführung ist —
+ * insbesondere von Freigabe-Anfragen. Danach beginnt eine neue Box.
+ */
+function ToolRunGroup({
+  items,
+  gitPreviewGroups,
+  onOpenGitDiff,
+}: {
+  items: ToolItem[];
+  gitPreviewGroups: ReadonlyMap<string, GitPreviewGroup>;
+  onOpenGitDiff: (selection: DiffSelection) => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottom = useRef(true);
+  const [collapsed, setCollapsed] = useState(false);
+
+  const running = items.some((item) => item.status === "running");
+  const failedCount = items.filter((item) => item.status === "failed").length;
+  const doneCount = items.filter((item) => item.status === "completed").length;
+  const state = running ? "running" : failedCount > 0 ? "failed" : "completed";
+
+  const signature = items.map((item) => `${item.id}:${item.status}`).join("|");
+
+  useEffect(() => {
+    if (collapsed || !stickToBottom.current) return;
+    const element = scrollRef.current;
+    if (element) element.scrollTop = element.scrollHeight;
+  }, [signature, collapsed]);
+
+  const stepLabel = `${items.length} ${items.length === 1 ? "Schritt" : "Schritte"}`;
+  const summary = [
+    stepLabel,
+    doneCount > 0 ? `${doneCount} fertig` : null,
+    failedCount > 0 ? `${failedCount} fehlgeschlagen` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <section className={`tool-run tool-run--${state}`}>
+      <header className="tool-run-header">
+        <span className="tool-run-icon">
+          {running ? (
+            <span className="mini-spinner" />
+          ) : failedCount > 0 ? (
+            <Icon name="warning" size={15} />
+          ) : (
+            <Icon name="check" size={15} />
+          )}
+        </span>
+        <div>
+          <strong>{running ? "Gemini arbeitet …" : "Arbeitsschritte"}</strong>
+          <small>{summary}</small>
+        </div>
+        <button
+          type="button"
+          className="tool-run-toggle"
+          onClick={() => setCollapsed((value) => !value)}
+          aria-expanded={!collapsed}
+        >
+          {collapsed ? "Anzeigen" : "Ausblenden"}
+          <Icon
+            name="chevron-down"
+            size={13}
+            className={collapsed ? "" : "tool-run-chevron--open"}
+          />
+        </button>
+      </header>
+
+      {!collapsed && (
+        <div
+          className="tool-run-scroll"
+          ref={scrollRef}
+          onScroll={(event) => {
+            const element = event.currentTarget;
+            stickToBottom.current =
+              element.scrollHeight - element.scrollTop - element.clientHeight < 40;
+          }}
+        >
+          {items.map((item) => {
+            const previewGroup = gitPreviewGroups.get(item.toolCallId);
+            return (
+              <div className="tool-run-step" key={item.id}>
+                <ToolCard item={item} />
+                {previewGroup && (
+                  <InlineDiffPreviews group={previewGroup} onOpenDiff={onOpenGitDiff} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -304,8 +403,38 @@ export function Timeline({
   const anchorRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
 
+  // Aufeinanderfolgende Tool-Schritte werden zu einer Gruppe zusammengefasst.
+  // Ein einzelner Schritt bleibt eine schlichte Karte — eine Box mit Kopfzeile
+  // für genau einen Eintrag wäre mehr Rahmen als Inhalt.
+  const rows = useMemo(() => {
+    const result: Array<
+      { kind: "single"; item: TimelineItem } | { kind: "group"; id: string; items: ToolItem[] }
+    > = [];
+
+    for (const item of items) {
+      const last = result.at(-1);
+      if (item.kind === "tool" && last?.kind === "group") {
+        last.items.push(item);
+        continue;
+      }
+      if (item.kind === "tool") {
+        result.push({ kind: "group", id: `run:${item.id}`, items: [item] });
+        continue;
+      }
+      result.push({ kind: "single", item });
+    }
+
+    return result;
+  }, [items]);
+
   const contentSignature = items
-    .map((item) => (item.kind === "message" || item.kind === "thought" ? item.text.length : item.seq ?? 0))
+    .map((item) =>
+      item.kind === "message" || item.kind === "thought"
+        ? item.text.length
+        : item.kind === "tool"
+          ? `${item.seq ?? 0}${item.status}`
+          : item.seq ?? 0,
+    )
     .join(":");
   const previewSignature = [...gitPreviewGroups.values()]
     .map((group) => `${group.toolCallId}:${group.loading}:${group.totalFiles}:${group.previews.length}`)
@@ -350,16 +479,41 @@ export function Timeline({
       }}
     >
       <div className="timeline">
-        {items.map((item) => (
-          <TimelineEntry
-            key={item.id}
-            item={item}
-            gitPreviewGroup={item.kind === "tool" ? gitPreviewGroups.get(item.toolCallId) : undefined}
-            onOpenExternal={onOpenExternal}
-            onOpenGitDiff={onOpenGitDiff}
-            onRespondToPermission={onRespondToPermission}
-          />
-        ))}
+        {rows.map((row) => {
+          if (row.kind === "group") {
+            if (row.items.length === 1) {
+              const only = row.items[0]!;
+              return (
+                <TimelineEntry
+                  key={only.id}
+                  item={only}
+                  gitPreviewGroup={gitPreviewGroups.get(only.toolCallId)}
+                  onOpenExternal={onOpenExternal}
+                  onOpenGitDiff={onOpenGitDiff}
+                  onRespondToPermission={onRespondToPermission}
+                />
+              );
+            }
+            return (
+              <ToolRunGroup
+                key={row.id}
+                items={row.items}
+                gitPreviewGroups={gitPreviewGroups}
+                onOpenGitDiff={onOpenGitDiff}
+              />
+            );
+          }
+
+          return (
+            <TimelineEntry
+              key={row.item.id}
+              item={row.item}
+              onOpenExternal={onOpenExternal}
+              onOpenGitDiff={onOpenGitDiff}
+              onRespondToPermission={onRespondToPermission}
+            />
+          );
+        })}
         <div ref={anchorRef} className="scroll-anchor" />
       </div>
     </div>
