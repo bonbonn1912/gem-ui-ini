@@ -39,6 +39,7 @@ type ComposerProps = {
   disabled?: boolean;
   draft?: ComposerDraft | null;
   externalContexts?: PreparedExternalContext[];
+  sessionMode?: string | null;
   onDraftApplied?: () => void;
   onRemoveExternalContext?: (refId: string) => void;
   onOpenContextAttachments: () => void;
@@ -101,6 +102,7 @@ export function Composer({
   disabled = false,
   draft = null,
   externalContexts = [],
+  sessionMode = null,
   onDraftApplied,
   onRemoveExternalContext,
   onOpenContextAttachments,
@@ -362,6 +364,33 @@ export function Composer({
     }
   };
 
+  const isPlanMode = sessionMode === "plan";
+
+  const handleDecision = async (decision: "accept" | "reject") => {
+    if (sending || staging || running || disabled) return;
+    const promptText = decision === "accept"
+      ? (text.trim() ? `Plan akzeptiert: ${text.trim()}` : "Plan akzeptiert. Bitte mit der Umsetzung beginnen.")
+      : (text.trim() ? `Plan abgelehnt: ${text.trim()}` : "Plan abgelehnt. Bitte überarbeiten und einen alternativen Ansatz vorschlagen.");
+
+    setSending(true);
+    try {
+      const submittedAttachments = [...attachments];
+      const submittedProjectFiles = [...projectFiles];
+      await onSend(promptText, submittedAttachments, submittedProjectFiles);
+      setText("");
+      setAttachments([]);
+      setProjectFiles([]);
+      setFileSuggestions([]);
+      setCaretPosition(0);
+      for (const attachment of submittedAttachments) URL.revokeObjectURL(attachment.previewUrl);
+      textareaRef.current?.focus();
+    } catch {
+      // The parent presents the validated desktop error
+    } finally {
+      setSending(false);
+    }
+  };
+
   const stop = async () => {
     if (stopping || phase === "cancelling") return;
     setStopping(true);
@@ -539,6 +568,38 @@ export function Composer({
                   </button>
                 </figure>
               ))}
+            </div>
+          )}
+          {isPlanMode && !running && (
+            <div className="plan-decision-bar" role="group" aria-label="Plan-Entscheidung">
+              <span className="plan-decision-label">
+                <Icon name="brain" size={14} />
+                <span>Planungsmodus</span>
+              </span>
+              <div className="plan-decision-actions">
+                <button
+                  type="button"
+                  className="plan-decision-button plan-decision-button--accept"
+                  onClick={() => void handleDecision("accept")}
+                  disabled={sending || staging || disabled}
+                  aria-label="Plan akzeptieren"
+                  title="Plan akzeptieren und ausführen (übernimmt ggf. deinen Text)"
+                >
+                  <Icon name="check" size={13} />
+                  <span>Akzeptieren</span>
+                </button>
+                <button
+                  type="button"
+                  className="plan-decision-button plan-decision-button--reject"
+                  onClick={() => void handleDecision("reject")}
+                  disabled={sending || staging || disabled}
+                  aria-label="Plan ablehnen"
+                  title="Plan ablehnen und überarbeiten lassen (übernimmt ggf. dein Feedback)"
+                >
+                  <Icon name="x" size={13} />
+                  <span>Ablehnen</span>
+                </button>
+              </div>
             </div>
           )}
           <textarea

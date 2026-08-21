@@ -1247,6 +1247,7 @@ export function App() {
                 contextOverBudget={contextAttachments.list?.overBudget ?? false}
                 draft={composerDraft}
                 externalContexts={pendingExternalContexts}
+                sessionMode={activeSession.mode}
                 onDraftApplied={() => setComposerDraft(null)}
                 onRemoveExternalContext={(refId) =>
                   setPendingExternalContexts((current) =>
