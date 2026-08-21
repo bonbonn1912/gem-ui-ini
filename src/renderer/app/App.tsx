@@ -1,10 +1,17 @@
-import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
 import { Composer, type ComposerAttachment } from "../features/attachments/Composer";
 import { ChatHeader } from "../features/chat/ChatHeader";
 import { Timeline } from "../features/chat/Timeline";
 import { chatReducer, createChatState, type TurnPhase } from "../features/chat/reducer";
 import { ChangesPanel } from "../features/git/ChangesPanel";
+import type { DiffSelection } from "../features/git/DiffViewer";
+import {
+  gitStatusBaseline,
+  useGitChangePreviews,
+  type GitPreviewTrigger,
+} from "../features/git/useGitChangePreviews";
+import { useGitProjectStatus } from "../features/git/useGitProjectStatus";
 import { ProjectDialog } from "../features/projects/ProjectDialog";
 import { ProjectSettingsDialog } from "../features/projects/ProjectSettingsDialog";
 import { Sidebar } from "../features/sessions/Sidebar";
@@ -12,6 +19,8 @@ import type {
   AppCapabilities,
   AppProject,
   AppSession,
+  GitFileChange,
+  GitProjectStatus,
   ProjectRootCandidate,
   UiError,
   StreamEnvelope,
@@ -191,6 +200,12 @@ function initialChangesPanelOpen(): boolean {
   }
 }
 
+function supportsGitArea(change: GitFileChange, area: DiffSelection["area"]): boolean {
+  return area === "staged"
+    ? change.indexStatus !== "." && !change.untracked
+    : change.worktreeStatus !== "." || change.untracked || change.conflict;
+}
+
 export function App() {
   const [booting, setBooting] = useState(true);
   const [capabilities, setCapabilities] = useState<AppCapabilities | null>(null);
@@ -203,14 +218,40 @@ export function App() {
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [changesOpen, setChangesOpen] = useState(initialChangesPanelOpen);
-  const [changesCount, setChangesCount] = useState(0);
+  const [gitSelection, setGitSelection] = useState<DiffSelection | null>(null);
   const [gitRefreshToken, setGitRefreshToken] = useState(0);
+  const [gitPreviewTrigger, setGitPreviewTrigger] = useState<GitPreviewTrigger | null>(null);
   const [uiError, setUiError] = useState<UiError | null>(null);
   const [fatalError, setFatalError] = useState<string | null>(null);
   const [chat, dispatch] = useReducer(chatReducer, null, () => createChatState());
+  const gitStatusRef = useRef<GitProjectStatus | null>(null);
+  const gitToolBaselinesRef = useRef(new Map<string, ReadonlyMap<string, string>>());
+  const gitPreviewSequenceRef = useRef(0);
 
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? null;
   const activeSession = sessions.find((session) => session.id === activeSessionId) ?? null;
+  const gitState = useGitProjectStatus({
+    project: activeProject,
+    refreshToken: gitRefreshToken,
+    onCapabilitiesChange: setCapabilities,
+  });
+  const gitPreviewGroups = useGitChangePreviews({
+    sessionId: activeSessionId,
+    project: activeProject,
+    status: gitState.status,
+    trigger: gitPreviewTrigger,
+  });
+  const changesCount = gitState.status?.changes.length ?? 0;
+
+  useEffect(() => {
+    gitStatusRef.current = gitState.status;
+  }, [gitState.status]);
+
+  useEffect(() => {
+    gitToolBaselinesRef.current.clear();
+    setGitPreviewTrigger(null);
+    setGitSelection(null);
+  }, [activeProject?.id, activeProject?.rootRevision, activeSessionId]);
 
   const showError = useCallback((title: string, error: unknown, retry?: () => void) => {
     setUiError({ title, message: messageFrom(error), retry });
@@ -287,6 +328,24 @@ export function App() {
       (events) => {
         if (!current) return;
         dispatch({ type: "events", events });
+        for (const envelope of events) {
+          const { event } = envelope;
+          if (event.type === "tool.started") {
+            gitToolBaselinesRef.current.set(
+              event.toolCallId,
+              gitStatusBaseline(gitStatusRef.current),
+            );
+          } else if (event.type === "tool.completed" || event.type === "tool.failed") {
+            setGitPreviewTrigger({
+              id: ++gitPreviewSequenceRef.current,
+              toolCallId: event.toolCallId,
+              turnId: envelope.turnId,
+              baseline: gitToolBaselinesRef.current.get(event.toolCallId) ?? new Map(),
+              statusRefreshedAt: gitStatusRef.current?.refreshedAt ?? null,
+            });
+            gitToolBaselinesRef.current.delete(event.toolCallId);
+          }
+        }
         const status = sessionStatusFromEvents(events);
         if (status) {
           setSessions((currentSessions) => currentSessions.map((session) =>
@@ -527,6 +586,29 @@ export function App() {
     window.gemUi.openExternalHttpsUrl(url).catch((error) => showError("Link konnte nicht geöffnet werden", error));
   };
 
+  const openGitDiff = useCallback((selection: DiffSelection) => {
+    const change = gitState.status?.changes.find((candidate) =>
+      candidate.repositoryId === selection.repositoryId && candidate.path === selection.path,
+    );
+    if (!change) {
+      setGitSelection(null);
+      setChangesOpen(true);
+      return;
+    }
+    const area = supportsGitArea(change, selection.area)
+      ? selection.area
+      : supportsGitArea(change, "unstaged")
+        ? "unstaged"
+        : "staged";
+    setGitSelection({
+      repositoryId: change.repositoryId,
+      fileId: change.fileId,
+      path: change.path,
+      area,
+    });
+    setChangesOpen(true);
+  }, [gitState.status]);
+
   const effectivePhase: TurnPhase = useMemo(() => {
     if (chat.phase !== "idle" || !activeSession) return chat.phase;
     if (["running", "awaiting_permission", "cancelling"].includes(activeSession.status)) {
@@ -606,9 +688,16 @@ export function App() {
               key={`${activeProject.id}:${activeProject.rootRevision}`}
               open={changesOpen}
               project={activeProject}
-              refreshToken={gitRefreshToken}
+              status={gitState.status}
+              loading={gitState.loading}
+              refreshing={gitState.refreshing}
+              choosingGit={gitState.choosingGit}
+              error={gitState.error}
+              selection={gitSelection}
               onClose={() => setChangesOpen(false)}
-              onCountChange={setChangesCount}
+              onSelectionChange={setGitSelection}
+              onRefresh={() => void gitState.refresh()}
+              onChooseGit={() => void gitState.chooseGit()}
             />
           </div>
         ) : activeProject && activeSession ? (
@@ -631,7 +720,9 @@ export function App() {
               <Timeline
                 items={chat.items}
                 sessionTitle={activeSession.title}
+                gitPreviewGroups={gitPreviewGroups}
                 onOpenExternal={openExternal}
+                onOpenGitDiff={openGitDiff}
                 onRespondToPermission={(request, option) => void respondToPermission(request, option)}
               />
               <Composer
@@ -648,9 +739,16 @@ export function App() {
               key={`${activeProject.id}:${activeProject.rootRevision}`}
               open={changesOpen}
               project={activeProject}
-              refreshToken={gitRefreshToken}
+              status={gitState.status}
+              loading={gitState.loading}
+              refreshing={gitState.refreshing}
+              choosingGit={gitState.choosingGit}
+              error={gitState.error}
+              selection={gitSelection}
               onClose={() => setChangesOpen(false)}
-              onCountChange={setChangesCount}
+              onSelectionChange={setGitSelection}
+              onRefresh={() => void gitState.refresh()}
+              onChooseGit={() => void gitState.chooseGit()}
             />
           </div>
         ) : null}

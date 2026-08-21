@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 
 import { Icon } from "../../components/Icon";
 import type {
@@ -12,114 +12,47 @@ import { DiffViewer, type DiffSelection } from "./DiffViewer";
 type ChangesPanelProps = {
   open: boolean;
   project: AppProject;
-  refreshToken: number;
+  status: GitProjectStatus | null;
+  loading: boolean;
+  refreshing: boolean;
+  choosingGit: boolean;
+  error: string | null;
+  selection: DiffSelection | null;
   onClose: () => void;
-  onCountChange: (count: number) => void;
+  onSelectionChange: (selection: DiffSelection | null) => void;
+  onRefresh: () => void;
+  onChooseGit: () => void;
 };
 
 export function ChangesPanel({
   open,
   project,
-  refreshToken,
+  status,
+  loading,
+  refreshing,
+  choosingGit,
+  error,
+  selection,
   onClose,
-  onCountChange,
+  onSelectionChange,
+  onRefresh,
+  onChooseGit,
 }: ChangesPanelProps) {
-  const [status, setStatus] = useState<GitProjectStatus | null>(null);
-  const [selection, setSelection] = useState<DiffSelection | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [choosingGit, setChoosingGit] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const applyStatus = useCallback((next: GitProjectStatus) => {
-    setStatus(next);
-    setError(null);
-    onCountChange(next.changes.length);
-    setSelection((current) => {
-      if (!current) return null;
-      const replacement = next.changes.find((change) =>
-        change.repositoryId === current.repositoryId && change.path === current.path,
-      );
-      if (!replacement || !supportsArea(replacement, current.area)) return null;
-      return { ...current, fileId: replacement.fileId };
-    });
-  }, [onCountChange]);
-
-  const refresh = useCallback(async () => {
-    if (!open) return;
-    setLoading(true);
-    try {
-      applyStatus(await window.gemUi.git.getProjectStatus({
-        projectId: project.id,
-        expectedRootRevision: project.rootRevision,
-      }));
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Änderungen konnten nicht geladen werden.");
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    if (!selection || !status) return;
+    const replacement = status.changes.find((change) =>
+      change.repositoryId === selection.repositoryId && change.path === selection.path,
+    );
+    if (!replacement || !supportsArea(replacement, selection.area)) {
+      onSelectionChange(null);
+    } else if (replacement.fileId !== selection.fileId) {
+      onSelectionChange({ ...selection, fileId: replacement.fileId });
     }
-  }, [applyStatus, open, project.id, project.rootRevision]);
-
-  useEffect(() => {
-    setStatus(null);
-    setSelection(null);
-    onCountChange(0);
-  }, [onCountChange, project.id, project.rootRevision]);
-
-  useEffect(() => {
-    if (!open) return;
-    let current = true;
-    let unsubscribe: (() => void) | undefined;
-    setLoading(true);
-    window.gemUi.git.subscribeProjectStatus(
-      {
-        projectId: project.id,
-        expectedRootRevision: project.rootRevision,
-      },
-      (next) => {
-        if (!current) return;
-        applyStatus(next);
-        setLoading(false);
-      },
-    ).then((dispose) => {
-      if (current) unsubscribe = dispose;
-      else dispose();
-    }).catch((reason) => {
-      if (!current) return;
-      setLoading(false);
-      setError(reason instanceof Error ? reason.message : "Git-Status konnte nicht abonniert werden.");
-    });
-    return () => {
-      current = false;
-      unsubscribe?.();
-    };
-  }, [applyStatus, open, project.id, project.rootRevision]);
-
-  useEffect(() => {
-    if (refreshToken > 0) void refresh();
-  }, [refresh, refreshToken]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onFocus = () => void refresh();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [open, refresh]);
+  }, [onSelectionChange, selection, status]);
 
   const selectedChange = selection
     ? status?.changes.find((change) => change.fileId === selection.fileId) ?? null
     : null;
-
-  const chooseGit = useCallback(async () => {
-    setChoosingGit(true);
-    try {
-      await window.gemUi.settings.chooseGitBinary();
-      await refresh();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Git konnte nicht ausgewählt werden.");
-    } finally {
-      setChoosingGit(false);
-    }
-  }, [refresh]);
 
   return (
     <aside className={`changes-panel ${open ? "changes-panel--open" : ""}`} aria-label="Git-Änderungen" aria-hidden={!open}>
@@ -128,23 +61,23 @@ export function ChangesPanel({
           <span className="changes-panel-icon"><Icon name="changes" size={17} /></span>
           <div><strong>Änderungen</strong><span>{status ? `${status.changes.length} Dateien` : "Git-Worktrees"}</span></div>
         </div>
-        <button className="icon-button" type="button" onClick={() => void refresh()} disabled={loading} aria-label="Git-Änderungen aktualisieren">
-          {loading ? <span className="mini-spinner" /> : <Icon name="refresh" size={16} />}
+        <button className="icon-button" type="button" onClick={onRefresh} disabled={loading || refreshing} aria-label="Git-Änderungen aktualisieren">
+          {loading || refreshing ? <span className="mini-spinner" /> : <Icon name="refresh" size={16} />}
         </button>
         <button className="icon-button" type="button" onClick={onClose} aria-label="Änderungen schließen"><Icon name="x" size={16} /></button>
       </header>
 
       <div className={`changes-panel-body ${selection ? "changes-panel-body--diff" : ""}`}>
         <div className="changes-list-pane">
-          {error && <div className="changes-error" role="alert"><Icon name="warning" size={17} /><p>{error}</p><button type="button" onClick={() => void refresh()}>Erneut</button></div>}
+          {error && <div className="changes-error" role="alert"><Icon name="warning" size={17} /><p>{error}</p><button type="button" onClick={onRefresh}>Erneut</button></div>}
           {!status && loading ? (
             <div className="changes-loading"><span className="mini-spinner" /><p>Repositories werden geprüft …</p></div>
           ) : status ? (
             <RepositoryList
               status={status}
               selection={selection}
-              onSelect={setSelection}
-              onChooseGit={() => void chooseGit()}
+              onSelect={onSelectionChange}
+              onChooseGit={onChooseGit}
               choosingGit={choosingGit}
             />
           ) : null}
@@ -154,7 +87,7 @@ export function ChangesPanel({
             project={project}
             selection={selection}
             change={selectedChange}
-            onBack={() => setSelection(null)}
+            onBack={() => onSelectionChange(null)}
           />
         </div>
       </div>

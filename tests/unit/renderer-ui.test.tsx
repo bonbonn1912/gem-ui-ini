@@ -163,7 +163,7 @@ beforeEach(() => {
   // The changes panel remembers its open state in localStorage, and jsdom keeps
   // that store alive across the tests in this file. Without clearing it a test
   // that opens the panel would leave the next one mounted with it already open.
-  window.localStorage.clear();
+  window.localStorage.clear?.();
 });
 
 describe("Renderer UI", () => {
@@ -279,6 +279,129 @@ describe("Renderer UI", () => {
 
     expect(await screen.findByText("const newValue = 2;")).toBeVisible();
     expect(screen.getByText("const oldValue = 1;")).toBeVisible();
+    expect(composer).toBeVisible();
+    expect(api.git.getFileDiff).toHaveBeenCalledWith(expect.objectContaining({
+      repositoryId,
+      fileId,
+      area: "unstaged",
+    }));
+  });
+
+  it("hängt aktuelle Dateiänderungen als kleine Diff-Vorschau an das abgeschlossene Tool", async () => {
+    const user = userEvent.setup();
+    const { api, emit } = createApi();
+    const repositoryId = "10000000-0000-4000-8000-000000000011";
+    const fileId = "20000000-0000-4000-8000-000000000012";
+    const repository = {
+      repositoryId,
+      rootIds: [project.roots[0]!.id],
+      displayName: "portal",
+      worktreeLabel: "portal",
+      branch: "main",
+      headOid: "a".repeat(40),
+      upstream: null,
+      ahead: 0,
+      behind: 0,
+      state: "ready" as const,
+      message: null,
+    };
+    const initialStatus = {
+      projectId: project.id,
+      rootRevision: project.rootRevision,
+      refreshedAt: "2026-08-21T12:00:00.000Z",
+      repositories: [repository],
+      changes: [],
+    };
+    const changedStatus = {
+      ...initialStatus,
+      refreshedAt: "2026-08-21T12:00:01.000Z",
+      changes: [{
+        fileId,
+        repositoryId,
+        path: "src/auth.ts",
+        previousPath: null,
+        indexStatus: ".",
+        worktreeStatus: "M",
+        conflict: false,
+        untracked: false,
+        submodule: false,
+        renameScore: null,
+      }],
+    };
+    vi.mocked(api.git.subscribeProjectStatus).mockImplementation(async (_input, callback) => {
+      callback(initialStatus);
+      return () => undefined;
+    });
+    vi.mocked(api.git.getProjectStatus).mockResolvedValue(changedStatus);
+    vi.mocked(api.git.getFileDiff).mockResolvedValue({
+      snapshotId: "30000000-0000-4000-8000-000000000013",
+      repositoryId,
+      fileId,
+      area: "unstaged",
+      path: "src/auth.ts",
+      previousPath: null,
+      state: "text",
+      message: null,
+      additions: 1,
+      deletions: 1,
+      metadata: [],
+      hunks: [{
+        hunkId: "e".repeat(64),
+        header: "@@ -1 +1 @@",
+        oldStart: 1,
+        oldLines: 1,
+        newStart: 1,
+        newLines: 1,
+        lines: [
+          { kind: "deletion", content: "const loggedIn = false;", oldLine: 1, newLine: null },
+          { kind: "addition", content: "const loggedIn = true;", oldLine: null, newLine: 1 },
+        ],
+      }],
+    });
+    window.gemUi = api;
+
+    render(<App />);
+    const composer = await screen.findByRole("textbox", { name: "Nachricht an Gemini" });
+    await waitFor(() => expect(api.git.subscribeProjectStatus).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      emit([{
+        seq: 1,
+        sessionId: session.id,
+        turnId: "turn-preview",
+        timestamp: "2026-08-21T12:00:00.100Z",
+        event: {
+          type: "tool.started",
+          toolCallId: "tool-edit-auth",
+          title: "auth.ts bearbeiten",
+          kind: "edit",
+          arguments: null,
+        },
+      }]);
+    });
+    act(() => {
+      emit([{
+        seq: 2,
+        sessionId: session.id,
+        turnId: "turn-preview",
+        timestamp: "2026-08-21T12:00:00.900Z",
+        event: {
+          type: "tool.completed",
+          toolCallId: "tool-edit-auth",
+          result: null,
+        },
+      }]);
+    });
+
+    expect(await screen.findByRole("region", { name: "Dateiänderungen dieses Werkzeugs" })).toBeVisible();
+    expect(await screen.findByText("1 geänderte Datei")).toBeVisible();
+    expect(await screen.findByText("const loggedIn = true;")).toBeVisible();
+    expect(screen.getByText("const loggedIn = false;")).toBeVisible();
+    expect(screen.getByText("portal · src/auth.ts")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Vollständigen Diff für src/auth.ts in portal anzeigen" }));
+    const panel = await screen.findByRole("complementary", { name: "Git-Änderungen" });
+    expect(await within(panel).findByText("const loggedIn = true;")).toBeVisible();
     expect(composer).toBeVisible();
     expect(api.git.getFileDiff).toHaveBeenCalledWith(expect.objectContaining({
       repositoryId,

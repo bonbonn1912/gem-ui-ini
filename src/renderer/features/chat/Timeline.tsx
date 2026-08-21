@@ -2,11 +2,16 @@ import { useEffect, useRef } from "react";
 import type { PermissionItem, TimelineItem, ToolItem } from "./reducer";
 import { MarkdownContent } from "../../components/MarkdownContent";
 import { Icon } from "../../components/Icon";
+import type { DiffSelection } from "../git/DiffViewer";
+import { InlineDiffPreviews } from "../git/InlineDiffPreviews";
+import type { GitPreviewGroup } from "../git/useGitChangePreviews";
 
 type TimelineProps = {
   items: TimelineItem[];
   sessionTitle: string;
+  gitPreviewGroups: ReadonlyMap<string, GitPreviewGroup>;
   onOpenExternal: (url: string) => void;
+  onOpenGitDiff: (selection: DiffSelection) => void;
   onRespondToPermission: (requestId: string, optionId: string) => void;
 };
 
@@ -173,11 +178,15 @@ function PermissionCard({
 
 function TimelineEntry({
   item,
+  gitPreviewGroup,
   onOpenExternal,
+  onOpenGitDiff,
   onRespondToPermission,
 }: {
   item: TimelineItem;
+  gitPreviewGroup?: GitPreviewGroup;
   onOpenExternal: (url: string) => void;
+  onOpenGitDiff: (selection: DiffSelection) => void;
   onRespondToPermission: (requestId: string, optionId: string) => void;
 }) {
   if (item.kind === "message" && item.role === "user") {
@@ -227,7 +236,16 @@ function TimelineEntry({
     );
   }
 
-  if (item.kind === "tool") return <ToolCard item={item} />;
+  if (item.kind === "tool") {
+    return (
+      <>
+        <ToolCard item={item} />
+        {gitPreviewGroup && (
+          <InlineDiffPreviews group={gitPreviewGroup} onOpenDiff={onOpenGitDiff} />
+        )}
+      </>
+    );
+  }
   if (item.kind === "permission") {
     return <PermissionCard item={item} onRespond={onRespondToPermission} />;
   }
@@ -243,7 +261,9 @@ function TimelineEntry({
 export function Timeline({
   items,
   sessionTitle,
+  gitPreviewGroups,
   onOpenExternal,
+  onOpenGitDiff,
   onRespondToPermission,
 }: TimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -253,12 +273,15 @@ export function Timeline({
   const contentSignature = items
     .map((item) => (item.kind === "message" || item.kind === "thought" ? item.text.length : item.seq ?? 0))
     .join(":");
+  const previewSignature = [...gitPreviewGroups.values()]
+    .map((group) => `${group.toolCallId}:${group.loading}:${group.totalFiles}:${group.previews.length}`)
+    .join(":");
 
   useEffect(() => {
     if (stickToBottom.current) {
       anchorRef.current?.scrollIntoView?.({ block: "end" });
     }
-  }, [contentSignature]);
+  }, [contentSignature, previewSignature]);
 
   if (items.length === 0) {
     return (
@@ -297,7 +320,9 @@ export function Timeline({
           <TimelineEntry
             key={item.id}
             item={item}
+            gitPreviewGroup={item.kind === "tool" ? gitPreviewGroups.get(item.toolCallId) : undefined}
             onOpenExternal={onOpenExternal}
+            onOpenGitDiff={onOpenGitDiff}
             onRespondToPermission={onRespondToPermission}
           />
         ))}

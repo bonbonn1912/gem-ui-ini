@@ -5,6 +5,7 @@ import type {
   Attachment as ContractAttachment,
   GemUiDesktopApi as ContractGemUiDesktopApi,
   GitFileChange as ContractGitFileChange,
+  GitDiffLine as ContractGitDiffLine,
   GitFileDiff as ContractGitFileDiff,
   GitProjectStatus as ContractGitProjectStatus,
   GitRepositorySummary as ContractGitRepositorySummary,
@@ -30,6 +31,7 @@ export type StreamEnvelope = ContractStreamEnvelope;
 export type UsageSnapshot = ContractUsageSnapshot;
 export type TokenCounters = ContractTokenCounters;
 export type GitFileChange = ContractGitFileChange;
+export type GitDiffLine = ContractGitDiffLine;
 export type GitFileDiff = ContractGitFileDiff;
 export type GitProjectStatus = ContractGitProjectStatus;
 export type GitRepositorySummary = ContractGitRepositorySummary;
