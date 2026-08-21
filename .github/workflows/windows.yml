@@ -20,9 +20,15 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run make
+      - name: Extract package version
+        id: pkg_version
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
       - uses: actions/upload-artifact@v4
         with:
-          name: GeminUI-windows-x64
+          name: geminUI-${{ steps.pkg_version.outputs.version }}-windows-x64
           path: |
             out/make/squirrel.windows/x64/*.exe
             out/make/squirrel.windows/x64/*.nupkg

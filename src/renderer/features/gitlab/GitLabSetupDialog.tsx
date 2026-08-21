@@ -112,12 +112,7 @@ export function GitLabSetupDialog({
       const projectPath = activeRemote.suggestedProjectPath || "project";
       const clientRequestId = globalThis.crypto.randomUUID();
 
-      // We need sourceProjectId. If not known, fetch project from GitLab
-      const client = await window.gemUi.gitlab.testConnection({
-        instanceUrl: connection.instanceUrl,
-        token: "dummy", // main process will resolve stored token via connectionId
-      }).catch(() => null);
-
+      // Enable binding
       await window.gemUi.gitlab.enableBinding({
         clientRequestId,
         projectId,

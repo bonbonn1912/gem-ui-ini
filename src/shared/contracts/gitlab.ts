@@ -114,7 +114,7 @@ export const GitLabRepositoryCandidateRemoteSchema = z
 
 export const GitLabRepositoryCandidateSchema = z
   .object({
-    candidateId: EntityIdSchema,
+    candidateId: ShaSchema,
     rootIds: z.array(EntityIdSchema).min(1).max(6),
     displayName: DisplayNameSchema,
     branch: z.string().trim().max(1024).nullable(),
