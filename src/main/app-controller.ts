@@ -333,7 +333,7 @@ export class AppController implements ProjectRuntimeCoordinator {
 
   async cancelTurn(input: CancelTurnInput): Promise<void> {
     const active = this.#activeTurns.get(input.sessionId);
-    if (!active || active.turnId !== input.turnId) return;
+    if (active && input.turnId && active.turnId !== input.turnId) return;
     this.#sessions.update(input.sessionId, {
       status: "cancelling",
       updatedAt: new Date().toISOString(),
@@ -782,6 +782,14 @@ export class AppController implements ProjectRuntimeCoordinator {
       event.type === "turn.failed"
     ) {
       this.#activeTurns.delete(event.appSessionId);
+      try {
+        this.#sessions.update(event.appSessionId, {
+          status: event.type === "turn.failed" ? "error" : "idle",
+          updatedAt: event.occurredAt,
+        });
+      } catch {
+        // ignore if session was already deleted
+      }
     }
   }
 

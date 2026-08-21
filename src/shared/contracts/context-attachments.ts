@@ -5,6 +5,7 @@ import {
   DisplayNameSchema,
   EntityIdSchema,
   FileSystemPathSchema,
+  HttpsUrlSchema,
   IsoTimestampSchema,
   Sha256Schema,
   VoidResultSchema,
@@ -189,10 +190,20 @@ export const OpenContextAttachmentInputSchema = z.object({
   attachmentId: EntityIdSchema,
 }).strict();
 
-export const OpenLinkPreviewInputSchema = OpenContextAttachmentInputSchema;
+export const OpenLinkPreviewInputSchema = z.union([
+  z.object({
+    attachmentId: EntityIdSchema,
+    url: HttpsUrlSchema.optional(),
+  }).strict(),
+  z.object({
+    attachmentId: EntityIdSchema.optional(),
+    url: HttpsUrlSchema,
+  }).strict(),
+]);
 
 export const LinkPreviewViewStateSchema = z.object({
-  attachmentId: EntityIdSchema,
+  attachmentId: EntityIdSchema.nullable().optional(),
+  url: HttpsUrlSchema.optional(),
   host: z.string().trim().min(1).max(300),
   loading: z.boolean(),
 }).strict();

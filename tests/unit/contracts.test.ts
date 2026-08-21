@@ -161,7 +161,7 @@ describe("shared Zod contracts", () => {
     expect(AddContextFilesInputSchema.safeParse({ ...target, paths: [], origin: "drop" }).success).toBe(false);
   });
 
-  it("öffnet eine Live-Vorschau nur über eine opaque Anhang-ID", () => {
+  it("öffnet eine Live-Vorschau über Anhang-ID oder direkte URL", () => {
     const attachmentId = randomUUID();
     expect(OpenLinkPreviewInputSchema.parse({ attachmentId })).toEqual({ attachmentId });
     expect(OpenLinkPreviewInputSchema.safeParse({
@@ -279,6 +279,18 @@ describe("shared Zod contracts", () => {
       historyMode: "compressed" as const,
     };
     expect(SendPromptInputSchema.parse(valid)).toEqual(valid);
+  });
+
+  it("validates OpenLinkPreviewInputSchema with attachmentId or direct url", () => {
+    const byAttachment = { attachmentId: randomUUID() };
+    expect(OpenLinkPreviewInputSchema.parse(byAttachment)).toEqual(byAttachment);
+
+    const byUrl = { url: "https://github.com/google/gemini" };
+    expect(OpenLinkPreviewInputSchema.parse(byUrl)).toEqual(byUrl);
+
+    expect(OpenLinkPreviewInputSchema.safeParse({}).success).toBe(false);
+    expect(OpenLinkPreviewInputSchema.safeParse({ url: "not-a-url" }).success).toBe(false);
+    expect(OpenLinkPreviewInputSchema.safeParse({ url: "file:///etc/passwd" }).success).toBe(false);
   });
 });
 

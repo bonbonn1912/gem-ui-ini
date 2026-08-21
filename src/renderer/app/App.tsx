@@ -6,6 +6,7 @@ import {
   type ComposerDraft,
 } from "../features/attachments/Composer";
 import { AttachmentsPanel } from "../features/attachments/AttachmentsPanel";
+import { LiveViewModal } from "../features/attachments/LiveViewModal";
 import { useContextAttachments } from "../features/attachments/useContextAttachments";
 import { ChatHeader } from "../features/chat/ChatHeader";
 import { PanelRail, type PanelRailItem } from "../features/chat/PanelRail";
@@ -363,6 +364,7 @@ export function App() {
   const [gitPreviewTrigger, setGitPreviewTrigger] = useState<GitPreviewTrigger | null>(null);
   const [uiError, setUiError] = useState<UiError | null>(null);
   const [fatalError, setFatalError] = useState<string | null>(null);
+  const [livePreviewUrl, setLivePreviewUrl] = useState<string | null>(null);
   const [reconnectedSessions, setReconnectedSessions] = useState<Record<string, boolean>>({});
   const [sessionHistoryModes, setSessionHistoryModes] = useState<Record<string, "compressed" | "fresh">>({});
   const [composerDraft, setComposerDraft] = useState<ComposerDraft | null>(null);
@@ -931,10 +933,18 @@ export function App() {
   };
 
   const cancelTurn = async () => {
-    if (!activeSession || !chat.activeTurnId) return;
+    if (!activeSession) return;
+    const turnId = chat.activeTurnId ?? undefined;
     dispatch({ type: "cancelling" });
+    setSessions((current) =>
+      current.map((session) => (session.id === activeSession.id ? { ...session, status: "idle" } : session)),
+    );
     try {
-      await window.gemUi.sessions.cancel({ sessionId: activeSession.id, turnId: chat.activeTurnId, clientRequestId: createClientRequestId() });
+      await window.gemUi.sessions.cancel({
+        sessionId: activeSession.id,
+        turnId,
+        clientRequestId: createClientRequestId(),
+      });
     } catch (error) {
       showError("Antwort konnte nicht gestoppt werden", error);
       throw error;
@@ -958,6 +968,14 @@ export function App() {
   };
 
   const openExternal = (url: string) => {
+    if (url.startsWith("https://") || url.startsWith("http://")) {
+      setLivePreviewUrl(url);
+    } else {
+      window.gemUi.openExternalHttpsUrl(url).catch((error) => showError("Link konnte nicht geöffnet werden", error));
+    }
+  };
+
+  const openInExternalBrowser = (url: string) => {
     window.gemUi.openExternalHttpsUrl(url).catch((error) => showError("Link konnte nicht geöffnet werden", error));
   };
 
@@ -1047,10 +1065,9 @@ export function App() {
 
   const effectivePhase: TurnPhase = useMemo(() => {
     if (chat.phase !== "idle" || !activeSession) return chat.phase;
-    if (["running", "awaiting_permission", "cancelling"].includes(activeSession.status)) {
-      return activeSession.status as TurnPhase;
+    if (activeSession.status === "disconnected" || activeSession.status === "error") {
+      return activeSession.status;
     }
-    if (activeSession.status === "disconnected" || activeSession.status === "error") return activeSession.status;
     return "idle";
   }, [activeSession, chat.phase]);
 
@@ -1330,6 +1347,12 @@ export function App() {
           if (activeSession) handleChooseReconnectMode(activeSession.id, mode);
         }}
         onCancel={() => setPendingPrompt(null)}
+      />
+
+      <LiveViewModal
+        url={livePreviewUrl}
+        onClose={() => setLivePreviewUrl(null)}
+        onOpenExternal={openInExternalBrowser}
       />
 
       {uiError && (

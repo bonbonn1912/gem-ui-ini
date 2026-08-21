@@ -6,7 +6,7 @@ import {
   type Session,
 } from "electron";
 
-import type { SetLinkPreviewBoundsInput } from "../../shared";
+import type { OpenLinkPreviewInput, SetLinkPreviewBoundsInput } from "../../shared";
 import type { ContextAttachmentService } from "../context-attachments";
 import { openExternalHttps } from "../security/main-window";
 import { normalizeUrl } from "./url-policy";
@@ -28,9 +28,30 @@ export class LinkPreviewViewHost {
     mainWindow.on("resize", this.#reapplyBounds);
   }
 
-  async open(attachmentId: string) {
-    const target = this.attachments.getLinkPreviewTarget(attachmentId);
-    normalizeUrl(target.url);
+  async open(input: OpenLinkPreviewInput | string) {
+    let targetUrl: string;
+    let targetHost: string;
+    let targetAttachmentId: string | null = null;
+
+    if (typeof input === "string") {
+      targetAttachmentId = input;
+      const target = this.attachments.getLinkPreviewTarget(targetAttachmentId);
+      targetUrl = target.url;
+      targetHost = target.host;
+    } else if (input.attachmentId) {
+      targetAttachmentId = input.attachmentId;
+      const target = this.attachments.getLinkPreviewTarget(targetAttachmentId);
+      targetUrl = target.url;
+      targetHost = target.host;
+    } else if (input.url) {
+      targetUrl = input.url;
+      normalizeUrl(targetUrl);
+      targetHost = new URL(targetUrl).hostname;
+    } else {
+      throw new Error("Entweder attachmentId oder url muss angegeben werden.");
+    }
+
+    normalizeUrl(targetUrl);
     this.close();
     this.#bounds = { x: 0, y: 0, width: 0, height: 0 };
     const view = new WebContentsView({
@@ -66,15 +87,15 @@ export class LinkPreviewViewHost {
     });
     this.mainWindow.contentView.addChildView(view);
     this.#view = view;
-    this.#attachmentId = attachmentId;
+    this.#attachmentId = targetAttachmentId;
     view.setBounds(this.#bounds);
     try {
-      await view.webContents.loadURL(target.url);
+      await view.webContents.loadURL(targetUrl);
     } catch (error) {
       this.close();
       throw error;
     }
-    return { attachmentId, host: target.host, loading: false };
+    return { attachmentId: targetAttachmentId, url: targetUrl, host: targetHost, loading: false };
   }
 
   setBounds(input: SetLinkPreviewBoundsInput): void {
