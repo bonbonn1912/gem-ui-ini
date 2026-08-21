@@ -115,6 +115,9 @@ function createApi(options: {
         updateAvailable: false,
         error: null,
       }),
+      downloadUpdate: vi.fn().mockResolvedValue({ filePath: "/tmp/update.exe" }),
+      installUpdate: vi.fn().mockResolvedValue({ ok: true }),
+      onDownloadProgress: vi.fn().mockReturnValue(() => {}),
     },
     projects: {
       list: vi.fn().mockResolvedValue(options.projects ?? [project]),
@@ -635,7 +638,7 @@ describe("Renderer UI", () => {
 
     render(<App />);
     await screen.findByRole("heading", { name: "Starte eine neue Session" });
-    await user.click(screen.getByRole("button", { name: "Änderungen" }));
+    await user.click(screen.getByRole("button", { name: /^Änderungen öffnen/ }));
     expect(await screen.findByText("Arbeitsverzeichnis sauber")).toBeVisible();
   });
 
@@ -987,8 +990,11 @@ describe("Renderer UI", () => {
       } satisfies StreamEnvelope,
     ]);
 
+    await user.click(screen.getByTitle("Sessioneinstellungen"));
     const modelSelect = await screen.findByRole("combobox", { name: "Gemini-Modell" });
     expect(modelSelect).toHaveValue("gemini-2.5-flash");
+    // The pill answers one question — how full the context is — and keeps the
+    // breakdown in its tooltip.
     expect(screen.getByText("25 %")).toBeVisible();
     expect(screen.getByText("25 %").closest(".usage-pill")?.getAttribute("title")).toContain(
       "2.048 von 8.192 Token belegt",
@@ -1023,6 +1029,7 @@ describe("Renderer UI", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Login reparieren" });
 
+    await user.click(screen.getByTitle("Sessioneinstellungen"));
     const modelSelect = await screen.findByRole("combobox", { name: "Gemini-Modell" });
     expect(modelSelect).toHaveValue("gemini-2.5-flash");
     // Die gespeicherte Liste bringt lesbare Namen mit, nicht nur IDs.
@@ -1101,17 +1108,20 @@ describe("Renderer UI", () => {
       } satisfies StreamEnvelope,
     ]);
 
-    // Input, output and cache are readable straight from the header.
-    const pill = (await screen.findByText("In")).closest(".usage-pill");
+    // Without a reported context window the pill states the session total, and
+    // the "≥" is literal: turns before tracking started are missing from it.
+    const pill = (await screen.findByText("≥ 18.400")).closest(".usage-pill");
     expect(pill).toBeVisible();
-    expect(within(pill as HTMLElement).getByText("≥ 12.000")).toBeVisible();
-    expect(within(pill as HTMLElement).getByText("≥ 6.400")).toBeVisible();
-    // Gemini reports no cache tokens, so a dash appears instead of a fake zero.
-    expect(within(pill as HTMLElement).getByText("Cache").nextElementSibling).toHaveTextContent("–");
+    expect(within(pill as HTMLElement).getByText("Token")).toBeVisible();
     // No context window was reported, so no percentage is shown at all.
     expect(within(pill as HTMLElement).queryByText("Kontext")).not.toBeInTheDocument();
+    expect(pill).not.toHaveTextContent("%");
 
+    // The counters Gemini did and did not report stay readable in the tooltip —
+    // cache shows a dash there rather than a fake zero.
     const title = pill?.getAttribute("title") ?? "";
+    expect(title).toContain("Eingabe: 12.000 Token");
+    expect(title).toContain("Ausgabe: 6.400 Token");
     expect(title).toContain("keinen Prozentwert");
     expect(title).toContain("Cache gelesen: nicht gemeldet");
     expect(title).toContain("≥ bedeutet: erfasst seit Aktivierung der Zählung");
@@ -1120,6 +1130,7 @@ describe("Renderer UI", () => {
   });
 
   it("zeigt bei fehlender Modell-Capability ehrlich an, dass kein Modell gemeldet wurde", async () => {
+    const user = userEvent.setup();
     const { api } = createApi();
     window.gemUi = api;
 
@@ -1127,7 +1138,8 @@ describe("Renderer UI", () => {
     await screen.findByRole("heading", { name: "Login reparieren" });
 
     expect(screen.getByText("GeminUI")).toBeVisible();
-    expect(screen.getByText("nicht gemeldet")).toBeVisible();
+    await user.click(screen.getByTitle("Sessioneinstellungen"));
+    expect(await screen.findByText("nicht gemeldet")).toBeVisible();
     expect(screen.queryByRole("combobox", { name: "Gemini-Modell" })).not.toBeInTheDocument();
   });
 

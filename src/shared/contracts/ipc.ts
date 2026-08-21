@@ -253,6 +253,39 @@ export const AppUpdateInfoSchema = z
 
 export type AppUpdateInfo = z.infer<typeof AppUpdateInfoSchema>;
 
+export const DownloadUpdateInputSchema = z
+  .object({
+    downloadUrl: HttpsUrlSchema,
+  })
+  .strict();
+
+export const DownloadUpdateResultSchema = z
+  .object({
+    filePath: z.string().min(1),
+  })
+  .strict();
+
+export const InstallUpdateInputSchema = z
+  .object({
+    filePath: FileSystemPathSchema,
+  })
+  .strict();
+
+export const AppUpdateDownloadProgressSchema = z
+  .object({
+    receivedBytes: z.number().nonnegative(),
+    totalBytes: z.number().nonnegative(),
+    percent: z.number().min(0).max(100),
+  })
+  .strict();
+
+export type DownloadUpdateInput = z.infer<typeof DownloadUpdateInputSchema>;
+export type DownloadUpdateResult = z.infer<typeof DownloadUpdateResultSchema>;
+export type InstallUpdateInput = z.infer<typeof InstallUpdateInputSchema>;
+export type AppUpdateDownloadProgress = z.infer<
+  typeof AppUpdateDownloadProgressSchema
+>;
+
 export const GetSessionReconnectStateInputSchema = z
   .object({
     sessionId: EntityIdSchema,
@@ -431,11 +464,16 @@ export const IPC_CHANNELS = {
   listMcpServers: "agent-extensions:list-mcp-servers",
   openExternalHttpsUrl: "external:open-https-url",
   checkForUpdates: "app:check-for-updates",
+  downloadUpdate: "app:download-update",
+  installUpdate: "app:install-update",
+  appUpdateDownloadProgress: "app:update-download-progress",
 } as const;
 
 export const IpcRequestSchemas = {
   [IPC_CHANNELS.getCapabilities]: EmptyInputSchema,
   [IPC_CHANNELS.checkForUpdates]: EmptyInputSchema,
+  [IPC_CHANNELS.downloadUpdate]: DownloadUpdateInputSchema,
+  [IPC_CHANNELS.installUpdate]: InstallUpdateInputSchema,
   [IPC_CHANNELS.listProjects]: ListProjectsInputSchema,
   [IPC_CHANNELS.getProject]: GetProjectInputSchema,
   [IPC_CHANNELS.reauthorizeProjectRoot]: ReauthorizeProjectRootInputSchema,
@@ -609,6 +647,8 @@ export const IpcResponseSchemas = {
   [IPC_CHANNELS.listMcpServers]: McpServerListSchema,
   [IPC_CHANNELS.openExternalHttpsUrl]: VoidResultSchema,
   [IPC_CHANNELS.checkForUpdates]: AppUpdateInfoSchema,
+  [IPC_CHANNELS.downloadUpdate]: DownloadUpdateResultSchema,
+  [IPC_CHANNELS.installUpdate]: VoidResultSchema,
 } as const;
 
 export type IpcRequestChannel = keyof typeof IpcRequestSchemas;
@@ -625,6 +665,11 @@ export interface GemUiDesktopApi {
   getCapabilities(): Promise<AppCapabilities>;
   app: {
     checkForUpdates(): Promise<AppUpdateInfo>;
+    downloadUpdate(input: DownloadUpdateInput): Promise<DownloadUpdateResult>;
+    installUpdate(input: InstallUpdateInput): Promise<VoidResult>;
+    onDownloadProgress(
+      callback: (progress: AppUpdateDownloadProgress) => void,
+    ): () => void;
   };
   projects: {
     list(input?: ListProjectsInput): Promise<ProjectWithRoots[]>;

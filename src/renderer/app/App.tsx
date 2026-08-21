@@ -8,6 +8,7 @@ import {
 import { AttachmentsPanel } from "../features/attachments/AttachmentsPanel";
 import { useContextAttachments } from "../features/attachments/useContextAttachments";
 import { ChatHeader } from "../features/chat/ChatHeader";
+import { PanelRail, type PanelRailItem } from "../features/chat/PanelRail";
 import { Timeline } from "../features/chat/Timeline";
 import {
   ReconnectHistoryBanner,
@@ -175,26 +176,10 @@ function EmptyWorkspace({ onCreateProject }: { onCreateProject: () => void }) {
 
 function EmptyProject({
   project,
-  changesCount,
-  attachmentsCount,
-  todosOpenCount,
   onCreateSession,
-  onToggleChanges,
-  onToggleAttachments,
-  onToggleTodos,
-  onToggleSkills,
-  onToggleMcp,
 }: {
   project: AppProject;
-  changesCount: number;
-  attachmentsCount: number;
-  todosOpenCount: number;
   onCreateSession: () => void;
-  onToggleChanges: () => void;
-  onToggleAttachments: () => void;
-  onToggleTodos: () => void;
-  onToggleSkills: () => void;
-  onToggleMcp: () => void;
 }) {
   return (
     <main className="project-empty">
@@ -207,13 +192,10 @@ function EmptyProject({
           <span key={root.id}><Icon name="folder" size={14} /> {root.label || root.path.split(/[\\/]/).at(-1)} {root.kind === "primary" && <i>Primär</i>}</span>
         ))}
       </div>
+      {/* Panels are one click away in the rail on the right, so this screen
+          keeps the single action that has to be taken here. */}
       <div className="project-empty-actions">
         <button className="primary-button" type="button" onClick={onCreateSession}><Icon name="plus" size={17} /> Neue Session</button>
-        <button className="secondary-button" type="button" onClick={onToggleAttachments}><Icon name="paperclip" size={16} /> Anhänge{attachmentsCount > 0 ? ` (${attachmentsCount})` : ""}</button>
-        <button className="secondary-button" type="button" onClick={onToggleTodos}><Icon name="checklist" size={16} /> Todos{todosOpenCount > 0 ? ` (${todosOpenCount})` : ""}</button>
-        <button className="secondary-button" type="button" onClick={onToggleChanges}><Icon name="changes" size={16} /> Änderungen{changesCount > 0 ? ` (${changesCount})` : ""}</button>
-        <button className="secondary-button" type="button" onClick={onToggleSkills}><Icon name="skill" size={16} /> Skills</button>
-        <button className="secondary-button" type="button" onClick={onToggleMcp}><Icon name="server" size={16} /> MCP</button>
       </div>
     </main>
   );
@@ -1002,6 +984,67 @@ export function App() {
     setRightPanel("changes");
   }, [gitState.status]);
 
+  /**
+   * One entry per right-hand panel. GitLab is the only conditional one: unlike
+   * Skills and MCP it describes a binding this project may simply not have, and
+   * an empty GitLab panel would have nothing honest to show.
+   */
+  const railItems: PanelRailItem[] = useMemo(() => {
+    const attachmentsCount = contextAttachments.all.length;
+    const includedCount = contextAttachments.included.length;
+    const items: PanelRailItem[] = [
+      {
+        id: "attachments",
+        icon: "paperclip",
+        label: "Anhänge",
+        ...(attachmentsCount > 0
+          ? {
+              detail: `${attachmentsCount} Anhänge, ${includedCount} im Kontext`,
+              badge: attachmentsCount,
+              subBadge: includedCount,
+            }
+          : {}),
+      },
+      {
+        id: "todos",
+        icon: "checklist",
+        label: "Todos",
+        ...(todos.openCount > 0
+          ? { detail: `${todos.openCount} offen`, badge: todos.openCount }
+          : {}),
+      },
+      {
+        id: "changes",
+        icon: "changes",
+        label: "Änderungen",
+        ...(changesCount > 0
+          ? { detail: `${changesCount} Dateien`, badge: changesCount }
+          : {}),
+      },
+    ];
+    // No badge for GitLab: the unresolved count lives inside the panel's own
+    // review state, and a number this component cannot actually read would be
+    // a guess rather than a count.
+    if (gitlabEnabled) {
+      items.push({ id: "gitlab", icon: "gitlab", label: "GitLab", name: "GitLab Review" });
+    }
+    items.push(
+      { id: "skills", icon: "skill", label: "Skills" },
+      { id: "mcp", icon: "server", label: "MCP", name: "MCP-Server" },
+    );
+    return items;
+  }, [
+    changesCount,
+    contextAttachments.all.length,
+    contextAttachments.included.length,
+    gitlabEnabled,
+    todos.openCount,
+  ]);
+
+  const toggleRightPanel = useCallback((id: string) => {
+    setRightPanel((current) => (current === id ? "none" : (id as RightPanel)));
+  }, []);
+
   const effectivePhase: TurnPhase = useMemo(() => {
     if (chat.phase !== "idle" || !activeSession) return chat.phase;
     if (["running", "awaiting_permission", "cancelling"].includes(activeSession.status)) {
@@ -1076,15 +1119,7 @@ export function App() {
               <button type="button" className="icon-button mobile-empty-menu" onClick={() => setSidebarOpen(true)} aria-label="Seitenleiste öffnen"><Icon name="menu" size={19} /></button>
               <EmptyProject
                 project={activeProject}
-                changesCount={changesCount}
-                attachmentsCount={contextAttachments.all.length}
                 onCreateSession={() => void createSession()}
-                onToggleAttachments={() => setRightPanel((current) => current === "attachments" ? "none" : "attachments")}
-                onToggleChanges={() => setRightPanel((current) => current === "changes" ? "none" : "changes")}
-                onToggleTodos={() => setRightPanel((current) => current === "todos" ? "none" : "todos")}
-                todosOpenCount={todos.openCount}
-                onToggleSkills={() => setRightPanel((current) => current === "skills" ? "none" : "skills")}
-                onToggleMcp={() => setRightPanel((current) => current === "mcp" ? "none" : "mcp")}
               />
             </div>
             {changesOpen ? (
@@ -1150,6 +1185,7 @@ export function App() {
               />
             ) : null}
             {rightPanel !== "none" && <RightPanelResizeHandle width={rightPanelWidth} onChange={setRightPanelWidth} />}
+            <PanelRail items={railItems} activeId={rightPanel} onToggle={toggleRightPanel} />
           </div>
         ) : activeProject && activeSession ? (
           <div
@@ -1163,23 +1199,6 @@ export function App() {
                 session={activeSession}
                 chat={{ ...chat, phase: effectivePhase }}
                 modelsSupported={capabilities.gemini.models}
-                attachmentsOpen={attachmentsOpen}
-                attachmentsCount={contextAttachments.all.length}
-                attachmentsIncludedCount={contextAttachments.included.length}
-                onToggleAttachments={() => setRightPanel((current) => current === "attachments" ? "none" : "attachments")}
-                todosOpen={todosOpen}
-                todosOpenCount={todos.openCount}
-                onToggleTodos={() => setRightPanel((current) => current === "todos" ? "none" : "todos")}
-                changesOpen={changesOpen}
-                changesCount={changesCount}
-                onToggleChanges={() => setRightPanel((current) => current === "changes" ? "none" : "changes")}
-                gitlabEnabled={gitlabEnabled}
-                gitlabOpen={rightPanel === "gitlab"}
-                onToggleGitlab={() => setRightPanel((current) => current === "gitlab" ? "none" : "gitlab")}
-                skillsOpen={rightPanel === "skills"}
-                onToggleSkills={() => setRightPanel((current) => current === "skills" ? "none" : "skills")}
-                mcpOpen={rightPanel === "mcp"}
-                onToggleMcp={() => setRightPanel((current) => current === "mcp" ? "none" : "mcp")}
                 onOpenSidebar={() => setSidebarOpen(true)}
                 onEditProject={() => setProjectSettingsOpen(true)}
                 onSetMode={(mode) => void setSessionMode(activeSession.id, mode)}
@@ -1284,6 +1303,7 @@ export function App() {
               />
             ) : null}
             {rightPanel !== "none" && <RightPanelResizeHandle width={rightPanelWidth} onChange={setRightPanelWidth} />}
+            <PanelRail items={railItems} activeId={rightPanel} onToggle={toggleRightPanel} />
           </div>
         ) : null}
       </section>

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import {
+  AppUpdateDownloadProgressSchema,
   EventSubscriptionResultSchema,
   ContextAttachmentPushSchema,
   ContextAttachmentSubscriptionResultSchema,
@@ -12,6 +13,7 @@ import {
   TodoPushSchema,
   TodoSubscriptionResultSchema,
   type GemUiDesktopApi,
+  type AppUpdateDownloadProgress,
   type ContextAttachmentList,
   type TodoList,
   type GitLabReviewState,
@@ -113,6 +115,16 @@ ipcRenderer.on(IPC_CHANNELS.todosChanged, (_event, payload: unknown) => {
   pendingTodoLists.set(parsed.data.subscriptionId, queued);
 });
 
+const updateProgressCallbacks = new Set<(progress: AppUpdateDownloadProgress) => void>();
+
+ipcRenderer.on(IPC_CHANNELS.appUpdateDownloadProgress, (_event, payload: unknown) => {
+  const parsed = AppUpdateDownloadProgressSchema.safeParse(payload);
+  if (!parsed.success) return;
+  for (const cb of updateProgressCallbacks) {
+    cb(parsed.data);
+  }
+});
+
 const desktopApi: GemUiDesktopApi = {
   getCapabilities: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getCapabilities, {}),
@@ -120,6 +132,16 @@ const desktopApi: GemUiDesktopApi = {
   app: {
     checkForUpdates: () =>
       ipcRenderer.invoke(IPC_CHANNELS.checkForUpdates, {}),
+    downloadUpdate: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.downloadUpdate, input),
+    installUpdate: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.installUpdate, input),
+    onDownloadProgress: (callback) => {
+      updateProgressCallbacks.add(callback);
+      return () => {
+        updateProgressCallbacks.delete(callback);
+      };
+    },
   },
 
   settings: {

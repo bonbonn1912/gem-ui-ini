@@ -163,4 +163,45 @@ describe("AppUpdateService", () => {
     const winInfo = await winService.checkForUpdates();
     expect(winInfo.downloadUrl).toBe("https://example.com/windows.exe");
   });
+
+  it("downloads update binary with progress reporting", async () => {
+    const chunk1 = new Uint8Array([1, 2, 3, 4]);
+    const chunk2 = new Uint8Array([5, 6, 7, 8]);
+    let readCount = 0;
+
+    const mockStream = new ReadableStream({
+      pull(controller) {
+        if (readCount === 0) {
+          controller.enqueue(chunk1);
+          readCount++;
+        } else if (readCount === 1) {
+          controller.enqueue(chunk2);
+          readCount++;
+        } else {
+          controller.close();
+        }
+      },
+    });
+
+    const mockFetch = async () =>
+      new Response(mockStream, {
+        status: 200,
+        headers: { "content-length": "8" },
+      });
+
+    const service = new AppUpdateService({
+      currentVersion: "0.5.0",
+      fetchFn: mockFetch as any,
+    });
+
+    const progressReports: any[] = [];
+    const result = await service.downloadUpdate(
+      "https://github.com/bonbonn1912/gem-ui-ini/releases/download/v0.5.1/test-update.exe",
+      (p) => progressReports.push(p),
+    );
+
+    expect(result.filePath).toBeDefined();
+    expect(progressReports.length).toBeGreaterThanOrEqual(1);
+    expect(progressReports[progressReports.length - 1].percent).toBe(100);
+  });
 });

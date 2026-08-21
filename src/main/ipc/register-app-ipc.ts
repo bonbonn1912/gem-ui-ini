@@ -713,6 +713,20 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
 
   const updateService = options.updateService ?? new AppUpdateService();
   register(IPC_CHANNELS.checkForUpdates, () => updateService.checkForUpdates());
+  register(IPC_CHANNELS.downloadUpdate, (input, event) =>
+    updateService.downloadUpdate(
+      (input as { downloadUrl: string }).downloadUrl,
+      (progress) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send(IPC_CHANNELS.appUpdateDownloadProgress, progress);
+        }
+      },
+    ),
+  );
+  register(IPC_CHANNELS.installUpdate, async (input) => {
+    await updateService.installUpdate((input as { filePath: string }).filePath);
+    return { ok: true as const };
+  });
 
   if (options.integrations) {
     register(IPC_CHANNELS.listProjectIntegrations, (input) =>

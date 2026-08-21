@@ -30,6 +30,9 @@
   --shadow-sm: 0 1px 2px rgba(20, 22, 28, 0.06), 0 4px 14px rgba(20, 22, 28, 0.04);
   --shadow-lg: 0 20px 60px rgba(15, 17, 23, 0.18), 0 3px 14px rgba(15, 17, 23, 0.1);
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Width of the panel rail. The workspace grid and the resize handle both
+     compute against it, so it lives here rather than in two places. */
+  --panel-rail-width: 68px;
 
   /* Aliases: der GitLab-/Integrations-Block nutzt eine zweite Namensfamilie.
      Sie zeigt auf dieselben Tokens, damit beide Welten identisch aussehen und
@@ -151,10 +154,10 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 
 /* Main/header */
 .main-pane { min-width: 0; min-height: 0; position: relative; overflow: hidden; background: var(--canvas); }
-.chat-workspace { width: 100%; height: 100%; min-width: 0; min-height: 0; position:relative; display: grid; grid-template-columns: minmax(0,1fr) 0; overflow: hidden; transition: grid-template-columns .2s cubic-bezier(.2,.8,.2,1); }
-.chat-workspace--changes, .chat-workspace--panel { grid-template-columns:minmax(260px,1fr) min(var(--right-panel-width,520px),calc(100% - 260px)); }
-.chat-view { height: 100%; min-height: 0; overflow: hidden; display: grid; grid-template-areas: "header" "banner" "timeline" "composer"; grid-template-rows: auto auto minmax(0,1fr) auto; container-name:chat-pane;container-type:inline-size; }
-.right-panel-resize-handle { width:11px;position:absolute;top:0;bottom:0;right:calc(min(var(--right-panel-width,520px),calc(100% - 260px)) - 5px);z-index:125;border:0;outline:0;background:transparent;cursor:col-resize;touch-action:none; }
+.chat-workspace { width: 100%; height: 100%; min-width: 0; min-height: 0; position:relative; display: grid; grid-template-columns: minmax(0,1fr) 0 var(--panel-rail-width); overflow: hidden; transition: grid-template-columns .2s cubic-bezier(.2,.8,.2,1); }
+.chat-workspace--changes, .chat-workspace--panel { grid-template-columns:minmax(260px,1fr) min(var(--right-panel-width,520px),calc(100% - 260px - var(--panel-rail-width))) var(--panel-rail-width); }
+.chat-view { grid-column: 1; height: 100%; min-height: 0; overflow: hidden; display: grid; grid-template-areas: "header" "banner" "timeline" "composer"; grid-template-rows: auto auto minmax(0,1fr) auto; container-name:chat-pane;container-type:inline-size; }
+.right-panel-resize-handle { width:11px;position:absolute;top:0;bottom:0;right:calc(min(var(--right-panel-width,520px),calc(100% - 260px - var(--panel-rail-width))) + var(--panel-rail-width) - 5px);z-index:125;border:0;outline:0;background:transparent;cursor:col-resize;touch-action:none; }
 .right-panel-resize-handle::after { width:1px;position:absolute;inset:0 auto 0 5px;content:"";background:transparent;transition:width .12s,background .12s,transform .12s; }
 .right-panel-resize-handle:hover::after,.right-panel-resize-handle:focus-visible::after,.right-panel-resize-handle--dragging::after { width:3px;background:var(--accent);transform:translateX(-1px); }
 .right-panel-resize-handle:focus-visible { box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--accent) 40%,transparent); }
@@ -170,24 +173,16 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .live-state i { width: 5px; height: 5px; border-radius: 50%; background: var(--green); }
 .live-state--working i { background: var(--accent); animation: status-pulse 1.6s ease-in-out infinite; }
 .live-state--error i, .live-state--disconnected i { background: var(--red); }
-.header-actions { min-width: 0; margin-left: auto; flex: 0 1 auto; display: flex; align-items: center; gap: 7px; }
-.changes-toggle, .attachments-toggle { height: 32px; padding: 0 9px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 9px; color: var(--text-soft); background: var(--surface); font-size: 10.5px; font-weight: 620; cursor: pointer; }
-.changes-toggle:hover, .attachments-toggle:hover { background: var(--surface-soft); }.changes-toggle--active, .attachments-toggle--active { color: var(--accent); border-color: color-mix(in srgb,var(--accent) 30%,var(--border)); background: var(--accent-soft); }
-.changes-toggle i, .attachments-toggle i { min-width: 17px; height: 17px; padding: 0 4px; display: grid; place-items: center; border-radius: 99px; color: white; background: var(--accent); font-size: 8px; font-style: normal; line-height: 1; }
-.attachments-toggle em { min-width: 14px; height: 14px; margin-left: -3px; display: grid; place-items: center; border-radius: 99px; color: var(--accent); background: var(--accent-soft); font-size: 7px; font-style: normal; }
+.header-actions { min-width: 0; margin-left: auto; flex: 0 0 auto; display: flex; align-items: center; gap: 7px; }
 .usage-pill, .mode-pill, .model-pill { height: 30px; max-width: 190px; padding: 0 10px; flex: 0 1 auto; display: inline-flex; align-items: center; gap: 6px; overflow: hidden; border: 1px solid var(--border-soft); border-radius: 8px; color: var(--muted); background: var(--surface); font-size: 10.5px; white-space: nowrap; }
 .usage-pill > i { width: 26px; height: 3px; flex: 0 0 auto; overflow: hidden; border-radius: 99px; background: var(--border); }.usage-pill > i > span { height: 100%; display: block; border-radius: inherit; background: var(--accent); }
 .usage-pill > span, .model-pill strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; }.model-pill > span { color: var(--faint); font-size: 8px; font-weight: 720; text-transform: uppercase; }.model-pill strong { color: var(--text-soft); font-size: 10.5px; font-weight: 620; }
-.usage-pill { max-width: min(430px, 46vw); gap: 9px; }
+.usage-pill { max-width: 170px; gap: 8px; }
 .usage-metric { flex: 0 0 auto; display: inline-flex; align-items: baseline; gap: 4px; }
 .usage-metric > span { flex: 0 0 auto; color: var(--faint); font-size: 8px; font-weight: 720; text-transform: uppercase; }
 /* Token counts are never ellipsized: a clipped "1..." would misinform. If the
    header runs out of room the media queries below drop the context segment. */
 .usage-metric > strong { flex: 0 0 auto; overflow: visible; color: var(--text-soft); font-size: 10.5px; font-weight: 620; font-variant-numeric: tabular-nums; }
-.roots-menu { position: relative; }
-.roots-menu > summary { height: 32px; padding: 0 9px; display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 9px; color: var(--text-soft); background: var(--surface); font-size: 11px; font-weight: 590; cursor: pointer; list-style: none; }
-.roots-menu > summary::-webkit-details-marker { display: none; }
-.roots-menu > summary:hover { background: var(--surface-soft); }
 .roots-popover { width: min(430px, calc(100vw - 30px)); padding: 13px; position: absolute; top: 39px; right: 0; z-index: 80; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); box-shadow: var(--shadow-lg); }
 .roots-popover-heading { padding: 2px 2px 10px; display: flex; align-items: center; justify-content: space-between; }
 .roots-popover-heading div { display: grid; gap: 2px; }
@@ -280,7 +275,7 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .thought-card > summary, .tool-card > summary { min-height: 39px; padding: 0 11px; display: flex; align-items: center; gap: 8px; color: var(--muted); cursor: pointer; list-style: none; font-size: 10.7px; }
 .thought-card > summary::-webkit-details-marker, .tool-card > summary::-webkit-details-marker { display: none; }
 .thought-card > summary:hover, .tool-card > summary:hover { background: var(--surface-soft); }
-.details-chevron { margin-left: auto; transition: transform .16s; }.thought-card[open] .details-chevron, .tool-card[open] .details-chevron, .roots-menu[open] > summary > .details-chevron { transform: rotate(180deg); }
+.details-chevron { margin-left: auto; transition: transform .16s; }.thought-card[open] .details-chevron, .tool-card[open] .details-chevron { transform: rotate(180deg); }
 .thought-content { padding: 10px 14px 12px 39px; border-top: 1px solid var(--border-soft); color: var(--muted); white-space: pre-wrap; font-size: 10.7px; line-height: 1.55; }
 .thinking-dots { display: flex; gap: 2px; }.thinking-dots i { width: 3px; height: 3px; border-radius: 50%; background: var(--accent); animation: dot-wave 1.2s ease-in-out infinite; }.thinking-dots i:nth-child(2) { animation-delay: .15s; }.thinking-dots i:nth-child(3) { animation-delay: .3s; }
 @keyframes dot-wave { 0%,70%,100% { transform: translateY(0); opacity: .35; } 35% { transform: translateY(-2px); opacity: 1; } }
@@ -416,17 +411,18 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .add-link-dialog { width:min(480px,100%); }.optional-label { color:var(--faint);font-size:8px;font-weight:500; }.link-security-note { margin:0;padding:9px;display:flex;align-items:flex-start;gap:7px;border:1px solid color-mix(in srgb,var(--green) 18%,var(--border));border-radius:8px;color:var(--green);background:var(--green-soft);font-size:8.8px;line-height:1.45; }
 
 @container chat-pane (max-width: 720px) {
-  .usage-pill { display:none; }
-  .changes-toggle,.attachments-toggle { width:32px;padding:0;justify-content:center; }
-  .changes-toggle > span,.attachments-toggle > span { display:none; }
-  .changes-toggle i,.attachments-toggle i { min-width:14px;height:14px;padding:0 3px;position:absolute;margin:-23px 0 0 22px;font-size:6.5px; }
-  .attachments-toggle em { display:none; }
   .chat-header { padding-right:12px;gap:7px; }
   .composer-area { padding-right:18px;padding-left:18px; }
 }
 
+@container chat-pane (max-width: 460px) {
+  .usage-pill { display:none; }
+}
+
 @container chat-pane (max-width: 520px) {
-  .roots-menu,.mode-select,.mode-pill,.model-select,.model-pill { display:none; }
+  .session-settings-menu > summary > span { display:none; }
+  .session-settings-menu > summary { width:32px;padding:0;justify-content:center; }
+  .session-settings-menu > summary svg:last-child { display:none; }
   .chat-header { padding-left:14px; }
   .chat-subtitle > span:first-child,.subtitle-separator { display:none; }
   .composer-context { display:none; }
@@ -488,9 +484,6 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
   .message--user { background: #302f4b; }.code-block pre { background:#111318; }.permission-button--allow { color:#1e1b15; }.primary-button { color:white; }.root-change-banner span { color:#dfc89f; }
 }
 
-@media (max-width: 1200px) {
-  .changes-toggle > span, .attachments-toggle > span { display:none; }
-}
 
 @media (max-width: 950px) {
   .app-shell { grid-template-columns: minmax(0,1fr); }
@@ -504,30 +497,29 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 }
 
 @media (max-width: 640px) {
-  .chat-workspace--changes, .chat-workspace--panel { grid-template-columns:minmax(0,1fr) 0; }
-  .changes-panel, .attachments-panel { width:100vw;position:absolute;inset:0 0 0 auto;z-index:90;box-shadow:-16px 0 45px rgba(15,17,23,.18); }
+  :root { --panel-rail-width: 44px; }
+  .panel-rail-button { width: 36px; }
+  .panel-rail-label { display: none; }
+  .chat-workspace--changes, .chat-workspace--panel { grid-template-columns:minmax(0,1fr) 0 var(--panel-rail-width); }
+  .changes-panel, .attachments-panel { width:calc(100vw - var(--panel-rail-width));position:absolute;inset:0 var(--panel-rail-width) 0 auto;z-index:90;box-shadow:-16px 0 45px rgba(15,17,23,.18); }
   .right-panel-resize-handle { display:none; }
-  .chat-header { height: 61px; padding-right: 11px; gap: 8px; }.chat-heading h1 { font-size: 12.5px; }.chat-subtitle > span:first-child,.subtitle-separator { display:none; }.usage-pill { display:none; }.roots-menu > summary span { display:none; }.roots-menu > summary { width:32px;padding:0;justify-content:center; }.roots-menu > summary svg:last-child { display:none; }.mode-select select { max-width:72px; }.model-select select { max-width:110px; }.model-pill { max-width:130px; }.model-pill > span { display:none; }
+  .chat-header { height: 61px; padding-right: 11px; gap: 8px; }.chat-heading h1 { font-size: 12.5px; }.chat-subtitle > span:first-child,.subtitle-separator { display:none; }.usage-pill { display:none; }.session-settings-menu > summary > span { display:none; }.session-settings-menu > summary { width:32px;padding:0;justify-content:center; }.session-settings-menu > summary svg:last-child { display:none; }
   .timeline { padding: 25px 17px 24px; gap:14px; }.tool-run { margin-left:0; }.tool-run-scroll { max-height:250px; }.composer-area { padding: 7px 12px 10px; }.composer-context { display:none; }.composer-hint { display:none; }.project-file-menu > header > span:last-child { display:none; }.project-file-option-size { display:none; }.message--user { max-width:88%; }.thought-card,.tool-card,.permission-card { margin-left:0; }.inline-diff-group { margin-left:0; }.assistant-mark { width:25px;height:25px; }.message--assistant { grid-template-columns:25px minmax(0,1fr);gap:8px; }.assistant-content { font-size:12.5px; }
   .project-dialog { max-height:calc(100vh - 20px); border-radius:14px; }.modal-layer { padding:10px; }.dialog-body { padding:16px; }.dialog-tab-bar { padding:0 16px; }.project-dialog > footer { padding:10px 16px; }.repo-candidate-card { grid-template-columns:minmax(0,1fr); }.candidate-actions { justify-content:flex-end; }.selected-folder { grid-template-columns:32px minmax(0,1fr) auto; }.folder-tile { width:31px;height:31px; }.onboarding-card { padding:28px 22px; }.onboarding-steps p { grid-template-columns:1fr; }.onboarding-actions { flex-direction:column; }
   .workspace-empty,.project-empty { padding:28px 20px; }.empty-benefits { gap:8px; }
-  .changes-toggle, .attachments-toggle { width:32px;padding:0;justify-content:center; }.changes-toggle i, .attachments-toggle i { min-width:14px;height:14px;padding:0 3px;position:absolute;margin:-23px 0 0 22px;font-size:6.5px; }.attachments-toggle em { display:none; }.changes-panel-header, .attachments-panel-header { height:61px; }.changes-panel-body { height:calc(100% - 61px);grid-template-rows:minmax(0,1fr); }.changes-diff-pane { display:none; }.changes-panel-body--diff .changes-list-pane { display:none; }.changes-panel-body--diff .changes-diff-pane { display:block; }.git-diff-back { display:grid; }
+  .changes-panel-header, .attachments-panel-header { height:61px; }.changes-panel-body { height:calc(100% - 61px);grid-template-rows:minmax(0,1fr); }.changes-diff-pane { display:none; }.changes-panel-body--diff .changes-list-pane { display:none; }.changes-panel-body--diff .changes-diff-pane { display:block; }.git-diff-back { display:grid; }
   .attachments-panel-body { height:calc(100% - 61px);grid-template-rows:minmax(0,1fr) 0; }.attachments-panel-body--detail { grid-template-rows:0 0 minmax(0,1fr) !important; }.attachments-panel-body--detail .attachments-list-pane,.attachments-panel-body--detail .live-preview-height-handle { display:none; }.attachments-detail-pane { border-top:0; }
 }
 
-@media (max-width: 1200px) {
-  .usage-metric--context > span { display: none; }
-}
 
 @media (max-width: 1040px) {
   .usage-pill { gap: 7px; }
-  /* The bar keeps showing the context ratio, the counters keep their numbers. */
-  .usage-metric--context { display: none; }
 }
 
 @media (max-width: 480px) {
-  .mode-select, .mode-pill, .roots-menu { display:none; }
-  .model-select select { max-width: 112px; }
+  .session-settings-menu > summary > span { display: none; }
+  .session-settings-menu > summary { width: 32px; padding: 0; justify-content: center; }
+  .session-settings-menu > summary svg:last-child { display: none; }
   .error-toast { right: 10px; bottom: 10px; width: calc(100vw - 20px); grid-template-columns: 31px minmax(0,1fr) auto; }
   .error-toast > button:not(.toast-close) { grid-column: 2; justify-self: start; }
   .toast-close { grid-column: 3; grid-row: 1; }
@@ -537,11 +529,6 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
    GitLab Integration & Review Panel
    ========================================================================== */
 
-/* Toolbar-Toggle im Chat-Header — gleiche Form wie .changes-toggle */
-.gitlab-toggle { height: 32px; padding: 0 9px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 9px; color: var(--text-soft); background: var(--surface); font-size: 10.5px; font-weight: 620; cursor: pointer; }
-.gitlab-toggle:hover { background: var(--surface-soft); }
-.gitlab-toggle--active { color: #e24329; border-color: color-mix(in srgb, #e24329 32%, var(--border)); background: color-mix(in srgb, #e24329 9%, var(--surface)); }
-.gitlab-toggle i { min-width: 17px; height: 17px; padding: 0 4px; display: grid; place-items: center; border-radius: 99px; color: white; background: #e24329; font-size: 8px; font-style: normal; line-height: 1; }
 
 /* Panel-Rahmen — identisch zu .changes-panel / .attachments-panel */
 .gitlab-panel { width: 100%; height: 100%; min-width: 0; min-height: 0; display: grid; grid-template-rows: 68px minmax(0, 1fr); overflow: hidden; border-left: 1px solid var(--border); background: var(--surface); }
@@ -1233,10 +1220,7 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 }
 
 @media (max-width: 640px) {
-  .gitlab-toggle { width: 32px; padding: 0; justify-content: center; }
-  .gitlab-toggle span { display: none; }
-  .gitlab-toggle i { min-width: 14px; height: 14px; padding: 0 3px; position: absolute; margin: -23px 0 0 22px; font-size: 6.5px; }
-  .gitlab-panel { width: 100vw; position: absolute; inset: 0 0 0 auto; z-index: 90; box-shadow: -16px 0 45px rgba(15,17,23,.18); }
+  .gitlab-panel { width: calc(100vw - var(--panel-rail-width)); position: absolute; inset: 0 var(--panel-rail-width) 0 auto; z-index: 90; box-shadow: -16px 0 45px rgba(15,17,23,.18); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1251,11 +1235,6 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
    .attachments-panel / .gitlab-panel; ausschließlich Tokens aus :root.
    ========================================================================== */
 
-/* Toolbar-Toggles im Chat-Header — gleiche Form wie .changes-toggle */
-.skills-toggle, .mcp-toggle { height: 32px; padding: 0 9px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 9px; color: var(--text-soft); background: var(--surface); font-size: 10.5px; font-weight: 620; cursor: pointer; }
-.skills-toggle:hover, .mcp-toggle:hover { background: var(--surface-soft); }
-.skills-toggle--active { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, var(--border)); background: var(--accent-soft); }
-.mcp-toggle--active { color: var(--green); border-color: color-mix(in srgb, var(--green) 30%, var(--border)); background: var(--green-soft); }
 
 /* Panel-Rahmen — identisch zu .gitlab-panel */
 .extension-panel { width: 100%; height: 100%; min-width: 0; min-height: 0; display: grid; grid-template-rows: 68px minmax(0, 1fr); overflow: hidden; border-left: 1px solid var(--border); background: var(--surface); }
@@ -1313,14 +1292,9 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 
 .extension-footnote { margin: 0; padding: 7px 12px 10px; color: var(--faint); font-size: 8.5px; text-align: center; }
 
-@media (max-width: 1200px) {
-  .skills-toggle > span, .mcp-toggle > span { display: none; }
-}
 
 @media (max-width: 640px) {
-  .skills-toggle, .mcp-toggle { width: 32px; padding: 0; justify-content: center; }
-  .skills-toggle > span, .mcp-toggle > span { display: none; }
-  .extension-panel { width: 100vw; position: absolute; inset: 0 0 0 auto; z-index: 90; grid-template-rows: 61px minmax(0, 1fr); box-shadow: -16px 0 45px rgba(15,17,23,.18); }
+  .extension-panel { width: calc(100vw - var(--panel-rail-width)); position: absolute; inset: 0 var(--panel-rail-width) 0 auto; z-index: 90; grid-template-rows: 61px minmax(0, 1fr); box-shadow: -16px 0 45px rgba(15,17,23,.18); }
 }
 
 /* Reconnect History Banner */
@@ -1500,10 +1474,6 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
    Ausschließlich Tokens aus :root.
    ========================================================================== */
 
-.todos-toggle { height: 32px; padding: 0 9px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 9px; color: var(--text-soft); background: var(--surface); font-size: 10.5px; font-weight: 620; cursor: pointer; }
-.todos-toggle:hover { background: var(--surface-soft); }
-.todos-toggle--active { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, var(--border)); background: var(--accent-soft); }
-.todos-toggle i { min-width: 17px; height: 17px; padding: 0 4px; display: grid; place-items: center; border-radius: 99px; color: #fff; background: var(--accent); font-size: 8px; font-style: normal; line-height: 1; }
 
 .todos-filter-bar { padding: 9px 11px 0; display: flex; align-items: center; justify-content: flex-end; }
 .todos-filter-bar label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 9.2px; cursor: pointer; }
@@ -1561,3 +1531,37 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .gitlab-delivery-switch > span { flex: 0 0 auto; color: var(--muted); font-size: 9px; font-weight: 620; }
 .gitlab-delivery-switch .filter-tab { flex: 1 1 0; min-width: 0; background: var(--surface-soft); }
 .gitlab-delivery-switch .filter-tab--active { background: var(--surface); }
+
+/* ==========================================================================
+   Panel-Leiste und Session-Menü — die Kopfzeile trug zuletzt sechs Panel-
+   Schalter plus Modell, Modus und Roots. Die Panels stehen jetzt in einer
+   festen Spalte am rechten Rand, Modell/Modus/Roots in einem Popover.
+   Ausschließlich Tokens aus :root.
+   ========================================================================== */
+
+/* Pinned to the third column: below 640px the open panel becomes an absolutely
+   positioned overlay, and auto-placement would otherwise hand its column to
+   the rail. */
+.panel-rail { grid-column: 3; padding: 9px 0; display: flex; flex-direction: column; align-items: center; gap: 3px; overflow-y: auto; overscroll-behavior: contain; border-left: 1px solid var(--border); background: color-mix(in srgb, var(--canvas) 55%, var(--surface)); -webkit-app-region: drag; }
+.panel-rail-button { width: 56px; padding: 6px 0 5px; position: relative; display: grid; justify-items: center; gap: 2px; border: 1px solid transparent; border-radius: 10px; color: var(--muted); background: transparent; cursor: pointer; -webkit-app-region: no-drag; }
+.panel-rail-button:hover { color: var(--text-soft); background: var(--surface-hover); }
+.panel-rail-button--active { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 28%, var(--border)); background: var(--accent-soft); }
+.panel-rail-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.panel-rail-label { max-width: 100%; overflow: hidden; font-size: 7.6px; font-weight: 660; letter-spacing: .01em; text-overflow: ellipsis; white-space: nowrap; }
+.panel-rail-button > i { min-width: 15px; height: 15px; padding: 0 4px; position: absolute; top: 2px; right: 3px; display: grid; place-items: center; border-radius: 99px; color: #fff; background: var(--accent); font-size: 7px; font-style: normal; font-weight: 700; line-height: 1; }
+.panel-rail-button > em { min-width: 13px; height: 13px; padding: 0 3px; position: absolute; top: 15px; right: 1px; display: grid; place-items: center; border-radius: 99px; color: var(--accent); border: 1px solid var(--surface); background: var(--accent-soft); font-size: 6.5px; font-style: normal; font-weight: 700; line-height: 1; }
+
+.session-settings-menu { position: relative; }
+.session-settings-menu > summary { height: 32px; max-width: 230px; padding: 0 8px 0 9px; display: flex; align-items: center; gap: 6px; overflow: hidden; border: 1px solid var(--border); border-radius: 9px; color: var(--text-soft); background: var(--surface); font-size: 11px; font-weight: 590; cursor: pointer; list-style: none; }
+.session-settings-menu > summary::-webkit-details-marker { display: none; }
+.session-settings-menu > summary:hover { background: var(--surface-soft); }
+.session-settings-menu > summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-settings-menu > summary > svg { flex: 0 0 auto; }
+.session-settings-menu[open] > summary { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, var(--border)); background: var(--accent-soft); }
+.session-settings-popover { width: min(430px, calc(100vw - 30px)); padding: 13px; position: absolute; top: 39px; right: 0; z-index: 80; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); box-shadow: var(--shadow-lg); }
+.session-settings-row { min-height: 34px; padding: 3px 2px; display: grid; grid-template-columns: 62px minmax(0, 1fr); align-items: center; gap: 9px; }
+.session-settings-label { color: var(--faint); font-size: 8.5px; font-weight: 720; text-transform: uppercase; }
+.session-settings-row .mode-select, .session-settings-row .model-select { width: 100%; }
+.session-settings-row .mode-select select, .session-settings-row .model-select select { width: 100%; max-width: none; }
+.session-settings-row .model-pill { max-width: none; }
+.session-settings-popover .roots-popover-heading { margin-top: 6px; border-top: 1px solid var(--border-soft); padding-top: 12px; }

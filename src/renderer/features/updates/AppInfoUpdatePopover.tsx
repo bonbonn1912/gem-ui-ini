@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "../../components/Icon";
-import type { AppCapabilities, AppUpdateInfo } from "../../types";
+import type { AppCapabilities, AppUpdateDownloadProgress, AppUpdateInfo } from "../../types";
 
 type AppInfoUpdatePopoverProps = {
   capabilities: AppCapabilities;
@@ -11,6 +11,13 @@ export function AppInfoUpdatePopover({ capabilities }: AppInfoUpdatePopoverProps
   const [checking, setChecking] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
+
+  // In-App Update State
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<AppUpdateDownloadProgress | null>(null);
+  const [downloadedFilePath, setDownloadedFilePath] = useState<string | null>(null);
+  const [installing, setInstalling] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const closeTimeoutRef = useRef<number | null>(null);
@@ -48,15 +55,27 @@ export function AppInfoUpdatePopover({ capabilities }: AppInfoUpdatePopoverProps
     };
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = window.gemUi?.app?.onDownloadProgress?.((progress) => {
+      setDownloadProgress(progress);
+    });
+    return () => {
+      unsubscribe?.();
+    };
+  }, []);
+
   const handleCheckForUpdates = async () => {
     setChecking(true);
+    setDownloadError(null);
+    setDownloadedFilePath(null);
+    setDownloadProgress(null);
     try {
       const result = await window.gemUi.app.checkForUpdates();
       setUpdateInfo(result);
       setLastCheckedAt(new Date());
     } catch (err: unknown) {
       setUpdateInfo({
-        currentVersion: "0.5.0",
+        currentVersion: capabilities.appVersion ?? "0.5.0",
         latestVersion: null,
         updateAvailable: false,
         error: (err as Error).message || "Fehler beim Prüfen auf Updates.",
@@ -67,13 +86,43 @@ export function AppInfoUpdatePopover({ capabilities }: AppInfoUpdatePopoverProps
     }
   };
 
+  const handleDownloadUpdate = async () => {
+    const downloadUrl = updateInfo?.downloadUrl;
+    if (!downloadUrl) return;
+
+    setDownloading(true);
+    setDownloadError(null);
+    setDownloadProgress(null);
+    try {
+      const result = await window.gemUi.app.downloadUpdate({ downloadUrl });
+      setDownloadedFilePath(result.filePath);
+    } catch (err: unknown) {
+      setDownloadError((err as Error).message || "Fehler beim Herunterladen des Updates.");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    if (!downloadedFilePath) return;
+
+    setInstalling(true);
+    setDownloadError(null);
+    try {
+      await window.gemUi.app.installUpdate({ filePath: downloadedFilePath });
+    } catch (err: unknown) {
+      setDownloadError((err as Error).message || "Fehler beim Starten der Installation.");
+      setInstalling(false);
+    }
+  };
+
   const handleOpenReleaseUrl = (url?: string | null) => {
     if (!url) return;
     void window.gemUi.openExternalHttpsUrl(url);
   };
 
   const geminiAvailable = capabilities.gemini.available && capabilities.gemini.acp;
-  const currentAppVersion = updateInfo?.currentVersion ?? "0.5.0";
+  const currentAppVersion = capabilities.appVersion || updateInfo?.currentVersion || "0.5.0";
 
   return (
     <div
@@ -87,9 +136,10 @@ export function AppInfoUpdatePopover({ capabilities }: AppInfoUpdatePopoverProps
         className={`app-info-trigger-button ${open ? "app-info-trigger-button--active" : ""}`}
         onClick={toggleOpen}
         aria-label="App-Informationen und Updates"
-        title="App-Informationen & Nach Updates suchen"
+        title={`GeminUI v${currentAppVersion} - App-Informationen & Updates`}
       >
         <Icon name="info" size={14} />
+        <span className="app-info-trigger-version">v{currentAppVersion}</span>
       </button>
 
       {open && (
@@ -128,13 +178,80 @@ export function AppInfoUpdatePopover({ capabilities }: AppInfoUpdatePopoverProps
                 {updateInfo.releaseNotes && (
                   <p className="update-release-snippet">{updateInfo.releaseNotes.slice(0, 150)}...</p>
                 )}
-                <button
-                  type="button"
-                  className="primary-button update-action-button"
-                  onClick={() => handleOpenReleaseUrl(updateInfo.downloadUrl || updateInfo.htmlUrl)}
-                >
-                  <Icon name="external" size={13} /> Release herunterladen
-                </button>
+
+                {downloadedFilePath ? (
+                  <div className="update-ready-box">
+                    <div className="update-ready-status">
+                      <Icon name="check" size={14} />
+                      <span>Update bereit zur Installation</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="primary-button update-action-button"
+                      onClick={handleInstallUpdate}
+                      disabled={installing}
+                    >
+                      {installing ? (
+                        <>
+                          <span className="mini-spinner" /> Starte Installation …
+                        </>
+                      ) : (
+                        <>
+                          <Icon name="refresh" size={13} /> Jetzt neu starten & installieren
+                        </>
+                      )}
+                    </button>
+                  </div>
+                ) : downloading ? (
+                  <div className="update-downloading-box">
+                    <div className="update-progress-info">
+                      <span>Lade Update herunter …</span>
+                      <span>
+                        {downloadProgress
+                          ? `${downloadProgress.percent}%`
+                          : "Startet …"}
+                      </span>
+                    </div>
+                    <div className="update-progress-bar-track">
+                      <div
+                        className="update-progress-bar-fill"
+                        style={{ width: `${downloadProgress?.percent ?? 5}%` }}
+                      />
+                    </div>
+                    {downloadProgress && downloadProgress.totalBytes > 0 && (
+                      <span className="update-progress-bytes">
+                        {(downloadProgress.receivedBytes / (1024 * 1024)).toFixed(1)} MB von{" "}
+                        {(downloadProgress.totalBytes / (1024 * 1024)).toFixed(1)} MB
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <div className="update-action-group">
+                    <button
+                      type="button"
+                      className="primary-button update-action-button"
+                      onClick={handleDownloadUpdate}
+                      disabled={downloading}
+                    >
+                      <Icon name="download" size={13} /> Update herunterladen & installieren
+                    </button>
+                    <button
+                      type="button"
+                      className="subtle-link update-browser-fallback-button"
+                      onClick={() => handleOpenReleaseUrl(updateInfo.downloadUrl || updateInfo.htmlUrl)}
+                      title="Release im Webbrowser herunterladen"
+                    >
+                      <Icon name="external" size={11} /> Im Browser herunterladen
+                    </button>
+                  </div>
+                )}
+
+                {downloadError && (
+                  <div className="update-error-banner" style={{ marginTop: "8px" }}>
+                    <Icon name="warning" size={14} />
+                    <span>{downloadError}</span>
+                  </div>
+                )}
               </div>
             )}
 
@@ -157,7 +274,7 @@ export function AppInfoUpdatePopover({ capabilities }: AppInfoUpdatePopoverProps
                 type="button"
                 className="secondary-button check-update-button"
                 onClick={handleCheckForUpdates}
-                disabled={checking}
+                disabled={checking || downloading || installing}
               >
                 {checking ? (
                   <>

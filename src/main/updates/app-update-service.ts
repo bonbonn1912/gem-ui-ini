@@ -1,5 +1,9 @@
-import { app } from "electron";
-import type { AppUpdateInfo } from "../../shared/contracts";
+import { app, shell } from "electron";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { spawn } from "node:child_process";
+import type { AppUpdateDownloadProgress, AppUpdateInfo } from "../../shared/contracts";
 
 export function compareSemver(v1: string, v2: string): number {
   const clean = (v: string) =>
@@ -193,6 +197,113 @@ export class AppUpdateService {
         updateAvailable: false,
         error: (err as Error).message || "Verbindung zu GitHub fehlgeschlagen.",
       };
+    }
+  }
+
+  async downloadUpdate(
+    downloadUrl: string,
+    onProgress?: (progress: AppUpdateDownloadProgress) => void,
+    signal?: AbortSignal,
+  ): Promise<{ filePath: string }> {
+    const parsed = new URL(downloadUrl);
+    if (parsed.protocol !== "https:") {
+      throw new Error("Updates können nur über sichere HTTPS-Verbindungen heruntergeladen werden.");
+    }
+
+    const rawFileName = path.basename(parsed.pathname) || "geminui-update.exe";
+    const tempDir = app?.getPath ? app.getPath("temp") : os.tmpdir();
+    const destinationPath = path.join(tempDir, `geminui-update-${Date.now()}-${rawFileName}`);
+
+    const response = await this.#fetch(downloadUrl, {
+      method: "GET",
+      headers: {
+        "User-Agent": "GeminUI-Desktop-App",
+      },
+      signal,
+    });
+
+    if (!response.ok || !response.body) {
+      throw new Error(`Download fehlgeschlagen mit Status ${response.status}: ${response.statusText}`);
+    }
+
+    const contentLengthHeader = response.headers.get("content-length");
+    const totalBytes = contentLengthHeader ? parseInt(contentLengthHeader, 10) : 0;
+    let receivedBytes = 0;
+
+    const fileStream = fs.createWriteStream(destinationPath);
+    const reader = response.body.getReader();
+
+    try {
+      while (true) {
+        if (signal?.aborted) {
+          throw new Error("Download abgebrochen.");
+        }
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          receivedBytes += value.length;
+          fileStream.write(Buffer.from(value));
+          if (onProgress) {
+            const percent = totalBytes > 0 ? Math.min(100, Math.round((receivedBytes / totalBytes) * 100)) : 0;
+            onProgress({
+              receivedBytes,
+              totalBytes: totalBytes > 0 ? totalBytes : receivedBytes,
+              percent,
+            });
+          }
+        }
+      }
+      await new Promise<void>((resolve, reject) => {
+        fileStream.end((err: Error | null | undefined) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+    } catch (err) {
+      fileStream.close();
+      try {
+        if (fs.existsSync(destinationPath)) {
+          fs.unlinkSync(destinationPath);
+        }
+      } catch {
+        // ignore
+      }
+      throw err;
+    }
+
+    return { filePath: destinationPath };
+  }
+
+  async installUpdate(filePath: string): Promise<void> {
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`Installationsdatei nicht gefunden: ${filePath}`);
+    }
+
+    if (this.#platform === "win32") {
+      const child = spawn(filePath, ["--updated"], {
+        detached: true,
+        stdio: "ignore",
+      });
+      child.unref();
+      if (app?.quit) {
+        setTimeout(() => {
+          app.quit();
+        }, 300);
+      }
+    } else if (this.#platform === "darwin") {
+      await shell.openPath(filePath);
+      if (app?.quit) {
+        setTimeout(() => {
+          app.quit();
+        }, 500);
+      }
+    } else {
+      await shell.openPath(filePath);
+      if (app?.quit) {
+        setTimeout(() => {
+          app.quit();
+        }, 500);
+      }
     }
   }
 }

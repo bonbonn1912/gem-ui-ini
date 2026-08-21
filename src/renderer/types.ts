@@ -4,6 +4,7 @@ import type {
   AppCapabilities as ContractAppCapabilities,
   AppSession as ContractAppSession,
   AppUpdateInfo as ContractAppUpdateInfo,
+  AppUpdateDownloadProgress as ContractAppUpdateDownloadProgress,
   SessionReconnectState as ContractSessionReconnectState,
   Attachment as ContractAttachment,
   ContextAttachment as ContractContextAttachment,
@@ -53,6 +54,7 @@ export type ExternalPromptContextRef = ContractExternalPromptContextRef;
 export type ExternalPromptContextSnapshot = ContractExternalPromptContextSnapshot;
 export type AppCapabilities = ContractAppCapabilities;
 export type AppUpdateInfo = ContractAppUpdateInfo;
+export type AppUpdateDownloadProgress = ContractAppUpdateDownloadProgress;
 export type SessionReconnectState = ContractSessionReconnectState;
 export type AppProject = ProjectWithRoots;
 export type ProjectRoot = ContractProjectRoot;
