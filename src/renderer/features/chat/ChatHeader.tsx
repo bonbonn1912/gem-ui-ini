@@ -1,3 +1,4 @@
+import { useRef, useState } from "react";
 import { Icon } from "../../components/Icon";
 import { useDismissOnOutsideClick } from "../../hooks/useDismissOnOutsideClick";
 import type {
@@ -225,6 +226,154 @@ function usagePresentation(chat: ChatState, working: boolean): UsagePresentation
   };
 }
 
+const FALLBACK_MODELS: readonly SessionMode[] = [
+  { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro" },
+  { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
+  { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash" },
+  { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro" },
+  { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash" },
+  { id: "auto", name: "Auto" },
+];
+
+const FALLBACK_MODES: readonly SessionMode[] = [
+  { id: "auto", name: "Auto" },
+  { id: "plan", name: "Plan" },
+  { id: "ask", name: "Ask" },
+];
+
+function TokenUsageDetails({
+  chat,
+  working,
+  usage,
+}: {
+  chat: ChatState;
+  working: boolean;
+  usage: UsagePresentation;
+}) {
+  const [open, setOpen] = useState(false);
+  const timeoutRef = useRef<number | null>(null);
+
+  const handleMouseEnter = () => {
+    if (timeoutRef.current) {
+      window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    setOpen(true);
+  };
+
+  const handleMouseLeave = () => {
+    timeoutRef.current = window.setTimeout(() => {
+      setOpen(false);
+    }, 200);
+  };
+
+  const snapshot = chat.usage;
+  const sessionTokens = snapshot?.session?.tokens;
+  const lastTurnTokens = snapshot?.lastTurn?.tokens;
+  const context = snapshot?.context;
+
+  const inTokens = sessionTokens?.input ?? lastTurnTokens?.input ?? null;
+  const outTokens = sessionTokens?.output ?? lastTurnTokens?.output ?? null;
+  const cachedTokens = sessionTokens?.cachedRead ?? sessionTokens?.cachedWrite ?? lastTurnTokens?.cachedRead ?? null;
+  const totalTokens = sessionTokens?.total ?? lastTurnTokens?.total ?? null;
+
+  return (
+    <div
+      className="token-usage-container"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
+      <div
+        className="usage-pill"
+        role="button"
+        tabIndex={0}
+        title={usage.title}
+        onClick={() => setOpen((prev: boolean) => !prev)}
+        aria-label={usage.title.replaceAll("\n", ". ")}
+      >
+        {usage.percent !== undefined && (
+          <i aria-hidden="true"><span style={{ width: `${Math.min(100, Math.max(0, usage.percent))}%` }} /></i>
+        )}
+        {usage.placeholder !== null ? (
+          <span>{usage.placeholder}</span>
+        ) : (
+          <span className="usage-metric">
+            {usage.caption && <span>{usage.caption}</span>}
+            <strong>{usage.value}</strong>
+          </span>
+        )}
+      </div>
+
+      {open && (
+        <div className="token-details-popover" role="dialog" aria-label="Token-Nutzung Details">
+          <header className="token-details-header">
+            <div className="token-details-title">
+              <Icon name="sparkle" size={14} />
+              <strong>Token-Nutzung</strong>
+            </div>
+            <span className={`token-details-status-badge ${working ? "token-details-status-badge--working" : ""}`}>
+              {working ? "Turn läuft …" : "Session"}
+            </span>
+          </header>
+
+          <div className="token-details-grid">
+            <div className="token-metric-card">
+              <span className="token-metric-label">Input</span>
+              <strong className="token-metric-value">{inTokens !== null ? exactNumber(inTokens) : "–"}</strong>
+              <small className="token-metric-sub">Eingabe</small>
+            </div>
+            <div className="token-metric-card">
+              <span className="token-metric-label">Output</span>
+              <strong className="token-metric-value">{outTokens !== null ? exactNumber(outTokens) : "–"}</strong>
+              <small className="token-metric-sub">Ausgabe</small>
+            </div>
+            <div className="token-metric-card">
+              <span className="token-metric-label">Cached</span>
+              <strong className="token-metric-value">{cachedTokens !== null ? exactNumber(cachedTokens) : "0"}</strong>
+              <small className="token-metric-sub">Cache</small>
+            </div>
+          </div>
+
+          <div className="token-details-total-row">
+            <span>Gesamtverbrauch:</span>
+            <strong>{totalTokens !== null ? `${exactNumber(totalTokens)} Token` : "–"}</strong>
+          </div>
+
+          {context && (
+            <div className="token-details-context-box">
+              <div className="token-details-context-header">
+                <span>Kontextfenster-Belegung</span>
+                <strong>{Math.round((context.used / context.size) * 100)} %</strong>
+              </div>
+              <div className="token-context-bar-track">
+                <div
+                  className="token-context-bar-fill"
+                  style={{ width: `${Math.min(100, (context.used / context.size) * 100)}%` }}
+                />
+              </div>
+              <div className="token-details-context-numbers">
+                <span>{exactNumber(context.used)} belegt</span>
+                <span>{exactNumber(context.size)} max</span>
+              </div>
+            </div>
+          )}
+
+          {snapshot?.lastTurn && (
+            <div className="token-details-last-turn">
+              <div className="token-last-turn-title">Letzter Turn:</div>
+              <div className="token-last-turn-stats">
+                <span>In: <strong>{lastTurnTokens?.input !== null && lastTurnTokens?.input !== undefined ? exactNumber(lastTurnTokens.input) : "–"}</strong></span>
+                <span>Out: <strong>{lastTurnTokens?.output !== null && lastTurnTokens?.output !== undefined ? exactNumber(lastTurnTokens.output) : "–"}</strong></span>
+                <span>Cache: <strong>{lastTurnTokens?.cachedRead !== null && lastTurnTokens?.cachedRead !== undefined ? exactNumber(lastTurnTokens.cachedRead) : "–"}</strong></span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ChatHeader({
   project,
   session,
@@ -236,16 +385,18 @@ export function ChatHeader({
   onSetModel,
 }: ChatHeaderProps) {
   const menuRef = useDismissOnOutsideClick<HTMLDetailsElement>();
-  // Two sources, both incomplete on their own: the cached lists carry display
-  // names and are there from app start, the live event carries only IDs but is
-  // the fresher one once a session runs. The current selection is appended so
-  // it can never be missing from its own picker.
-  const modes = mergeOptions(session.availableModes, chat.modes, session.mode, optionLabel);
-  const models = mergeOptions(session.availableModels, chat.models, session.model, (id) => id);
+  let modes = mergeOptions(session.availableModes, chat.modes, session.mode, optionLabel);
+  if (modes.length <= 1) {
+    modes = mergeOptions([...modes, ...FALLBACK_MODES], [], session.mode, optionLabel);
+  }
+
+  let models = mergeOptions(session.availableModels, chat.models, session.model, (id) => id);
+  if (models.length <= 1) {
+    models = mergeOptions([...models, ...FALLBACK_MODELS], [], session.model, (id) => id);
+  }
+
   const working = ["running", "awaiting_permission", "cancelling"].includes(chat.phase);
   const usage = usagePresentation(chat, working);
-  // The button carries the two facts the popover would otherwise hide. Both can
-  // be unknown, and an empty button would be worse than an honest fallback.
   const summaryLabel = [
     models.find((model) => model.id === session.model)?.name ?? session.model,
     modes.find((mode) => mode.id === session.mode)?.name ?? session.mode,
@@ -268,23 +419,7 @@ export function ChatHeader({
       </div>
 
       <div className="header-actions">
-        <span
-          className="usage-pill"
-          title={usage.title}
-          aria-label={usage.title.replaceAll("\n", ". ")}
-        >
-          {usage.percent !== undefined && (
-            <i aria-hidden="true"><span style={{ width: `${Math.min(100, Math.max(0, usage.percent))}%` }} /></i>
-          )}
-          {usage.placeholder !== null ? (
-            <span>{usage.placeholder}</span>
-          ) : (
-            <span className="usage-metric">
-              {usage.caption && <span>{usage.caption}</span>}
-              <strong>{usage.value}</strong>
-            </span>
-          )}
-        </span>
+        <TokenUsageDetails chat={chat} working={working} usage={usage} />
 
         {/* Model, mode and the project roots describe how this session runs.
             They are read far more often than they are changed, so the button
@@ -298,13 +433,12 @@ export function ChatHeader({
           <div className="session-settings-popover">
             <div className="session-settings-row">
               <span className="session-settings-label">Modell</span>
-              {modelsSupported && models.length > 1 ? (
+              {modelsSupported ? (
                 <label className="model-select">
                   <span className="sr-only">Gemini-Modell</span>
                   <select
-                    value={session.model ?? ""}
+                    value={session.model ?? models[0]?.id ?? ""}
                     onChange={(event) => onSetModel(event.target.value)}
-                    disabled={working}
                     aria-label="Gemini-Modell"
                   >
                     {!session.model && <option value="" disabled>Modell wählen</option>}
@@ -315,15 +449,9 @@ export function ChatHeader({
                   <Icon name="chevron-down" size={13} />
                 </label>
               ) : (
-                /* One entry means the merge only recovered the current model — a
-                   dropdown that cannot change anything would promise a choice
-                   that does not exist, so the value is stated instead. */
                 <span
                   className="model-pill"
-                  title={modelsSupported
-                    ? "Gemini hat noch keine auswählbaren Modelle gemeldet."
-                    : "Diese Gemini-ACP-Anbindung stellt keinen Modellwechsel bereit."
-                  }
+                  title="Diese Gemini-ACP-Anbindung stellt keinen Modellwechsel bereit."
                 >
                   <strong>{session.model ?? NOT_REPORTED}</strong>
                 </span>
@@ -332,23 +460,19 @@ export function ChatHeader({
 
             <div className="session-settings-row">
               <span className="session-settings-label">Modus</span>
-              {modes.length ? (
-                <label className="mode-select">
-                  <span className="sr-only">Gemini-Modus</span>
-                  <select
-                    value={session.mode ?? modes[0]?.id ?? ""}
-                    onChange={(event) => onSetMode(event.target.value)}
-                    disabled={working}
-                  >
-                    {modes.map((mode) => (
-                      <option key={mode.id} value={mode.id} title={mode.description}>{mode.name}</option>
-                    ))}
-                  </select>
-                  <Icon name="chevron-down" size={13} />
-                </label>
-              ) : (
-                <span className="model-pill"><strong>{session.mode ?? NOT_REPORTED}</strong></span>
-              )}
+              <label className="mode-select">
+                <span className="sr-only">Gemini-Modus</span>
+                <select
+                  value={session.mode ?? modes[0]?.id ?? ""}
+                  onChange={(event) => onSetMode(event.target.value)}
+                  aria-label="Gemini-Modus"
+                >
+                  {modes.map((mode) => (
+                    <option key={mode.id} value={mode.id} title={mode.description}>{mode.name}</option>
+                  ))}
+                </select>
+                <Icon name="chevron-down" size={13} />
+              </label>
             </div>
 
             <div className="roots-popover-heading">
