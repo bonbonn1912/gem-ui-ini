@@ -44,6 +44,7 @@ import {
   type SetProjectRootsInput,
   type SetProjectApprovalPolicyInput,
   type SearchProjectFilesInput,
+  type SearchSessionsInput,
   type SetSessionModeInput,
   type SetSessionModelInput,
   type SetContextInclusionInput,
@@ -347,6 +348,10 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
     options.controller.getSessionReconnectState(
       input as { sessionId: string },
     ),
+  );
+
+  register(IPC_CHANNELS.searchSessions, (input) =>
+    options.controller.searchSessions(input as SearchSessionsInput),
   );
 
   register(IPC_CHANNELS.pickImages, (input) =>

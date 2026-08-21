@@ -159,6 +159,8 @@ import {
   DeleteSessionInputSchema,
   ListSessionsInputSchema,
   PermissionResponseSchema,
+  SearchSessionsInputSchema,
+  SessionSearchResultSchema,
   SendPromptInputSchema,
   SetSessionModeInputSchema,
   SetSessionModelInputSchema,
@@ -169,6 +171,8 @@ import {
   type DeleteSessionInput,
   type ListSessionsInput,
   type PermissionResponse,
+  type SearchSessionsInput,
+  type SessionSearchResult,
   type SendPromptInput,
   type SetSessionModeInput,
   type SetSessionModelInput,
@@ -396,6 +400,7 @@ export const IPC_CHANNELS = {
   setSessionMode: "sessions:set-mode",
   setSessionModel: "sessions:set-model",
   getSessionReconnectState: "sessions:get-reconnect-state",
+  searchSessions: "sessions:search",
   chooseGeminiBinary: "settings:choose-gemini-binary",
   chooseGitBinary: "settings:choose-git-binary",
   pickImages: "attachments:pick-images",
@@ -496,6 +501,7 @@ export const IpcRequestSchemas = {
   [IPC_CHANNELS.setSessionMode]: SetSessionModeInputSchema,
   [IPC_CHANNELS.setSessionModel]: SetSessionModelInputSchema,
   [IPC_CHANNELS.getSessionReconnectState]: GetSessionReconnectStateInputSchema,
+  [IPC_CHANNELS.searchSessions]: SearchSessionsInputSchema,
   [IPC_CHANNELS.chooseGeminiBinary]: EmptyInputSchema,
   [IPC_CHANNELS.chooseGitBinary]: EmptyInputSchema,
   [IPC_CHANNELS.pickImages]: PickImagesInputSchema,
@@ -584,6 +590,7 @@ export const IpcResponseSchemas = {
   [IPC_CHANNELS.setSessionMode]: AppSessionSchema,
   [IPC_CHANNELS.setSessionModel]: AppSessionSchema,
   [IPC_CHANNELS.getSessionReconnectState]: SessionReconnectStateSchema,
+  [IPC_CHANNELS.searchSessions]: SessionSearchResultSchema,
   [IPC_CHANNELS.chooseGeminiBinary]: AppCapabilitiesSchema,
   [IPC_CHANNELS.chooseGitBinary]: AppCapabilitiesSchema,
   [IPC_CHANNELS.pickImages]: z.array(AttachmentSchema).max(4),
@@ -706,6 +713,7 @@ export interface GemUiDesktopApi {
     getReconnectState(
       input: GetSessionReconnectStateInput,
     ): Promise<SessionReconnectState>;
+    search(input: SearchSessionsInput): Promise<SessionSearchResult>;
   };
   settings: {
     chooseGeminiBinary(): Promise<AppCapabilities>;

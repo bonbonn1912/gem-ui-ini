@@ -99,12 +99,19 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .new-session-button { height: 38px; margin: 4px 12px 10px; padding: 0 11px; display: flex; align-items: center; gap: 9px; border: 1px solid rgba(255,255,255,.09); border-radius: 10px; color: var(--sidebar-text); background: rgba(255,255,255,.045); font-size: 12.5px; font-weight: 610; cursor: pointer; }
 .new-session-button:hover:not(:disabled) { background: var(--sidebar-hover); border-color: rgba(255,255,255,.14); }
 .shortcut { margin-left: auto; color: #737783; font-size: 10px; font-weight: 500; }
+.session-search-wrapper { margin: 0 12px 8px; display: grid; gap: 4px; }
 .session-search { height: 33px; margin: 0 12px 8px; padding: 0 9px; display: flex; align-items: center; gap: 7px; border-radius: 8px; color: #767b87; background: rgba(255,255,255,.045); border: 1px solid transparent; }
+.session-search-wrapper .session-search { margin: 0; }
 .session-search:focus-within { color: #a9adba; border-color: rgba(132,123,255,.38); background: rgba(255,255,255,.065); }
 .session-search input { width: 100%; min-width: 0; border: 0; outline: 0; color: var(--sidebar-text); background: transparent; font-size: 12px; }
 .session-search input::placeholder { color: #737782; }
 .session-search input::-webkit-search-cancel-button { display: none; }
 .session-search button { width: 20px; height: 20px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 5px; color: #858a95; background: transparent; cursor: pointer; }
+.session-search-toggle { display: flex; align-items: center; gap: 6px; padding: 1px 4px; font-size: 10.5px; color: #787d8a; cursor: pointer; user-select: none; transition: color 0.15s ease; }
+.session-search-toggle:hover { color: #b5b9c5; }
+.session-search-toggle input[type="checkbox"] { width: 12px; height: 12px; margin: 0; accent-color: #8c82ff; cursor: pointer; }
+.session-search-snippet { display: block; overflow: hidden; color: #8e94a0; font-size: 10.2px; text-overflow: ellipsis; white-space: nowrap; line-height: 1.25; opacity: 0.9; }
+.search-highlight { background: rgba(234, 179, 8, 0.35); color: #fef08a; border-radius: 2px; padding: 0 2px; font-weight: 600; text-decoration: none; }
 .sessions-scroll { flex: 1; min-height: 0; padding: 3px 7px 20px; overflow-y: auto; overflow-x: hidden; }
 .session-group { margin: 0 0 13px; }
 .session-group > h2 { height: 21px; margin: 0; padding: 0 9px; display: flex; align-items: center; color: #777b86; font-size: 9.5px; font-weight: 720; letter-spacing: .085em; text-transform: uppercase; }

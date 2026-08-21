@@ -188,6 +188,7 @@ const desktopApi: GemUiDesktopApi = {
     setModel: (input) => ipcRenderer.invoke(IPC_CHANNELS.setSessionModel, input),
     getReconnectState: (input) =>
       ipcRenderer.invoke(IPC_CHANNELS.getSessionReconnectState, input),
+    search: (input) => ipcRenderer.invoke(IPC_CHANNELS.searchSessions, input),
   },
 
   attachments: {
