@@ -1,6 +1,8 @@
 import { useMemo, useState, type KeyboardEvent } from "react";
 import { Icon } from "../../components/Icon";
+import { useDismissOnOutsideClick } from "../../hooks/useDismissOnOutsideClick";
 import type { AppCapabilities, AppProject, AppSession } from "../../types";
+import { AppInfoUpdatePopover } from "../updates/AppInfoUpdatePopover";
 
 type SessionPatch = Pick<AppSession, "title" | "pinned" | "archived">;
 
@@ -62,6 +64,7 @@ function SessionRow({
   onUpdate: (patch: Partial<SessionPatch>) => void;
   onDelete: () => void;
 }) {
+  const menuRef = useDismissOnOutsideClick<HTMLDetailsElement>();
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState(session.title);
 
@@ -111,7 +114,7 @@ function SessionRow({
         </span>
         {session.pinned && <Icon name="pin" size={12} className="session-pin" />}
       </button>
-      <details className="session-menu">
+      <details ref={menuRef} className="session-menu">
         <summary aria-label={`Aktionen für ${session.title}`}><Icon name="more" size={17} /></summary>
         <div className="session-menu-popover">
           <button type="button" onClick={() => setRenaming(true)}>Umbenennen</button>
@@ -286,8 +289,11 @@ export function Sidebar({
         </div>
 
         <div className="sidebar-footer">
-          <span className={`agent-dot agent-dot--${capabilities.gemini.available && capabilities.gemini.acp ? "ready" : "error"}`} />
-          <span>{capabilities.gemini.available && capabilities.gemini.acp ? `Gemini ${capabilities.gemini.version ?? "bereit"}` : "Gemini nicht bereit"}</span>
+          <div className="sidebar-footer-cli">
+            <span className={`agent-dot agent-dot--${capabilities.gemini.available && capabilities.gemini.acp ? "ready" : "error"}`} />
+            <span>{capabilities.gemini.available && capabilities.gemini.acp ? `Gemini ${capabilities.gemini.version ?? "bereit"}` : "Gemini nicht bereit"}</span>
+          </div>
+          <AppInfoUpdatePopover capabilities={capabilities} />
         </div>
       </aside>
     </>

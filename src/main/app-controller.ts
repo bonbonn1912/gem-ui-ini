@@ -8,6 +8,7 @@ import {
   type CreateSessionInput,
   type DeleteSessionInput,
   GetProjectApprovalPolicyInputSchema,
+  type GetSessionReconnectStateInput,
   type ListSessionsInput,
   ProjectApprovalPolicySchema,
   type ProjectApprovalPolicy,
@@ -15,6 +16,7 @@ import {
   type PermissionResponse as UiPermissionResponse,
   type SendPromptInput,
   type SessionOption,
+  type SessionReconnectState,
   type SetSessionModeInput,
   type SetSessionModelInput,
   SetProjectApprovalPolicyInputSchema,
@@ -64,6 +66,8 @@ type PendingEventBuffer = {
   }>;
 };
 
+import type { ExternalPromptContextRegistry } from "./integrations/external-prompt-context-registry";
+
 export type AppControllerOptions = {
   projects: ProjectService;
   sessions: SessionRepository;
@@ -75,6 +79,7 @@ export type AppControllerOptions = {
   capabilities: GeminiCapabilityService;
   usage: UsageService;
   publishEvents: (events: StreamEnvelope[]) => void | Promise<void>;
+  externalContextRegistry?: ExternalPromptContextRegistry;
 };
 
 export class AppController implements ProjectRuntimeCoordinator {
@@ -88,8 +93,10 @@ export class AppController implements ProjectRuntimeCoordinator {
   readonly #capabilities: GeminiCapabilityService;
   readonly #usage: UsageService;
   readonly #publishEvents: AppControllerOptions["publishEvents"];
+  readonly #externalContextRegistry?: ExternalPromptContextRegistry;
   readonly #activeTurns = new Map<string, ActiveTurn>();
   readonly #eventBuffers = new Map<string, PendingEventBuffer>();
+  readonly #reconnectedSessions = new Set<string>();
   #manager: GeminiSessionManager | null = null;
   #managerBinaryPath: string | null = null;
   #unsubscribeManager: (() => void) | null = null;
@@ -105,6 +112,7 @@ export class AppController implements ProjectRuntimeCoordinator {
     this.#capabilities = options.capabilities;
     this.#usage = options.usage;
     this.#publishEvents = options.publishEvents;
+    this.#externalContextRegistry = options.externalContextRegistry;
   }
 
   listSessions(input: ListSessionsInput): AppSession[] {
@@ -242,18 +250,37 @@ export class AppController implements ProjectRuntimeCoordinator {
       input.attachmentIds.length > 0
         ? await this.#attachmentService.getPromptImages(input.attachmentIds)
         : [];
+    const projectFilesContext = await this.#projectFiles.buildPromptContext({
+      projectId: session.projectId,
+      expectedRootRevision: input.expectedRootRevision,
+      references: input.projectFiles ?? [],
+    });
     const context = await this.#contextAttachments.buildPromptContext({
       projectId: session.projectId,
       sessionId: session.id,
       attachmentIds: input.contextAttachmentIds ?? [],
       imagesSupported: this.#capabilities.snapshot().gemini.images,
     });
-    const projectFiles = await this.#projectFiles.buildPromptContext({
-      projectId: session.projectId,
-      expectedRootRevision: input.expectedRootRevision,
-      references: input.projectFiles ?? [],
-    });
-    const parts: PromptPart[] = [...context.parts, ...projectFiles.parts];
+    const external = this.#externalContextRegistry
+      ? await this.#externalContextRegistry.resolve(input.externalContextRefs ?? [])
+      : { parts: [], snapshots: [] };
+
+    const parts: PromptPart[] = [];
+    if (this.#reconnectedSessions.has(session.id)) {
+      this.#reconnectedSessions.delete(session.id);
+      const compressedHistory = this.#buildCompressedHistory(session.id);
+      if (compressedHistory) {
+        parts.push({
+          type: "text",
+          text: `[Kontext: Bisheriger Gesprächsverlauf dieser Session]\n${compressedHistory}\n[Ende des bisherigen Verlaufs. Beantworte nun die folgende Benutzeranfrage unter Berücksichtigung dieses Verlaufs:]`,
+        });
+      }
+    }
+    parts.push(
+      ...external.parts,
+      ...projectFilesContext.parts,
+      ...context.parts,
+    );
     for (const image of images) {
       parts.push({
         type: "image",
@@ -281,7 +308,8 @@ export class AppController implements ProjectRuntimeCoordinator {
         text: input.text,
         attachmentIds: input.attachmentIds,
         contextAttachments: context.snapshots,
-        projectFiles: projectFiles.snapshots,
+        projectFiles: projectFilesContext.snapshots,
+        externalContexts: external.snapshots,
       },
       timestamp,
     });
@@ -330,6 +358,19 @@ export class AppController implements ProjectRuntimeCoordinator {
       mode: input.modeId,
       updatedAt: new Date().toISOString(),
     });
+  }
+
+  getSessionReconnectState(
+    input: GetSessionReconnectStateInput,
+  ): SessionReconnectState {
+    const hasHistory = this.#hasPreviousHistory(input.sessionId);
+    const reconnected =
+      this.#reconnectedSessions.has(input.sessionId) && hasHistory;
+    return {
+      sessionId: input.sessionId,
+      reconnected,
+      hasHistory,
+    };
   }
 
   async getProjectApprovalPolicy(
@@ -413,8 +454,9 @@ export class AppController implements ProjectRuntimeCoordinator {
     const session = this.#sessions.getById(input.sessionId);
     const access = await this.#projects.getCurrentAccess(session.projectId);
     await this.#ensureManagedSession(session, access);
-    const models = this.#manager?.getSession(input.sessionId)?.models;
-    if (!models?.availableModels.some((model) => model.id === input.modelId)) {
+    const managedSession = this.#manager?.getSession(input.sessionId);
+    const available = managedSession?.models?.availableModels ?? session.availableModels;
+    if (available && available.length > 0 && !available.some((model) => model.id === input.modelId)) {
       throw new Error(
         "Dieses Modell wurde von der aktuellen Gemini-Session nicht angeboten.",
       );
@@ -545,16 +587,31 @@ export class AppController implements ProjectRuntimeCoordinator {
       updatedAt: new Date().toISOString(),
     });
     try {
-      const snapshot = session.providerSessionId
-        ? await manager.loadSession({
+      let snapshot: Awaited<ReturnType<GeminiSessionManager["createSession"]>>;
+      if (session.providerSessionId) {
+        try {
+          snapshot = await manager.loadSession({
             appSessionId: session.id,
             providerSessionId: session.providerSessionId,
             access: toGeminiAccess(access),
-          })
-        : await manager.createSession({
+          });
+        } catch (loadError) {
+          console.warn(
+            `[AppController] Konnte vorherige ACP-Session ${session.providerSessionId} für Session ${session.id} nicht laden. Erstelle neue Session. Fehler:`,
+            loadError,
+          );
+          this.#reconnectedSessions.add(session.id);
+          snapshot = await manager.createSession({
             appSessionId: session.id,
             access: toGeminiAccess(access),
           });
+        }
+      } else {
+        snapshot = await manager.createSession({
+          appSessionId: session.id,
+          access: toGeminiAccess(access),
+        });
+      }
 
       const appliedMode = await this.#applyProjectApprovalDefault(
         session.projectId,
@@ -805,6 +862,63 @@ export class AppController implements ProjectRuntimeCoordinator {
     });
     this.#activeTurns.delete(sessionId);
     this.#safeSessionUpdate(sessionId, { status: "error" });
+  }
+
+  #buildCompressedHistory(sessionId: string): string | null {
+    const envelopes = this.#events.listAfter(sessionId, 0, 1000);
+    if (envelopes.length === 0) return null;
+
+    const turns: Array<{ role: "User" | "Assistant"; text: string }> = [];
+    let currentAssistantText = "";
+
+    for (const env of envelopes) {
+      const event = env.event;
+      if (event.type === "message.user") {
+        if (currentAssistantText.trim()) {
+          turns.push({ role: "Assistant", text: currentAssistantText.trim() });
+          currentAssistantText = "";
+        }
+        if (event.text && event.text.trim()) {
+          turns.push({ role: "User", text: event.text.trim() });
+        }
+      } else if (event.type === "message.assistant.delta") {
+        currentAssistantText += event.delta;
+      } else if (
+        event.type === "turn.completed" ||
+        event.type === "turn.failed" ||
+        event.type === "turn.cancelled"
+      ) {
+        if (currentAssistantText.trim()) {
+          turns.push({ role: "Assistant", text: currentAssistantText.trim() });
+          currentAssistantText = "";
+        }
+      }
+    }
+
+    if (currentAssistantText.trim()) {
+      turns.push({ role: "Assistant", text: currentAssistantText.trim() });
+    }
+
+    if (turns.length === 0) return null;
+
+    return turns
+      .map((t) => {
+        const text =
+          t.text.length > 2000
+            ? `${t.text.slice(0, 1950)}... [gekürzt]`
+            : t.text;
+        return `${t.role}: ${text}`;
+      })
+      .join("\n\n");
+  }
+
+  #hasPreviousHistory(sessionId: string): boolean {
+    const envelopes = this.#events.listAfter(sessionId, 0, 10);
+    return envelopes.some(
+      (env) =>
+        env.event.type === "message.user" ||
+        env.event.type === "message.assistant.delta",
+    );
   }
 
   #safeSessionUpdate(

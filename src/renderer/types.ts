@@ -1,16 +1,41 @@
 import type {
   AgentEvent as ContractAgentEvent,
+  AgentExtensionScope as ContractAgentExtensionScope,
   AppCapabilities as ContractAppCapabilities,
   AppSession as ContractAppSession,
+  AppUpdateInfo as ContractAppUpdateInfo,
+  AppUpdateDownloadProgress as ContractAppUpdateDownloadProgress,
+  SessionReconnectState as ContractSessionReconnectState,
   Attachment as ContractAttachment,
   ContextAttachment as ContractContextAttachment,
   ContextAttachmentList as ContractContextAttachmentList,
   GemUiDesktopApi as ContractGemUiDesktopApi,
+  GeminiSkill as ContractGeminiSkill,
+  GeminiSkillList as ContractGeminiSkillList,
+  McpServer as ContractMcpServer,
+  McpServerList as ContractMcpServerList,
+  McpTransport as ContractMcpTransport,
   GitFileChange as ContractGitFileChange,
   GitDiffLine as ContractGitDiffLine,
   GitFileDiff as ContractGitFileDiff,
   GitProjectStatus as ContractGitProjectStatus,
   GitRepositorySummary as ContractGitRepositorySummary,
+  GitLabAccessMode as ContractGitLabAccessMode,
+  GitLabUserSummary as ContractGitLabUserSummary,
+  GitLabConnectionSummary as ContractGitLabConnectionSummary,
+  GitLabRepositoryBinding as ContractGitLabRepositoryBinding,
+  GitLabRepositoryCandidate as ContractGitLabRepositoryCandidate,
+  GitLabMergeRequestSummary as ContractGitLabMergeRequestSummary,
+  GitLabLineRange as ContractGitLabLineRange,
+  GitLabDiffPosition as ContractGitLabDiffPosition,
+  GitLabDiscussionNote as ContractGitLabDiscussionNote,
+  GitLabDiscussion as ContractGitLabDiscussion,
+  GitLabReviewState as ContractGitLabReviewState,
+  ExternalPromptContextRef as ContractExternalPromptContextRef,
+  ExternalPromptContextSnapshot as ContractExternalPromptContextSnapshot,
+  PreparedExternalContext as ContractPreparedExternalContext,
+  IntegrationDescriptor as ContractIntegrationDescriptor,
+  ProjectIntegrationStatus as ContractProjectIntegrationStatus,
   PermissionOption as ContractPermissionOption,
   ProjectRoot as ContractProjectRoot,
   ProjectRootCandidate as ContractProjectRootCandidate,
@@ -18,11 +43,19 @@ import type {
   ProjectFileSearchEntry as ContractProjectFileSearchEntry,
   ProjectWithRoots,
   StreamEnvelope as ContractStreamEnvelope,
+  Todo as ContractTodo,
+  TodoList as ContractTodoList,
+  TodoPromptDraft as ContractTodoPromptDraft,
   TokenCounters as ContractTokenCounters,
   UsageSnapshot as ContractUsageSnapshot,
 } from "../shared/contracts";
 
+export type ExternalPromptContextRef = ContractExternalPromptContextRef;
+export type ExternalPromptContextSnapshot = ContractExternalPromptContextSnapshot;
 export type AppCapabilities = ContractAppCapabilities;
+export type AppUpdateInfo = ContractAppUpdateInfo;
+export type AppUpdateDownloadProgress = ContractAppUpdateDownloadProgress;
+export type SessionReconnectState = ContractSessionReconnectState;
 export type AppProject = ProjectWithRoots;
 export type ProjectRoot = ContractProjectRoot;
 export type ProjectRootCandidate = ContractProjectRootCandidate;
@@ -31,6 +64,9 @@ export type ProjectFileSearchEntry = ContractProjectFileSearchEntry;
 export type Attachment = ContractAttachment;
 export type ContextAttachment = ContractContextAttachment;
 export type ContextAttachmentList = ContractContextAttachmentList;
+export type Todo = ContractTodo;
+export type TodoList = ContractTodoList;
+export type TodoPromptDraft = ContractTodoPromptDraft;
 export type PermissionOption = ContractPermissionOption;
 export type AgentEvent = ContractAgentEvent;
 export type StreamEnvelope = ContractStreamEnvelope;
@@ -41,6 +77,27 @@ export type GitDiffLine = ContractGitDiffLine;
 export type GitFileDiff = ContractGitFileDiff;
 export type GitProjectStatus = ContractGitProjectStatus;
 export type GitRepositorySummary = ContractGitRepositorySummary;
+export type GitLabAccessMode = ContractGitLabAccessMode;
+export type GitLabUserSummary = ContractGitLabUserSummary;
+export type GitLabConnectionSummary = ContractGitLabConnectionSummary;
+export type GitLabRepositoryBinding = ContractGitLabRepositoryBinding;
+export type GitLabRepositoryCandidate = ContractGitLabRepositoryCandidate;
+export type GitLabMergeRequestSummary = ContractGitLabMergeRequestSummary;
+export type GitLabLineRange = ContractGitLabLineRange;
+export type GitLabDiffPosition = ContractGitLabDiffPosition;
+export type GitLabDiscussionNote = ContractGitLabDiscussionNote;
+export type GitLabDiscussion = ContractGitLabDiscussion;
+export type GitLabReviewState = ContractGitLabReviewState;
+export type PreparedExternalContext = ContractPreparedExternalContext;
+export type IntegrationDescriptor = ContractIntegrationDescriptor;
+export type ProjectIntegrationStatus = ContractProjectIntegrationStatus;
+
+export type AgentExtensionScope = ContractAgentExtensionScope;
+export type GeminiSkill = ContractGeminiSkill;
+export type GeminiSkillList = ContractGeminiSkillList;
+export type McpServer = ContractMcpServer;
+export type McpServerList = ContractMcpServerList;
+export type McpTransport = ContractMcpTransport;
 
 export type SessionStatus = ContractAppSession["status"] | "queued";
 

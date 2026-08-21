@@ -17,20 +17,26 @@ type LinkPreviewHeightHandleProps = {
   height: number;
   onChange: (nextHeight: number) => void;
   onReset: () => void;
+  label?: string;
 };
 
-export function LinkPreviewHeightHandle({ height, onChange, onReset }: LinkPreviewHeightHandleProps) {
+export function LinkPreviewHeightHandle({
+  height,
+  onChange,
+  onReset,
+  label = "Höhe der Live-Vorschau ändern",
+}: LinkPreviewHeightHandleProps) {
   const dragRef = useRef<{ pointerId: number; startY: number; startHeight: number } | null>(null);
 
   return (
     <div
       className="live-preview-height-handle"
       role="separator"
-      aria-label="Höhe der Live-Vorschau ändern"
+      aria-label={label}
       aria-orientation="horizontal"
       aria-valuenow={height}
       tabIndex={0}
-      title="Ziehen, um die Höhe der Live-Vorschau zu ändern · Doppelklick setzt zurück"
+      title={`${label} · Ziehen oder Pfeiltasten, Doppelklick setzt zurück`}
       onDoubleClick={onReset}
       onKeyDown={(event) => {
         if (event.key === "ArrowUp") {

@@ -26,6 +26,7 @@ function attachment(input: {
   scope?: "project" | "session";
   title: string;
   kind: "file" | "link";
+  origin?: "manual" | "chat";
   mimeType?: string;
   extractedChars?: number | null;
   renderable?: boolean;
@@ -37,6 +38,7 @@ function attachment(input: {
     scope,
     sessionId: scope === "session" ? "20000000-0000-4000-8000-000000000002" : null,
     kind: input.kind,
+    origin: input.origin ?? "manual",
     title: input.title,
     note: null,
     sortOrder: 0,

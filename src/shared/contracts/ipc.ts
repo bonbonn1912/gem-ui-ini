@@ -1,6 +1,14 @@
 import { z } from "zod";
 
 import {
+  GeminiSkillListSchema,
+  ListAgentExtensionsInputSchema,
+  McpServerListSchema,
+  type GeminiSkillList,
+  type ListAgentExtensionsInput,
+  type McpServerList,
+} from "./agent-extensions";
+import {
   AttachmentPreviewInputSchema,
   AttachmentSchema,
   ClipboardImageInputSchema,
@@ -36,6 +44,7 @@ import {
   type ClearLinkPreviewStorageInput,
   type ContextAttachmentBytesInput,
   type ContextAttachmentList,
+  type ContextAttachmentOrigin,
   type ContextTarget,
   type LinkPreviewViewState,
   type ListContextAttachmentsInput,
@@ -50,6 +59,8 @@ import {
 import {
   EntityIdSchema,
   FileSystemPathSchema,
+  HttpsUrlSchema,
+  IsoTimestampSchema,
   VoidResultSchema,
   type VoidResult,
 } from "./common";
@@ -113,6 +124,34 @@ import {
   type ProjectFileSearchResult,
   type SearchProjectFilesInput,
 } from "./project-files";
+import {
+  AddTodoFilesInputSchema,
+  AddTodoLinkInputSchema,
+  AttachTodoAttachmentInputSchema,
+  CreateTodoInputSchema,
+  DeleteTodoInputSchema,
+  DetachTodoAttachmentInputSchema,
+  ListTodosInputSchema,
+  PrepareTodoForSessionInputSchema,
+  ReorderTodosInputSchema,
+  TodoListSchema,
+  TodoPromptDraftSchema,
+  TodoSubscriptionResultSchema,
+  UnsubscribeTodosInputSchema,
+  UpdateTodoInputSchema,
+  type AddTodoFilesInput,
+  type AddTodoLinkInput,
+  type AttachTodoAttachmentInput,
+  type CreateTodoInput,
+  type DeleteTodoInput,
+  type DetachTodoAttachmentInput,
+  type ListTodosInput,
+  type PrepareTodoForSessionInput,
+  type ReorderTodosInput,
+  type TodoList,
+  type TodoPromptDraft,
+  type UpdateTodoInput,
+} from "./todos";
 import {
   AppSessionSchema,
   CancelTurnInputSchema,
@@ -198,6 +237,74 @@ export const SendPromptResultSchema = z
   })
   .strict();
 
+export const AppUpdateInfoSchema = z
+  .object({
+    currentVersion: z.string().trim(),
+    latestVersion: z.string().trim().nullable(),
+    updateAvailable: z.boolean(),
+    releaseName: z.string().trim().nullable().optional(),
+    releaseNotes: z.string().trim().nullable().optional(),
+    publishedAt: IsoTimestampSchema.nullable().optional(),
+    htmlUrl: HttpsUrlSchema.nullable().optional(),
+    downloadUrl: HttpsUrlSchema.nullable().optional(),
+    error: z.string().nullable().optional(),
+  })
+  .strict();
+
+export type AppUpdateInfo = z.infer<typeof AppUpdateInfoSchema>;
+
+export const DownloadUpdateInputSchema = z
+  .object({
+    downloadUrl: HttpsUrlSchema,
+  })
+  .strict();
+
+export const DownloadUpdateResultSchema = z
+  .object({
+    filePath: z.string().min(1),
+  })
+  .strict();
+
+export const InstallUpdateInputSchema = z
+  .object({
+    filePath: FileSystemPathSchema,
+  })
+  .strict();
+
+export const AppUpdateDownloadProgressSchema = z
+  .object({
+    receivedBytes: z.number().nonnegative(),
+    totalBytes: z.number().nonnegative(),
+    percent: z.number().min(0).max(100),
+  })
+  .strict();
+
+export type DownloadUpdateInput = z.infer<typeof DownloadUpdateInputSchema>;
+export type DownloadUpdateResult = z.infer<typeof DownloadUpdateResultSchema>;
+export type InstallUpdateInput = z.infer<typeof InstallUpdateInputSchema>;
+export type AppUpdateDownloadProgress = z.infer<
+  typeof AppUpdateDownloadProgressSchema
+>;
+
+export const GetSessionReconnectStateInputSchema = z
+  .object({
+    sessionId: EntityIdSchema,
+  })
+  .strict();
+
+export const SessionReconnectStateSchema = z
+  .object({
+    sessionId: EntityIdSchema,
+    reconnected: z.boolean(),
+    hasHistory: z.boolean(),
+  })
+  .strict();
+
+export type GetSessionReconnectStateInput = z.infer<
+  typeof GetSessionReconnectStateInputSchema
+>;
+export type SessionReconnectState = z.infer<typeof SessionReconnectStateSchema>;
+
 export const EventSubscriptionResultSchema = z
   .object({
     subscriptionId: EntityIdSchema,
@@ -210,6 +317,60 @@ export const EventSubscriptionResultSchema = z
     usageSnapshot: UsageSnapshotSchema.nullable().default(null),
   })
   .strict();
+
+import {
+  ConnectGitLabMergeRequestUrlInputSchema,
+  DisableGitLabBindingInputSchema,
+  EnableGitLabBindingInputSchema,
+  GetGitLabReviewStateInputSchema,
+  GitLabConnectionSummarySchema,
+  GitLabDiscussionSchema,
+  GitLabMergeRequestSummarySchema,
+  GitLabRepositoryBindingSchema,
+  GitLabRepositoryCandidateSchema,
+  GitLabReviewStatePushSchema,
+  GitLabReviewStateSchema,
+  GitLabReviewStateSubscriptionResultSchema,
+  ListGitLabMergeRequestsInputSchema,
+  ListGitLabRepositoryCandidatesInputSchema,
+  ListProjectIntegrationsInputSchema,
+  PreparedExternalContextSchema,
+  PrepareGitLabReviewContextInputSchema,
+  ProjectIntegrationStatusSchema,
+  RemoveGitLabConnectionInputSchema,
+  ReplaceGitLabTokenInputSchema,
+  ReplyToGitLabDiscussionInputSchema,
+  ResolveGitLabDiscussionInputSchema,
+  SaveGitLabConnectionInputSchema,
+  SelectGitLabMergeRequestInputSchema,
+  SubscribeGitLabReviewStateInputSchema,
+  TestGitLabConnectionInputSchema,
+  UnsubscribeGitLabReviewStateInputSchema,
+  type ConnectGitLabMergeRequestUrlInput,
+  type DisableGitLabBindingInput,
+  type EnableGitLabBindingInput,
+  type GetGitLabReviewStateInput,
+  type GitLabConnectionSummary,
+  type GitLabDiscussion,
+  type GitLabMergeRequestSummary,
+  type GitLabRepositoryBinding,
+  type GitLabRepositoryCandidate,
+  type GitLabReviewState,
+  type ListGitLabMergeRequestsInput,
+  type ListGitLabRepositoryCandidatesInput,
+  type ListProjectIntegrationsInput,
+  type PreparedExternalContext,
+  type PrepareGitLabReviewContextInput,
+  type ProjectIntegrationStatus,
+  type RemoveGitLabConnectionInput,
+  type ReplaceGitLabTokenInput,
+  type ReplyToGitLabDiscussionInput,
+  type ResolveGitLabDiscussionInput,
+  type SaveGitLabConnectionInput,
+  type SelectGitLabMergeRequestInput,
+  type SubscribeGitLabReviewStateInput,
+  type TestGitLabConnectionInput,
+} from "./gitlab";
 
 export const IPC_CHANNELS = {
   getCapabilities: "app:get-capabilities",
@@ -234,6 +395,7 @@ export const IPC_CHANNELS = {
   respondToPermission: "sessions:respond-to-permission",
   setSessionMode: "sessions:set-mode",
   setSessionModel: "sessions:set-model",
+  getSessionReconnectState: "sessions:get-reconnect-state",
   chooseGeminiBinary: "settings:choose-gemini-binary",
   chooseGitBinary: "settings:choose-git-binary",
   pickImages: "attachments:pick-images",
@@ -253,6 +415,19 @@ export const IPC_CHANNELS = {
   unsubscribeContextAttachments: "context-attachments:unsubscribe",
   contextAttachmentsChanged: "context-attachments:changed",
   openContextAttachment: "context-attachments:open-file",
+  listTodos: "todos:list",
+  createTodo: "todos:create",
+  updateTodo: "todos:update",
+  reorderTodos: "todos:reorder",
+  deleteTodo: "todos:delete",
+  addTodoFiles: "todos:add-files",
+  addTodoLink: "todos:add-link",
+  attachTodoAttachment: "todos:attach-attachment",
+  detachTodoAttachment: "todos:detach-attachment",
+  prepareTodoForSession: "todos:prepare-for-session",
+  subscribeTodos: "todos:subscribe",
+  unsubscribeTodos: "todos:unsubscribe",
+  todosChanged: "todos:changed",
   openLinkPreviewView: "link-preview:open",
   setLinkPreviewBounds: "link-preview:set-bounds",
   closeLinkPreviewView: "link-preview:close",
@@ -266,11 +441,39 @@ export const IPC_CHANNELS = {
   subscribeGitProjectStatus: "git:subscribe-project-status",
   unsubscribeGitProjectStatus: "git:unsubscribe-project-status",
   gitProjectStatusChanged: "git:project-status-changed",
+  listProjectIntegrations: "integrations:list-project",
+  listGitLabRepositoryCandidates: "gitlab:list-repository-candidates",
+  listGitLabConnections: "gitlab:list-connections",
+  testGitLabConnection: "gitlab:test-connection",
+  saveGitLabConnection: "gitlab:save-connection",
+  replaceGitLabToken: "gitlab:replace-token",
+  removeGitLabConnection: "gitlab:remove-connection",
+  enableGitLabBinding: "gitlab:enable-binding",
+  disableGitLabBinding: "gitlab:disable-binding",
+  listGitLabMergeRequests: "gitlab:list-merge-requests",
+  selectGitLabMergeRequest: "gitlab:select-merge-request",
+  connectGitLabMergeRequestUrl: "gitlab:connect-merge-request-url",
+  getGitLabReviewState: "gitlab:get-review-state",
+  subscribeGitLabReviewState: "gitlab:subscribe-review-state",
+  unsubscribeGitLabReviewState: "gitlab:unsubscribe-review-state",
+  gitlabReviewStateChanged: "gitlab:review-state-changed",
+  prepareGitLabReviewContext: "gitlab:prepare-review-context",
+  resolveGitLabDiscussion: "gitlab:resolve-discussion",
+  replyToGitLabDiscussion: "gitlab:reply-to-discussion",
+  listGeminiSkills: "agent-extensions:list-skills",
+  listMcpServers: "agent-extensions:list-mcp-servers",
   openExternalHttpsUrl: "external:open-https-url",
+  checkForUpdates: "app:check-for-updates",
+  downloadUpdate: "app:download-update",
+  installUpdate: "app:install-update",
+  appUpdateDownloadProgress: "app:update-download-progress",
 } as const;
 
 export const IpcRequestSchemas = {
   [IPC_CHANNELS.getCapabilities]: EmptyInputSchema,
+  [IPC_CHANNELS.checkForUpdates]: EmptyInputSchema,
+  [IPC_CHANNELS.downloadUpdate]: DownloadUpdateInputSchema,
+  [IPC_CHANNELS.installUpdate]: InstallUpdateInputSchema,
   [IPC_CHANNELS.listProjects]: ListProjectsInputSchema,
   [IPC_CHANNELS.getProject]: GetProjectInputSchema,
   [IPC_CHANNELS.reauthorizeProjectRoot]: ReauthorizeProjectRootInputSchema,
@@ -292,6 +495,7 @@ export const IpcRequestSchemas = {
   [IPC_CHANNELS.respondToPermission]: PermissionResponseSchema,
   [IPC_CHANNELS.setSessionMode]: SetSessionModeInputSchema,
   [IPC_CHANNELS.setSessionModel]: SetSessionModelInputSchema,
+  [IPC_CHANNELS.getSessionReconnectState]: GetSessionReconnectStateInputSchema,
   [IPC_CHANNELS.chooseGeminiBinary]: EmptyInputSchema,
   [IPC_CHANNELS.chooseGitBinary]: EmptyInputSchema,
   [IPC_CHANNELS.pickImages]: PickImagesInputSchema,
@@ -310,6 +514,18 @@ export const IpcRequestSchemas = {
   [IPC_CHANNELS.subscribeContextAttachments]: ListContextAttachmentsInputSchema,
   [IPC_CHANNELS.unsubscribeContextAttachments]: UnsubscribeContextAttachmentsInputSchema,
   [IPC_CHANNELS.openContextAttachment]: OpenContextAttachmentInputSchema,
+  [IPC_CHANNELS.listTodos]: ListTodosInputSchema,
+  [IPC_CHANNELS.createTodo]: CreateTodoInputSchema,
+  [IPC_CHANNELS.updateTodo]: UpdateTodoInputSchema,
+  [IPC_CHANNELS.reorderTodos]: ReorderTodosInputSchema,
+  [IPC_CHANNELS.deleteTodo]: DeleteTodoInputSchema,
+  [IPC_CHANNELS.addTodoFiles]: AddTodoFilesInputSchema,
+  [IPC_CHANNELS.addTodoLink]: AddTodoLinkInputSchema,
+  [IPC_CHANNELS.attachTodoAttachment]: AttachTodoAttachmentInputSchema,
+  [IPC_CHANNELS.detachTodoAttachment]: DetachTodoAttachmentInputSchema,
+  [IPC_CHANNELS.prepareTodoForSession]: PrepareTodoForSessionInputSchema,
+  [IPC_CHANNELS.subscribeTodos]: ListTodosInputSchema,
+  [IPC_CHANNELS.unsubscribeTodos]: UnsubscribeTodosInputSchema,
   [IPC_CHANNELS.openLinkPreviewView]: OpenLinkPreviewInputSchema,
   [IPC_CHANNELS.setLinkPreviewBounds]: SetLinkPreviewBoundsInputSchema,
   [IPC_CHANNELS.closeLinkPreviewView]: EmptyInputSchema,
@@ -321,6 +537,26 @@ export const IpcRequestSchemas = {
   [IPC_CHANNELS.getGitFileDiff]: GetGitFileDiffInputSchema,
   [IPC_CHANNELS.subscribeGitProjectStatus]: SubscribeGitProjectStatusInputSchema,
   [IPC_CHANNELS.unsubscribeGitProjectStatus]: UnsubscribeGitProjectStatusInputSchema,
+  [IPC_CHANNELS.listProjectIntegrations]: ListProjectIntegrationsInputSchema,
+  [IPC_CHANNELS.listGitLabRepositoryCandidates]: ListGitLabRepositoryCandidatesInputSchema,
+  [IPC_CHANNELS.listGitLabConnections]: EmptyInputSchema,
+  [IPC_CHANNELS.testGitLabConnection]: TestGitLabConnectionInputSchema,
+  [IPC_CHANNELS.saveGitLabConnection]: SaveGitLabConnectionInputSchema,
+  [IPC_CHANNELS.replaceGitLabToken]: ReplaceGitLabTokenInputSchema,
+  [IPC_CHANNELS.removeGitLabConnection]: RemoveGitLabConnectionInputSchema,
+  [IPC_CHANNELS.enableGitLabBinding]: EnableGitLabBindingInputSchema,
+  [IPC_CHANNELS.disableGitLabBinding]: DisableGitLabBindingInputSchema,
+  [IPC_CHANNELS.listGitLabMergeRequests]: ListGitLabMergeRequestsInputSchema,
+  [IPC_CHANNELS.selectGitLabMergeRequest]: SelectGitLabMergeRequestInputSchema,
+  [IPC_CHANNELS.connectGitLabMergeRequestUrl]: ConnectGitLabMergeRequestUrlInputSchema,
+  [IPC_CHANNELS.getGitLabReviewState]: GetGitLabReviewStateInputSchema,
+  [IPC_CHANNELS.subscribeGitLabReviewState]: SubscribeGitLabReviewStateInputSchema,
+  [IPC_CHANNELS.unsubscribeGitLabReviewState]: UnsubscribeGitLabReviewStateInputSchema,
+  [IPC_CHANNELS.prepareGitLabReviewContext]: PrepareGitLabReviewContextInputSchema,
+  [IPC_CHANNELS.resolveGitLabDiscussion]: ResolveGitLabDiscussionInputSchema,
+  [IPC_CHANNELS.replyToGitLabDiscussion]: ReplyToGitLabDiscussionInputSchema,
+  [IPC_CHANNELS.listGeminiSkills]: ListAgentExtensionsInputSchema,
+  [IPC_CHANNELS.listMcpServers]: ListAgentExtensionsInputSchema,
   [IPC_CHANNELS.openExternalHttpsUrl]: OpenExternalHttpsUrlInputSchema,
 } as const;
 
@@ -347,6 +583,7 @@ export const IpcResponseSchemas = {
   [IPC_CHANNELS.respondToPermission]: VoidResultSchema,
   [IPC_CHANNELS.setSessionMode]: AppSessionSchema,
   [IPC_CHANNELS.setSessionModel]: AppSessionSchema,
+  [IPC_CHANNELS.getSessionReconnectState]: SessionReconnectStateSchema,
   [IPC_CHANNELS.chooseGeminiBinary]: AppCapabilitiesSchema,
   [IPC_CHANNELS.chooseGitBinary]: AppCapabilitiesSchema,
   [IPC_CHANNELS.pickImages]: z.array(AttachmentSchema).max(4),
@@ -365,6 +602,18 @@ export const IpcResponseSchemas = {
   [IPC_CHANNELS.subscribeContextAttachments]: ContextAttachmentSubscriptionResultSchema,
   [IPC_CHANNELS.unsubscribeContextAttachments]: VoidResultSchema,
   [IPC_CHANNELS.openContextAttachment]: VoidResultSchema,
+  [IPC_CHANNELS.listTodos]: TodoListSchema,
+  [IPC_CHANNELS.createTodo]: TodoListSchema,
+  [IPC_CHANNELS.updateTodo]: TodoListSchema,
+  [IPC_CHANNELS.reorderTodos]: TodoListSchema,
+  [IPC_CHANNELS.deleteTodo]: TodoListSchema,
+  [IPC_CHANNELS.addTodoFiles]: TodoListSchema,
+  [IPC_CHANNELS.addTodoLink]: TodoListSchema,
+  [IPC_CHANNELS.attachTodoAttachment]: TodoListSchema,
+  [IPC_CHANNELS.detachTodoAttachment]: TodoListSchema,
+  [IPC_CHANNELS.prepareTodoForSession]: TodoPromptDraftSchema,
+  [IPC_CHANNELS.subscribeTodos]: TodoSubscriptionResultSchema,
+  [IPC_CHANNELS.unsubscribeTodos]: VoidResultSchema,
   [IPC_CHANNELS.openLinkPreviewView]: LinkPreviewViewStateSchema,
   [IPC_CHANNELS.setLinkPreviewBounds]: VoidResultSchema,
   [IPC_CHANNELS.closeLinkPreviewView]: VoidResultSchema,
@@ -376,7 +625,30 @@ export const IpcResponseSchemas = {
   [IPC_CHANNELS.getGitFileDiff]: GitFileDiffSchema,
   [IPC_CHANNELS.subscribeGitProjectStatus]: GitStatusSubscriptionResultSchema,
   [IPC_CHANNELS.unsubscribeGitProjectStatus]: VoidResultSchema,
+  [IPC_CHANNELS.listProjectIntegrations]: z.array(ProjectIntegrationStatusSchema),
+  [IPC_CHANNELS.listGitLabRepositoryCandidates]: z.array(GitLabRepositoryCandidateSchema),
+  [IPC_CHANNELS.listGitLabConnections]: z.array(GitLabConnectionSummarySchema),
+  [IPC_CHANNELS.testGitLabConnection]: GitLabConnectionSummarySchema,
+  [IPC_CHANNELS.saveGitLabConnection]: GitLabConnectionSummarySchema,
+  [IPC_CHANNELS.replaceGitLabToken]: GitLabConnectionSummarySchema,
+  [IPC_CHANNELS.removeGitLabConnection]: VoidResultSchema,
+  [IPC_CHANNELS.enableGitLabBinding]: GitLabRepositoryBindingSchema,
+  [IPC_CHANNELS.disableGitLabBinding]: VoidResultSchema,
+  [IPC_CHANNELS.listGitLabMergeRequests]: z.array(GitLabMergeRequestSummarySchema),
+  [IPC_CHANNELS.selectGitLabMergeRequest]: GitLabRepositoryBindingSchema,
+  [IPC_CHANNELS.connectGitLabMergeRequestUrl]: GitLabRepositoryBindingSchema,
+  [IPC_CHANNELS.getGitLabReviewState]: GitLabReviewStateSchema,
+  [IPC_CHANNELS.subscribeGitLabReviewState]: GitLabReviewStateSubscriptionResultSchema,
+  [IPC_CHANNELS.unsubscribeGitLabReviewState]: VoidResultSchema,
+  [IPC_CHANNELS.prepareGitLabReviewContext]: PreparedExternalContextSchema,
+  [IPC_CHANNELS.resolveGitLabDiscussion]: GitLabDiscussionSchema,
+  [IPC_CHANNELS.replyToGitLabDiscussion]: GitLabDiscussionSchema,
+  [IPC_CHANNELS.listGeminiSkills]: GeminiSkillListSchema,
+  [IPC_CHANNELS.listMcpServers]: McpServerListSchema,
   [IPC_CHANNELS.openExternalHttpsUrl]: VoidResultSchema,
+  [IPC_CHANNELS.checkForUpdates]: AppUpdateInfoSchema,
+  [IPC_CHANNELS.downloadUpdate]: DownloadUpdateResultSchema,
+  [IPC_CHANNELS.installUpdate]: VoidResultSchema,
 } as const;
 
 export type IpcRequestChannel = keyof typeof IpcRequestSchemas;
@@ -391,6 +663,14 @@ export type OpenExternalHttpsUrlInput = z.input<
 
 export interface GemUiDesktopApi {
   getCapabilities(): Promise<AppCapabilities>;
+  app: {
+    checkForUpdates(): Promise<AppUpdateInfo>;
+    downloadUpdate(input: DownloadUpdateInput): Promise<DownloadUpdateResult>;
+    installUpdate(input: InstallUpdateInput): Promise<VoidResult>;
+    onDownloadProgress(
+      callback: (progress: AppUpdateDownloadProgress) => void,
+    ): () => void;
+  };
   projects: {
     list(input?: ListProjectsInput): Promise<ProjectWithRoots[]>;
     get(input: GetProjectInput): Promise<ProjectWithRoots>;
@@ -423,6 +703,9 @@ export interface GemUiDesktopApi {
     respondToPermission(input: PermissionResponse): Promise<VoidResult>;
     setMode(input: SetSessionModeInput): Promise<AppSession>;
     setModel(input: SetSessionModelInput): Promise<AppSession>;
+    getReconnectState(
+      input: GetSessionReconnectStateInput,
+    ): Promise<SessionReconnectState>;
   };
   settings: {
     chooseGeminiBinary(): Promise<AppCapabilities>;
@@ -441,7 +724,11 @@ export interface GemUiDesktopApi {
   contextAttachments: {
     list(input: ListContextAttachmentsInput): Promise<ContextAttachmentList>;
     addFiles(input: AddContextFilesInput): Promise<ContextAttachmentList>;
-    addDroppedFiles(files: File[], target: ContextTarget): Promise<ContextAttachmentList>;
+    addDroppedFiles(
+      files: File[],
+      target: ContextTarget,
+      options?: { origin?: ContextAttachmentOrigin },
+    ): Promise<ContextAttachmentList>;
     addLink(input: AddContextLinkInput): Promise<ContextAttachmentList>;
     update(input: UpdateContextAttachmentInput): Promise<ContextAttachmentList>;
     setInclusion(input: SetContextInclusionInput): Promise<ContextAttachmentList>;
@@ -452,6 +739,26 @@ export interface GemUiDesktopApi {
     subscribe(
       input: ListContextAttachmentsInput,
       callback: (list: ContextAttachmentList) => void,
+    ): Promise<() => void>;
+  };
+  todos: {
+    list(input: ListTodosInput): Promise<TodoList>;
+    create(input: CreateTodoInput): Promise<TodoList>;
+    update(input: UpdateTodoInput): Promise<TodoList>;
+    reorder(input: ReorderTodosInput): Promise<TodoList>;
+    delete(input: DeleteTodoInput): Promise<TodoList>;
+    addFiles(input: AddTodoFilesInput): Promise<TodoList>;
+    addDroppedFiles(
+      files: File[],
+      target: { todoId: string; projectId: string },
+    ): Promise<TodoList>;
+    addLink(input: AddTodoLinkInput): Promise<TodoList>;
+    attachAttachment(input: AttachTodoAttachmentInput): Promise<TodoList>;
+    detachAttachment(input: DetachTodoAttachmentInput): Promise<TodoList>;
+    prepareForSession(input: PrepareTodoForSessionInput): Promise<TodoPromptDraft>;
+    subscribe(
+      input: ListTodosInput,
+      callback: (list: TodoList) => void,
     ): Promise<() => void>;
   };
   linkPreview: {
@@ -474,6 +781,48 @@ export interface GemUiDesktopApi {
       input: SubscribeGitProjectStatusInput,
       callback: (status: GitProjectStatus) => void,
     ): Promise<() => void>;
+  };
+  integrations: {
+    listProject(input: ListProjectIntegrationsInput): Promise<ProjectIntegrationStatus[]>;
+  };
+  gitlab: {
+    listRepositoryCandidates(
+      input: ListGitLabRepositoryCandidatesInput,
+    ): Promise<GitLabRepositoryCandidate[]>;
+    listConnections(): Promise<GitLabConnectionSummary[]>;
+    testConnection(input: TestGitLabConnectionInput): Promise<GitLabConnectionSummary>;
+    saveConnection(input: SaveGitLabConnectionInput): Promise<GitLabConnectionSummary>;
+    replaceToken(input: ReplaceGitLabTokenInput): Promise<GitLabConnectionSummary>;
+    removeConnection(input: RemoveGitLabConnectionInput): Promise<VoidResult>;
+    enableBinding(input: EnableGitLabBindingInput): Promise<GitLabRepositoryBinding>;
+    disableBinding(input: DisableGitLabBindingInput): Promise<VoidResult>;
+    listMergeRequests(
+      input: ListGitLabMergeRequestsInput,
+    ): Promise<GitLabMergeRequestSummary[]>;
+    selectMergeRequest(
+      input: SelectGitLabMergeRequestInput,
+    ): Promise<GitLabRepositoryBinding>;
+    connectMergeRequestUrl(
+      input: ConnectGitLabMergeRequestUrlInput,
+    ): Promise<GitLabRepositoryBinding>;
+    getReviewState(input: GetGitLabReviewStateInput): Promise<GitLabReviewState>;
+    subscribeReviewState(
+      input: SubscribeGitLabReviewStateInput,
+      callback: (state: GitLabReviewState) => void,
+    ): Promise<() => void>;
+    prepareReviewContext(
+      input: PrepareGitLabReviewContextInput,
+    ): Promise<PreparedExternalContext>;
+    resolveDiscussion(
+      input: ResolveGitLabDiscussionInput,
+    ): Promise<GitLabDiscussion>;
+    replyToDiscussion(
+      input: ReplyToGitLabDiscussionInput,
+    ): Promise<GitLabDiscussion>;
+  };
+  agentExtensions: {
+    listSkills(input: ListAgentExtensionsInput): Promise<GeminiSkillList>;
+    listMcpServers(input: ListAgentExtensionsInput): Promise<McpServerList>;
   };
   subscribeSessionEvents(
     input: SubscribeSessionEventsInput,

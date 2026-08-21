@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from "react";
 import { Icon } from "../components/Icon";
-import { Composer, type ComposerAttachment } from "../features/attachments/Composer";
+import {
+  Composer,
+  type ComposerAttachment,
+  type ComposerDraft,
+} from "../features/attachments/Composer";
 import { AttachmentsPanel } from "../features/attachments/AttachmentsPanel";
 import { useContextAttachments } from "../features/attachments/useContextAttachments";
 import { ChatHeader } from "../features/chat/ChatHeader";
+import { PanelRail, type PanelRailItem } from "../features/chat/PanelRail";
 import { Timeline } from "../features/chat/Timeline";
+import {
+  ReconnectHistoryBanner,
+  ReconnectHistoryModal,
+} from "../features/chat/ReconnectHistoryDialog";
 import { chatReducer, createChatState, type TurnPhase } from "../features/chat/reducer";
 import { ChangesPanel } from "../features/git/ChangesPanel";
 import type { DiffSelection } from "../features/git/DiffViewer";
@@ -17,14 +26,23 @@ import { useGitProjectStatus } from "../features/git/useGitProjectStatus";
 import { ProjectDialog } from "../features/projects/ProjectDialog";
 import { ProjectSettingsDialog } from "../features/projects/ProjectSettingsDialog";
 import { Sidebar } from "../features/sessions/Sidebar";
+import { TodosPanel } from "../features/todos/TodosPanel";
+import { useTodos } from "../features/todos/useTodos";
+import { GitLabPanel, type ReviewDelivery } from "../features/gitlab/GitLabPanel";
+import { McpPanel } from "../features/mcp/McpPanel";
+import { SkillsPanel } from "../features/skills/SkillsPanel";
 import type {
   AppCapabilities,
   AppProject,
   AppSession,
+  ExternalPromptContextRef,
+  GitLabRepositoryCandidate,
   GitFileChange,
+  PreparedExternalContext,
   GitProjectStatus,
   ProjectFileSearchEntry,
   ProjectRootCandidate,
+  Todo,
   UiError,
   StreamEnvelope,
 } from "../types";
@@ -158,18 +176,10 @@ function EmptyWorkspace({ onCreateProject }: { onCreateProject: () => void }) {
 
 function EmptyProject({
   project,
-  changesCount,
-  attachmentsCount,
   onCreateSession,
-  onToggleChanges,
-  onToggleAttachments,
 }: {
   project: AppProject;
-  changesCount: number;
-  attachmentsCount: number;
   onCreateSession: () => void;
-  onToggleChanges: () => void;
-  onToggleAttachments: () => void;
 }) {
   return (
     <main className="project-empty">
@@ -182,10 +192,10 @@ function EmptyProject({
           <span key={root.id}><Icon name="folder" size={14} /> {root.label || root.path.split(/[\\/]/).at(-1)} {root.kind === "primary" && <i>Primär</i>}</span>
         ))}
       </div>
+      {/* Panels are one click away in the rail on the right, so this screen
+          keeps the single action that has to be taken here. */}
       <div className="project-empty-actions">
         <button className="primary-button" type="button" onClick={onCreateSession}><Icon name="plus" size={17} /> Neue Session</button>
-        <button className="secondary-button" type="button" onClick={onToggleAttachments}><Icon name="paperclip" size={16} /> Anhänge{attachmentsCount > 0 ? ` (${attachmentsCount})` : ""}</button>
-        <button className="secondary-button" type="button" onClick={onToggleChanges}><Icon name="changes" size={16} /> Änderungen{changesCount > 0 ? ` (${changesCount})` : ""}</button>
       </div>
     </main>
   );
@@ -200,7 +210,27 @@ function RootChangeBanner() {
   );
 }
 
-type RightPanel = "none" | "changes" | "attachments";
+type RightPanel =
+  | "none"
+  | "changes"
+  | "attachments"
+  | "todos"
+  | "gitlab"
+  | "skills"
+  | "mcp";
+
+const RESTORABLE_RIGHT_PANELS = [
+  "changes",
+  "attachments",
+  "todos",
+  "gitlab",
+  "skills",
+  "mcp",
+] as const satisfies readonly RightPanel[];
+
+function isRestorableRightPanel(value: string | null): value is RightPanel {
+  return value !== null && (RESTORABLE_RIGHT_PANELS as readonly string[]).includes(value);
+}
 const DEFAULT_RIGHT_PANEL_WIDTH = 520;
 const MIN_RIGHT_PANEL_WIDTH = 300;
 const MIN_CHAT_WIDTH = 260;
@@ -210,7 +240,9 @@ const RIGHT_PANEL_OVERLAY_BREAKPOINT = 640;
 function initialRightPanel(): RightPanel {
   try {
     const stored = window.localStorage.getItem("geminui.right-panel");
-    if (stored === "changes" || stored === "attachments") return stored;
+    // "gitlab" may be restored here but is only honoured once the project's
+    // bindings say the integration is actually enabled — see the effect below.
+    if (isRestorableRightPanel(stored)) return stored;
     return window.localStorage.getItem("geminui.changes-panel.open") === "true" ? "changes" : "none";
   } catch {
     return "none";
@@ -331,6 +363,16 @@ export function App() {
   const [gitPreviewTrigger, setGitPreviewTrigger] = useState<GitPreviewTrigger | null>(null);
   const [uiError, setUiError] = useState<UiError | null>(null);
   const [fatalError, setFatalError] = useState<string | null>(null);
+  const [reconnectedSessions, setReconnectedSessions] = useState<Record<string, boolean>>({});
+  const [sessionHistoryModes, setSessionHistoryModes] = useState<Record<string, "compressed" | "fresh">>({});
+  const [composerDraft, setComposerDraft] = useState<ComposerDraft | null>(null);
+  const [pendingExternalContexts, setPendingExternalContexts] = useState<PreparedExternalContext[]>([]);
+  const [pendingPrompt, setPendingPrompt] = useState<{
+    text: string;
+    attachments: ComposerAttachment[];
+    projectFiles: ProjectFileSearchEntry[];
+    externalContextRefs: ExternalPromptContextRef[];
+  } | null>(null);
   const [chat, dispatch] = useReducer(chatReducer, null, () => createChatState());
   const gitStatusRef = useRef<GitProjectStatus | null>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
@@ -341,10 +383,12 @@ export function App() {
   const activeSession = sessions.find((session) => session.id === activeSessionId) ?? null;
   const changesOpen = rightPanel === "changes";
   const attachmentsOpen = rightPanel === "attachments";
+  const todosOpen = rightPanel === "todos";
   const contextAttachments = useContextAttachments({
     project: activeProject,
     sessionId: activeSessionId,
   });
+  const todos = useTodos({ project: activeProject });
   const gitState = useGitProjectStatus({
     project: activeProject,
     refreshToken: gitRefreshToken,
@@ -357,10 +401,53 @@ export function App() {
     trigger: gitPreviewTrigger,
   });
   const changesCount = gitState.status?.changes.length ?? 0;
+  const [gitlabCandidates, setGitlabCandidates] = useState<GitLabRepositoryCandidate[]>([]);
+  const [gitlabCandidatesLoaded, setGitlabCandidatesLoaded] = useState(false);
 
   useEffect(() => {
-    gitStatusRef.current = gitState.status;
-  }, [gitState.status]);
+    // Cleared before the request, not after it: keeping the previous project's
+    // candidates would leave `gitlabEnabled` true for a moment and flash a
+    // GitLab tab into a project that never enabled the integration.
+    setGitlabCandidates([]);
+    setGitlabCandidatesLoaded(false);
+    if (!activeProject) {
+      setGitlabCandidatesLoaded(true);
+      return;
+    }
+    let current = true;
+    window.gemUi.gitlab
+      .listRepositoryCandidates({ projectId: activeProject.id })
+      .then((list) => {
+        if (current) setGitlabCandidates(list);
+      })
+      .catch(() => {
+        if (current) setGitlabCandidates([]);
+      })
+      .finally(() => {
+        if (current) setGitlabCandidatesLoaded(true);
+      });
+    return () => {
+      current = false;
+    };
+  }, [activeProject?.id, activeProject?.rootRevision, projectSettingsOpen]);
+
+  const gitlabEnabled = gitlabCandidates.some((c) => c.binding?.enabled);
+
+  /**
+   * The GitLab panel lives under the same condition as its toggle. Without
+   * this, a `rightPanel` of "gitlab" restored from localStorage — or left over
+   * from a project that does have a binding — renders the panel in a project
+   * that offers no way to close or even reach it.
+   *
+   * The fallback waits for the candidate list: resetting before it arrives
+   * would close the panel on every start for projects that legitimately use
+   * GitLab.
+   */
+  useEffect(() => {
+    if (rightPanel !== "gitlab") return;
+    if (!gitlabCandidatesLoaded || gitlabEnabled) return;
+    setRightPanel("none");
+  }, [gitlabCandidatesLoaded, gitlabEnabled, rightPanel]);
 
   useEffect(() => {
     gitToolBaselinesRef.current.clear();
@@ -527,6 +614,22 @@ export function App() {
   }, [activeSessionId, showError]);
 
   useEffect(() => {
+    if (!activeSessionId) return;
+    let current = true;
+    window.gemUi.sessions.getReconnectState?.({ sessionId: activeSessionId })
+      .then((state) => {
+        if (!current) return;
+        if (state?.reconnected && state?.hasHistory) {
+          setReconnectedSessions((prev) => ({ ...prev, [activeSessionId]: true }));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [activeSessionId]);
+
+  useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.key.toLocaleLowerCase() !== "n") return;
       event.preventDefault();
@@ -670,12 +773,65 @@ export function App() {
     }
   };
 
+  const handleChooseReconnectMode = (sessionId: string, mode: "compressed" | "fresh") => {
+    setSessionHistoryModes((prev) => ({ ...prev, [sessionId]: mode }));
+    setReconnectedSessions((prev) => ({ ...prev, [sessionId]: false }));
+    if (pendingPrompt && activeSession?.id === sessionId) {
+      const promptToRun = pendingPrompt;
+      setPendingPrompt(null);
+      void executeSendPrompt(
+        promptToRun.text,
+        promptToRun.attachments,
+        promptToRun.projectFiles,
+        promptToRun.externalContextRefs,
+        mode,
+      );
+    }
+  };
+
+  const handToComposer = useCallback((text: string) => {
+    setComposerDraft({ token: Date.now() + Math.random(), text });
+  }, []);
+
   const sendPrompt = async (
     text: string,
-    attachments: ComposerAttachment[],
-    projectFiles: ProjectFileSearchEntry[],
+    attachments: ComposerAttachment[] = [],
+    projectFiles: ProjectFileSearchEntry[] = [],
+    externalContextRefs: ExternalPromptContextRef[] = [],
   ) => {
     if (!activeSession) return;
+    // Review context that was parked in the composer travels with whatever the
+    // user finally types, so it is merged in here rather than at the call site.
+    const mergedRefs = [...externalContextRefs];
+    for (const context of pendingExternalContexts) {
+      if (!mergedRefs.some((ref) => ref.id === context.ref.id)) mergedRefs.push(context.ref);
+    }
+    const isReconnected = reconnectedSessions[activeSession.id];
+    const preChosenMode = sessionHistoryModes[activeSession.id];
+
+    if (isReconnected && !preChosenMode) {
+      setPendingPrompt({ text, attachments, projectFiles, externalContextRefs: mergedRefs });
+      return;
+    }
+
+    await executeSendPrompt(
+      text,
+      attachments,
+      projectFiles,
+      mergedRefs,
+      preChosenMode ?? "compressed",
+    );
+  };
+
+  const executeSendPrompt = async (
+    text: string,
+    attachments: ComposerAttachment[] = [],
+    projectFiles: ProjectFileSearchEntry[] = [],
+    externalContextRefs: ExternalPromptContextRef[] = [],
+    historyMode?: "compressed" | "fresh",
+  ) => {
+    if (!activeSession) return;
+    setReconnectedSessions((prev) => ({ ...prev, [activeSession.id]: false }));
     const clientRequestId = createClientRequestId();
     dispatch({
       type: "optimistic-user",
@@ -699,11 +855,17 @@ export function App() {
         attachmentIds: attachments.map((attachment) => attachment.id),
         contextAttachmentIds: contextAttachments.included.map((attachment) => attachment.id),
         projectFiles: projectFiles.map(({ rootId, relativePath }) => ({ rootId, relativePath })),
+        externalContextRefs,
         expectedRootRevision: activeProject?.rootRevision ?? 1,
         clientRequestId,
+        historyMode,
       });
       dispatch({ type: "turn-started", turnId: result.turnId });
+      // The prepared review snapshots are consumed once, so they must not stay
+      // attached to the next message.
+      if (externalContextRefs.length) setPendingExternalContexts([]);
     } catch (error) {
+      console.error("[sendPrompt Error]:", error);
       const message = messageFrom(error);
       dispatch({ type: "prompt-failed", clientRequestId, message });
       setSessions((current) => current.map((session) => session.id === activeSession.id ? { ...session, status: "error" } : session));
@@ -711,6 +873,61 @@ export function App() {
       showError("Nachricht konnte nicht gesendet werden", error);
       throw error;
     }
+  };
+
+  /**
+   * Hands a todo to a session: the main process selects the todo's attachments
+   * for that session and returns the prompt text, which lands in the composer
+   * so the todo can still be adjusted before it is sent.
+   */
+  const applyTodoToSession = async (todo: Todo, sessionId: string) => {
+    const draft = await window.gemUi.todos.prepareForSession({
+      clientRequestId: createClientRequestId(),
+      todoId: todo.id,
+      sessionId,
+    });
+    contextAttachments.apply(draft.contextAttachments);
+    handToComposer(draft.text);
+    setSidebarOpen(false);
+  };
+
+  const sendTodoToActiveSession = async (todo: Todo) => {
+    if (!activeSession) {
+      throw new Error("Es ist keine Session geöffnet. Lege zuerst eine an.");
+    }
+    await applyTodoToSession(todo, activeSession.id);
+  };
+
+  const sendTodoToNewSession = async (todo: Todo) => {
+    if (!activeProjectId) return;
+    const session = await window.gemUi.sessions.create({
+      projectId: activeProjectId,
+      clientRequestId: createClientRequestId(),
+    });
+    setSessions((current) => [session, ...current]);
+    setActiveSessionId(session.id);
+    await applyTodoToSession(todo, session.id);
+  };
+
+  const deliverReviewContext = async (
+    prepared: PreparedExternalContext,
+    delivery: ReviewDelivery,
+  ) => {
+    if (delivery === "send") {
+      await sendPrompt(
+        "Bitte bearbeite das Review-Feedback zu dieser Stelle.",
+        [],
+        [],
+        [prepared.ref],
+      );
+      return;
+    }
+    setPendingExternalContexts((current) =>
+      current.some((context) => context.ref.id === prepared.ref.id)
+        ? current
+        : [...current, prepared],
+    );
+    handToComposer("Bitte bearbeite das Review-Feedback zu dieser Stelle.");
   };
 
   const cancelTurn = async () => {
@@ -766,6 +983,67 @@ export function App() {
     });
     setRightPanel("changes");
   }, [gitState.status]);
+
+  /**
+   * One entry per right-hand panel. GitLab is the only conditional one: unlike
+   * Skills and MCP it describes a binding this project may simply not have, and
+   * an empty GitLab panel would have nothing honest to show.
+   */
+  const railItems: PanelRailItem[] = useMemo(() => {
+    const attachmentsCount = contextAttachments.all.length;
+    const includedCount = contextAttachments.included.length;
+    const items: PanelRailItem[] = [
+      {
+        id: "attachments",
+        icon: "paperclip",
+        label: "Anhänge",
+        ...(attachmentsCount > 0
+          ? {
+              detail: `${attachmentsCount} Anhänge, ${includedCount} im Kontext`,
+              badge: attachmentsCount,
+              subBadge: includedCount,
+            }
+          : {}),
+      },
+      {
+        id: "todos",
+        icon: "checklist",
+        label: "Todos",
+        ...(todos.openCount > 0
+          ? { detail: `${todos.openCount} offen`, badge: todos.openCount }
+          : {}),
+      },
+      {
+        id: "changes",
+        icon: "changes",
+        label: "Änderungen",
+        ...(changesCount > 0
+          ? { detail: `${changesCount} Dateien`, badge: changesCount }
+          : {}),
+      },
+    ];
+    // No badge for GitLab: the unresolved count lives inside the panel's own
+    // review state, and a number this component cannot actually read would be
+    // a guess rather than a count.
+    if (gitlabEnabled) {
+      items.push({ id: "gitlab", icon: "gitlab", label: "GitLab", name: "GitLab Review" });
+    }
+    items.push(
+      { id: "skills", icon: "skill", label: "Skills" },
+      { id: "mcp", icon: "server", label: "MCP", name: "MCP-Server" },
+    );
+    return items;
+  }, [
+    changesCount,
+    contextAttachments.all.length,
+    contextAttachments.included.length,
+    gitlabEnabled,
+    todos.openCount,
+  ]);
+
+  const toggleRightPanel = useCallback((id: string) => {
+    setRightPanel((current) => (current === id ? "none" : (id as RightPanel)));
+  }, []);
 
   const effectivePhase: TurnPhase = useMemo(() => {
     if (chat.phase !== "idle" || !activeSession) return chat.phase;
@@ -841,42 +1119,73 @@ export function App() {
               <button type="button" className="icon-button mobile-empty-menu" onClick={() => setSidebarOpen(true)} aria-label="Seitenleiste öffnen"><Icon name="menu" size={19} /></button>
               <EmptyProject
                 project={activeProject}
-                changesCount={changesCount}
-                attachmentsCount={contextAttachments.all.length}
                 onCreateSession={() => void createSession()}
-                onToggleAttachments={() => setRightPanel((current) => current === "attachments" ? "none" : "attachments")}
-                onToggleChanges={() => setRightPanel((current) => current === "changes" ? "none" : "changes")}
               />
             </div>
-            {changesOpen ? <ChangesPanel
-              key={`${activeProject.id}:${activeProject.rootRevision}`}
-              open={changesOpen}
-              project={activeProject}
-              status={gitState.status}
-              loading={gitState.loading}
-              refreshing={gitState.refreshing}
-              choosingGit={gitState.choosingGit}
-              error={gitState.error}
-              selection={gitSelection}
-              onClose={() => setRightPanel("none")}
-              onSelectionChange={setGitSelection}
-              onRefresh={() => void gitState.refresh()}
-              onChooseGit={() => void gitState.chooseGit()}
-            /> : <AttachmentsPanel
-              open={attachmentsOpen}
-              project={activeProject}
-              sessionId={null}
-              list={contextAttachments.list}
-              loading={contextAttachments.loading}
-              refreshing={contextAttachments.refreshing}
-              error={contextAttachments.error}
-              onClose={() => setRightPanel("none")}
-              onRefresh={contextAttachments.refresh}
-              onApply={contextAttachments.apply}
-              onError={(error) => showError("Anhang konnte nicht verarbeitet werden", error)}
-              onOpenExternal={openExternal}
-            />}
+            {changesOpen ? (
+              <ChangesPanel
+                key={`${activeProject.id}:${activeProject.rootRevision}`}
+                open={changesOpen}
+                project={activeProject}
+                status={gitState.status}
+                loading={gitState.loading}
+                refreshing={gitState.refreshing}
+                choosingGit={gitState.choosingGit}
+                error={gitState.error}
+                selection={gitSelection}
+                onClose={() => setRightPanel("none")}
+                onSelectionChange={setGitSelection}
+                onRefresh={() => void gitState.refresh()}
+                onChooseGit={() => void gitState.chooseGit()}
+              />
+            ) : attachmentsOpen ? (
+              <AttachmentsPanel
+                open={attachmentsOpen}
+                project={activeProject}
+                sessionId={null}
+                list={contextAttachments.list}
+                loading={contextAttachments.loading}
+                refreshing={contextAttachments.refreshing}
+                error={contextAttachments.error}
+                onClose={() => setRightPanel("none")}
+                onRefresh={contextAttachments.refresh}
+                onApply={contextAttachments.apply}
+                onError={(error) => showError("Anhang konnte nicht verarbeitet werden", error)}
+                onOpenExternal={openExternal}
+              />
+            ) : rightPanel === "todos" ? (
+              <TodosPanel
+                project={activeProject}
+                list={todos.list}
+                loading={todos.loading}
+                error={todos.error}
+                hasActiveSession={false}
+                onClose={() => setRightPanel("none")}
+                onApply={todos.apply}
+                onError={(error) => showError("Todo konnte nicht gespeichert werden", error)}
+                onSendToSession={sendTodoToActiveSession}
+                onSendToNewSession={sendTodoToNewSession}
+                onOpenExternal={openExternal}
+              />
+            ) : rightPanel === "skills" ? (
+              <SkillsPanel projectId={activeProject.id} onClose={() => setRightPanel("none")} />
+            ) : rightPanel === "mcp" ? (
+              <McpPanel projectId={activeProject.id} onClose={() => setRightPanel("none")} />
+            ) : rightPanel === "gitlab" && gitlabEnabled ? (
+              <GitLabPanel
+                projectId={activeProject.id}
+                rootRevision={activeProject.rootRevision}
+                activeSession={null}
+                onClose={() => setRightPanel("none")}
+                onSendExternalContextPrompt={async () => {
+                  showError("Keine aktive Session", new Error("Bitte starte zuerst eine Session, um Review-Kontext zu senden."));
+                }}
+                onOpenExternal={openExternal}
+                onOpenSettings={() => setProjectSettingsOpen(true)}
+              />
+            ) : null}
             {rightPanel !== "none" && <RightPanelResizeHandle width={rightPanelWidth} onChange={setRightPanelWidth} />}
+            <PanelRail items={railItems} activeId={rightPanel} onToggle={toggleRightPanel} />
           </div>
         ) : activeProject && activeSession ? (
           <div
@@ -890,19 +1199,17 @@ export function App() {
                 session={activeSession}
                 chat={{ ...chat, phase: effectivePhase }}
                 modelsSupported={capabilities.gemini.models}
-                attachmentsOpen={attachmentsOpen}
-                attachmentsCount={contextAttachments.all.length}
-                attachmentsIncludedCount={contextAttachments.included.length}
-                onToggleAttachments={() => setRightPanel((current) => current === "attachments" ? "none" : "attachments")}
-                changesOpen={changesOpen}
-                changesCount={changesCount}
-                onToggleChanges={() => setRightPanel((current) => current === "changes" ? "none" : "changes")}
                 onOpenSidebar={() => setSidebarOpen(true)}
                 onEditProject={() => setProjectSettingsOpen(true)}
                 onSetMode={(mode) => void setSessionMode(activeSession.id, mode)}
                 onSetModel={(model) => void setSessionModel(activeSession.id, model)}
               />
               {activeSession.status === "roots_changed" && <RootChangeBanner />}
+              {Boolean(reconnectedSessions[activeSession.id]) && (
+                <ReconnectHistoryBanner
+                  onChoose={(mode) => handleChooseReconnectMode(activeSession.id, mode)}
+                />
+              )}
               <Timeline
                 items={chat.items}
                 sessionTitle={activeSession.title}
@@ -921,41 +1228,82 @@ export function App() {
                 contextAttachmentCount={contextAttachments.included.length}
                 contextEstimatedTokens={contextAttachments.list?.estimatedTotalTokens ?? 0}
                 contextOverBudget={contextAttachments.list?.overBudget ?? false}
+                draft={composerDraft}
+                externalContexts={pendingExternalContexts}
+                onDraftApplied={() => setComposerDraft(null)}
+                onRemoveExternalContext={(refId) =>
+                  setPendingExternalContexts((current) =>
+                    current.filter((context) => context.ref.id !== refId),
+                  )
+                }
                 onOpenContextAttachments={() => setRightPanel("attachments")}
                 onSend={sendPrompt}
                 onCancel={cancelTurn}
                 onError={(error) => showError("Anhang konnte nicht verarbeitet werden", new Error(error))}
               />
             </div>
-            {changesOpen ? <ChangesPanel
-              key={`${activeProject.id}:${activeProject.rootRevision}`}
-              open={changesOpen}
-              project={activeProject}
-              status={gitState.status}
-              loading={gitState.loading}
-              refreshing={gitState.refreshing}
-              choosingGit={gitState.choosingGit}
-              error={gitState.error}
-              selection={gitSelection}
-              onClose={() => setRightPanel("none")}
-              onSelectionChange={setGitSelection}
-              onRefresh={() => void gitState.refresh()}
-              onChooseGit={() => void gitState.chooseGit()}
-            /> : <AttachmentsPanel
-              open={attachmentsOpen}
-              project={activeProject}
-              sessionId={activeSession.id}
-              list={contextAttachments.list}
-              loading={contextAttachments.loading}
-              refreshing={contextAttachments.refreshing}
-              error={contextAttachments.error}
-              onClose={() => setRightPanel("none")}
-              onRefresh={contextAttachments.refresh}
-              onApply={contextAttachments.apply}
-              onError={(error) => showError("Anhang konnte nicht verarbeitet werden", error)}
-              onOpenExternal={openExternal}
-            />}
+            {changesOpen ? (
+              <ChangesPanel
+                key={`${activeProject.id}:${activeProject.rootRevision}`}
+                open={changesOpen}
+                project={activeProject}
+                status={gitState.status}
+                loading={gitState.loading}
+                refreshing={gitState.refreshing}
+                choosingGit={gitState.choosingGit}
+                error={gitState.error}
+                selection={gitSelection}
+                onClose={() => setRightPanel("none")}
+                onSelectionChange={setGitSelection}
+                onRefresh={() => void gitState.refresh()}
+                onChooseGit={() => void gitState.chooseGit()}
+              />
+            ) : attachmentsOpen ? (
+              <AttachmentsPanel
+                open={attachmentsOpen}
+                project={activeProject}
+                sessionId={activeSession.id}
+                list={contextAttachments.list}
+                loading={contextAttachments.loading}
+                refreshing={contextAttachments.refreshing}
+                error={contextAttachments.error}
+                onClose={() => setRightPanel("none")}
+                onRefresh={contextAttachments.refresh}
+                onApply={contextAttachments.apply}
+                onError={(error) => showError("Anhang konnte nicht verarbeitet werden", error)}
+                onOpenExternal={openExternal}
+              />
+            ) : rightPanel === "todos" ? (
+              <TodosPanel
+                project={activeProject}
+                list={todos.list}
+                loading={todos.loading}
+                error={todos.error}
+                hasActiveSession
+                onClose={() => setRightPanel("none")}
+                onApply={todos.apply}
+                onError={(error) => showError("Todo konnte nicht gespeichert werden", error)}
+                onSendToSession={sendTodoToActiveSession}
+                onSendToNewSession={sendTodoToNewSession}
+                onOpenExternal={openExternal}
+              />
+            ) : rightPanel === "skills" ? (
+              <SkillsPanel projectId={activeProject.id} onClose={() => setRightPanel("none")} />
+            ) : rightPanel === "mcp" ? (
+              <McpPanel projectId={activeProject.id} onClose={() => setRightPanel("none")} />
+            ) : rightPanel === "gitlab" && gitlabEnabled ? (
+              <GitLabPanel
+                projectId={activeProject.id}
+                rootRevision={activeProject.rootRevision}
+                activeSession={activeSession}
+                onClose={() => setRightPanel("none")}
+                onSendExternalContextPrompt={deliverReviewContext}
+                onOpenExternal={openExternal}
+                onOpenSettings={() => setProjectSettingsOpen(true)}
+              />
+            ) : null}
             {rightPanel !== "none" && <RightPanelResizeHandle width={rightPanelWidth} onChange={setRightPanelWidth} />}
+            <PanelRail items={railItems} activeId={rightPanel} onToggle={toggleRightPanel} />
           </div>
         ) : null}
       </section>
@@ -974,6 +1322,14 @@ export function App() {
         onClose={() => setProjectSettingsOpen(false)}
         onSave={updateProject}
         onDelete={deleteProject}
+      />
+
+      <ReconnectHistoryModal
+        open={Boolean(pendingPrompt)}
+        onChoose={(mode) => {
+          if (activeSession) handleChooseReconnectMode(activeSession.id, mode);
+        }}
+        onCancel={() => setPendingPrompt(null)}
       />
 
       {uiError && (

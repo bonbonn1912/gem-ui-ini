@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog } from "electron";
 import electronSquirrelStartup from "electron-squirrel-startup";
 import { existsSync, renameSync } from "node:fs";
 import path from "node:path";
+import { AgentExtensionService } from "./agent-extensions";
 import { AppController } from "./app-controller";
 import { AttachmentService } from "./attachments/attachment-service";
 import { GeminiCapabilityService } from "./capability-service";
@@ -14,6 +15,7 @@ import { SessionEventHub } from "./ipc/event-hub";
 import { registerAppIpc } from "./ipc/register-app-ipc";
 import { ProjectService } from "./projects";
 import { ProjectFileService } from "./project-files";
+import { TodoService, TodoSubscriptionHub } from "./todos";
 import { LinkMetadataFetcher } from "./links";
 import {
   createMainWindow,
@@ -26,14 +28,20 @@ import {
   ClientRequestRepository,
   ContextAttachmentRepository,
   EventRepository,
+  GitLabRepository,
   ProjectRepository,
   SessionRepository,
   SettingsRepository,
+  TodoRepository,
   UsageRepository,
   openAppDatabase,
   type SqliteDatabase,
 } from "./storage";
 import { UsageService } from "./usage";
+import { GitLabService, GitLabSubscriptionHub, GitLabTokenVault } from "./integrations/gitlab";
+import { IntegrationRegistry } from "./integrations/integration-registry";
+import { ExternalPromptContextRegistry } from "./integrations/external-prompt-context-registry";
+import { IPC_CHANNELS } from "../shared/contracts";
 
 app.setName("GeminUI");
 configureUserDataPath();
@@ -48,6 +56,8 @@ let eventHub: SessionEventHub | null = null;
 let gitStatusHub: GitStatusSubscriptionHub | null = null;
 let contextAttachmentHub: ContextAttachmentSubscriptionHub | null = null;
 let contextAttachmentService: ContextAttachmentService | null = null;
+let todoService: TodoService | null = null;
+let todoHub: TodoSubscriptionHub | null = null;
 let runtimeServices: Omit<
   Parameters<typeof registerAppIpc>[0],
   "mainWindow"
@@ -110,6 +120,7 @@ async function bootstrap(): Promise<void> {
 
   const projectService = new ProjectService(projectRepository);
   const projectFileService = new ProjectFileService(projectService);
+  const agentExtensionService = new AgentExtensionService(projectService);
   const capabilityService = new GeminiCapabilityService(
     settingsRepository,
     app.getVersion(),
@@ -133,8 +144,41 @@ async function bootstrap(): Promise<void> {
   await contextAttachmentService.initialize();
   contextAttachmentHub = new ContextAttachmentSubscriptionHub(contextAttachmentService);
 
+  const todoRepository = new TodoRepository(database, contextAttachmentRepository);
+  todoService = new TodoService(
+    todoRepository,
+    contextAttachmentService,
+    projectService,
+    sessionRepository,
+  );
+  todoHub = new TodoSubscriptionHub(todoService);
+
   const gitService = new GitService(projectService, capabilityService);
   gitStatusHub = new GitStatusSubscriptionHub(gitService);
+
+  const gitlabRepository = new GitLabRepository(database);
+  const gitlabTokenVault = new GitLabTokenVault();
+  const externalPromptContextRegistry = new ExternalPromptContextRegistry();
+  const gitlabService = new GitLabService({
+    gitlabRepository,
+    tokenVault: gitlabTokenVault,
+    projectService,
+    getGitBinaryPath: () => capabilityService.requireGitBinaryPath(),
+  });
+  externalPromptContextRegistry.registerProvider("gitlab_review", gitlabService);
+
+  const gitlabSubscriptionHub = new GitLabSubscriptionHub(
+    (projectId, bindingId) => gitlabService.getReviewState(projectId, bindingId),
+    (subscriptionId, state) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IPC_CHANNELS.gitlabReviewStateChanged, {
+          subscriptionId,
+          state,
+        });
+      }
+    },
+  );
+  const integrationRegistry = new IntegrationRegistry(gitlabRepository);
 
   eventHub = new SessionEventHub({
     eventsAfter: (sessionId, afterSeq) =>
@@ -152,22 +196,29 @@ async function bootstrap(): Promise<void> {
     capabilities: capabilityService,
     usage: usageService,
     publishEvents: (events) => eventHub?.publish(events),
+    externalContextRegistry: externalPromptContextRegistry,
   });
   projectService.setRuntimeCoordinator(controller);
 
   runtimeServices = {
     projects: projectService,
     projectFiles: projectFileService,
+    agentExtensions: agentExtensionService,
     controller,
     capabilities: capabilityService,
     attachments: attachmentService,
     contextAttachments: contextAttachmentService,
     contextAttachmentHub,
+    todos: todoService,
+    todoHub,
     linkMetadataFetcher,
     clientRequests: clientRequestRepository,
     eventHub,
     git: gitService,
     gitStatusHub,
+    integrations: integrationRegistry,
+    gitlab: gitlabService,
+    gitlabSubscriptionHub,
   };
   await openApplicationWindow();
 }
@@ -193,12 +244,16 @@ async function cleanup(): Promise<void> {
     eventHub?.close();
     gitStatusHub?.close();
     contextAttachmentHub?.close();
+    todoHub?.close();
+    todoService?.dispose();
     contextAttachmentService?.dispose();
     await controller?.dispose();
     controller = null;
     eventHub = null;
     gitStatusHub = null;
     contextAttachmentHub = null;
+    todoHub = null;
+    todoService = null;
     contextAttachmentService = null;
     runtimeServices = null;
     if (database?.open) database.close();
