@@ -47,13 +47,15 @@ export function installApplicationMenu(): void {
     {
       label: "Bearbeiten",
       submenu: [
-        { role: "undo" },
-        { role: "redo" },
+        { role: "undo", label: "Rückgängig" },
+        { role: "redo", label: "Wiederholen" },
         { type: "separator" },
-        { role: "cut" },
-        { role: "copy" },
-        { role: "paste" },
-        { role: "selectAll" },
+        { role: "cut", label: "Ausschneiden" },
+        { role: "copy", label: "Kopieren" },
+        { role: "paste", label: "Einfügen" },
+        { role: "pasteAndMatchStyle", label: "Einfügen und Stil anpassen" },
+        { role: "delete", label: "Löschen" },
+        { role: "selectAll", label: "Alles auswählen" },
       ],
     },
     {
@@ -133,6 +135,26 @@ export function createMainWindow(): BrowserWindow {
   window.webContents.on("render-process-gone", (_event, details) => {
     if (!window.isDestroyed() && details.reason !== "clean-exit") {
       window.webContents.reload();
+    }
+  });
+  window.webContents.on("context-menu", (_event, params) => {
+    if (params.isEditable) {
+      const menu = Menu.buildFromTemplate([
+        { role: "undo", label: "Rückgängig", enabled: params.editFlags.canUndo },
+        { role: "redo", label: "Wiederholen", enabled: params.editFlags.canRedo },
+        { type: "separator" },
+        { role: "cut", label: "Ausschneiden", enabled: params.editFlags.canCut },
+        { role: "copy", label: "Kopieren", enabled: params.editFlags.canCopy },
+        { role: "paste", label: "Einfügen", enabled: params.editFlags.canPaste },
+        { role: "selectAll", label: "Alles auswählen", enabled: params.editFlags.canSelectAll },
+      ]);
+      menu.popup();
+    } else if (params.selectionText && params.selectionText.trim().length > 0) {
+      const menu = Menu.buildFromTemplate([
+        { role: "copy", label: "Kopieren" },
+        { role: "selectAll", label: "Alles auswählen" },
+      ]);
+      menu.popup();
     }
   });
 

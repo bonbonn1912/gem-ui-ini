@@ -373,6 +373,39 @@ describe("Renderer UI", () => {
     expect(screen.getByText("Architektur.md", { selector: ".sent-context-attachment" })).toBeVisible();
   });
 
+  it("erlaubt Copy-Paste im Eingabefeld des 'Link hinzufügen'-Dialogs", async () => {
+    const user = userEvent.setup();
+    const contextList = populatedContextList();
+    const { api } = createApi({ contextList });
+    vi.mocked(api.contextAttachments.addLink).mockResolvedValue(contextList);
+    window.gemUi = api;
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Anhänge öffnen, 2 Anhänge, 1 im Kontext" }));
+
+    // Menu öffnen & Link hinzufügen Dialog öffnen
+    const addMenu = screen.getByLabelText("Anhang hinzufügen");
+    await user.click(addMenu);
+    const addLinkBtn = screen.getAllByRole("button", { name: "Link hinzufügen" })[0]!;
+    await user.click(addLinkBtn);
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("heading", { name: "Link hinzufügen" })).toBeVisible();
+
+    const input = within(dialog).getByRole("textbox", { name: "HTTPS-Adresse" });
+    await user.type(input, "https://github.com/bonbonn1912/gem-ui-ini");
+    expect(input).toHaveValue("https://github.com/bonbonn1912/gem-ui-ini");
+
+    // addLink soll erst beim Klick auf Hinzufügen aufgerufen werden, nicht durch Paste-Event-Abfangen
+    expect(api.contextAttachments.addLink).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole("button", { name: "Hinzufügen" }));
+    await waitFor(() => expect(api.contextAttachments.addLink).toHaveBeenCalledWith(expect.objectContaining({
+      scope: "project",
+      url: "https://github.com/bonbonn1912/gem-ui-ini",
+    })));
+  });
+
   it("schließt die native Linkvorschau beim Abbauen zuverlässig", async () => {
     const { api } = createApi();
     vi.mocked(api.linkPreview.open).mockResolvedValue({

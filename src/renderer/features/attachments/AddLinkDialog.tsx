@@ -29,8 +29,12 @@ export function AddLinkDialog({ open, scopeLabel, onClose, onSubmit }: AddLinkDi
     event.preventDefault();
     setSubmitting(true);
     setError(null);
+    let targetUrl = url.trim();
+    if (targetUrl && !/^https?:\/\//i.test(targetUrl) && !targetUrl.includes("://")) {
+      targetUrl = `https://${targetUrl}`;
+    }
     try {
-      await onSubmit(url.trim(), title.trim() || undefined);
+      await onSubmit(targetUrl, title.trim() || undefined);
       onClose();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Der Link konnte nicht hinzugefügt werden.");
@@ -43,11 +47,17 @@ export function AddLinkDialog({ open, scopeLabel, onClose, onSubmit }: AddLinkDi
     <div className="modal-layer attachment-link-modal" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose();
     }}>
-      <form className="project-dialog add-link-dialog" onSubmit={(event) => void submit(event)}>
+      <form
+        className="project-dialog add-link-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-link-dialog-title"
+        onSubmit={(event) => void submit(event)}
+      >
         <header>
           <div>
             <p className="eyebrow">{scopeLabel}</p>
-            <h2>Link hinzufügen</h2>
+            <h2 id="add-link-dialog-title">Link hinzufügen</h2>
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Dialog schließen">
             <Icon name="x" size={18} />
