@@ -82,6 +82,27 @@ describe("GitLab Merge Request URL Resolver", () => {
   });
 });
 
+describe("GitLab API Client", () => {
+  it("encodes project paths with slashes correctly in endpoints", async () => {
+    const { GitLabApiClient } = await import("../../src/main/integrations/gitlab/gitlab-api-client");
+
+    const requestedUrls: string[] = [];
+    const mockFetch = async (url: string | URL | Request) => {
+      requestedUrls.push(String(url));
+      return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+    };
+
+    const client = new GitLabApiClient({
+      instanceUrl: "https://gitlab.com",
+      token: "test-token",
+      fetchFn: mockFetch as any,
+    });
+
+    await client.listMergeRequests("dw191299/bonbot", { state: "opened" });
+    expect(requestedUrls[0]).toContain("/projects/dw191299%2Fbonbot/merge_requests");
+  });
+});
+
 describe("GitLab Discussion Mapper", () => {
   it("maps discussions, resolvability, notes and detects outdated diff positions", () => {
     const currentSha = "sha-head-current";

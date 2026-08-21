@@ -81,13 +81,34 @@ export class ContextAttachmentService {
     return this.repository.list(parsed.projectId, parsed.sessionId);
   }
 
+  /** Reads a single attachment, including the columns the renderer never sees. */
+  getStored(attachmentId: string): StoredContextAttachment {
+    return this.repository.getInternal(attachmentId);
+  }
+
   async addFiles(input: AddContextFilesInput): Promise<ContextAttachmentList> {
     const parsed = AddContextFilesInputSchema.parse(input);
+    await this.ingestFiles(parsed);
+    return this.repository.list(parsed.projectId, parsed.sessionId);
+  }
+
+  /**
+   * Adds files and hands back the attachments they resolved to — including the
+   * ones that already existed, because a caller that wants to reference an
+   * attachment (a todo, for instance) needs the existing row just as much as a
+   * freshly created one.
+   */
+  async ingestFiles(input: AddContextFilesInput): Promise<StoredContextAttachment[]> {
+    const parsed = AddContextFilesInputSchema.parse(input);
     this.#assertTarget(parsed.projectId, parsed.sessionId, parsed.scope);
+    const attachments: StoredContextAttachment[] = [];
     for (const filePath of parsed.paths) {
       const blob = await this.blobs.ingest(filePath);
       const duplicate = this.repository.findDuplicate(parsed.projectId, parsed.sessionId, blob.sha256);
-      if (duplicate) continue;
+      if (duplicate) {
+        attachments.push(duplicate);
+        continue;
+      }
       const displayName = safeDisplayName(path.basename(filePath));
       const mimeType = sniffMime(blob.sniffBytes, displayName);
       const attachment = this.repository.insertFile({
@@ -107,12 +128,19 @@ export class ContextAttachmentService {
         createdAt: new Date().toISOString(),
       });
       this.#extractor.enqueue(attachment.id);
+      attachments.push(attachment);
     }
     this.#emit(parsed.projectId);
-    return this.repository.list(parsed.projectId, parsed.sessionId);
+    return attachments;
   }
 
   async addLink(input: AddContextLinkInput): Promise<ContextAttachmentList> {
+    const parsed = AddContextLinkInputSchema.parse(input);
+    await this.ingestLink(parsed);
+    return this.repository.list(parsed.projectId, parsed.sessionId);
+  }
+
+  async ingestLink(input: AddContextLinkInput): Promise<StoredContextAttachment> {
     const parsed = AddContextLinkInputSchema.parse(input);
     this.#assertTarget(parsed.projectId, parsed.sessionId, parsed.scope);
     const normalized = normalizeUrl(parsed.url);
@@ -135,7 +163,7 @@ export class ContextAttachmentService {
       void this.refreshLinkPreviewById(attachment.id).catch(() => undefined);
     }
     this.#emit(parsed.projectId);
-    return this.repository.list(parsed.projectId, parsed.sessionId);
+    return attachment;
   }
 
   update(input: UpdateContextAttachmentInput): ContextAttachmentList {

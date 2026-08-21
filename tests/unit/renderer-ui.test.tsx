@@ -13,6 +13,8 @@ import type {
   GemUiDesktopApi,
   ContextAttachmentList,
   StreamEnvelope,
+  Todo,
+  TodoList,
 } from "../../src/renderer/types";
 
 const capabilities: AppCapabilities = {
@@ -84,7 +86,25 @@ function emptyContextList(sessionId: string | null): ContextAttachmentList {
   };
 }
 
-function createApi(options: { projects?: AppProject[]; sessions?: AppSession[]; contextList?: ContextAttachmentList } = {}) {
+function emptyTodoList(): TodoList {
+  return { projectId: project.id, todos: [], openCount: 0, doneCount: 0 };
+}
+
+function todoList(todos: Todo[]): TodoList {
+  return {
+    projectId: project.id,
+    todos,
+    openCount: todos.filter((todo) => !todo.done).length,
+    doneCount: todos.filter((todo) => todo.done).length,
+  };
+}
+
+function createApi(options: {
+  projects?: AppProject[];
+  sessions?: AppSession[];
+  contextList?: ContextAttachmentList;
+  todos?: TodoList;
+} = {}) {
   let subscriber: ((events: StreamEnvelope[]) => void) | undefined;
   const api: GemUiDesktopApi = {
     getCapabilities: vi.fn().mockResolvedValue(capabilities),
@@ -182,6 +202,29 @@ function createApi(options: { projects?: AppProject[]; sessions?: AppSession[]; 
         truncated: false,
       }),
     },
+    todos: {
+      list: vi.fn().mockImplementation(async () => options.todos ?? emptyTodoList()),
+      create: vi.fn().mockImplementation(async () => options.todos ?? emptyTodoList()),
+      update: vi.fn().mockImplementation(async () => options.todos ?? emptyTodoList()),
+      reorder: vi.fn().mockImplementation(async () => options.todos ?? emptyTodoList()),
+      delete: vi.fn().mockImplementation(async () => emptyTodoList()),
+      addFiles: vi.fn().mockImplementation(async () => options.todos ?? emptyTodoList()),
+      addDroppedFiles: vi.fn().mockImplementation(async () => options.todos ?? emptyTodoList()),
+      addLink: vi.fn().mockImplementation(async () => options.todos ?? emptyTodoList()),
+      attachAttachment: vi.fn().mockImplementation(async () => options.todos ?? emptyTodoList()),
+      detachAttachment: vi.fn().mockImplementation(async () => options.todos ?? emptyTodoList()),
+      prepareForSession: vi.fn().mockImplementation(async (input) => ({
+        todoId: input.todoId,
+        sessionId: input.sessionId,
+        text: "Login reparieren\n\nDer Redirect verliert die Session.",
+        attachmentIds: [],
+        contextAttachments: emptyContextList(input.sessionId),
+      })),
+      subscribe: vi.fn().mockImplementation(async (_input, callback) => {
+        callback(options.todos ?? emptyTodoList());
+        return () => undefined;
+      }),
+    },
     linkPreview: {
       open: vi.fn(),
       setBounds: vi.fn().mockResolvedValue({ ok: true }),
@@ -235,11 +278,24 @@ function createApi(options: { projects?: AppProject[]; sessions?: AppSession[]; 
     },
     subscribeSessionEvents: vi.fn().mockImplementation(async (_input, callback) => {
       subscriber = callback;
-      return () => { subscriber = undefined; };
+      // Only the still-current subscription may clear the slot: the effect that
+      // owns an older one disposes it asynchronously, after a newer one is in.
+      return () => { if (subscriber === callback) subscriber = undefined; };
     }),
     openExternalHttpsUrl: vi.fn().mockResolvedValue(undefined),
   };
-  return { api, emit: (events: StreamEnvelope[]) => subscriber?.(events) };
+  // The app subscribes to the session stream inside a passive effect, so the
+  // subscription can still be pending when the first rendered element is found.
+  // Waiting for it turns the delivery into a fact instead of a race that a
+  // fast machine wins and a busy CI runner loses.
+  const emit = async (events: StreamEnvelope[]) => {
+    await waitFor(() => {
+      if (!subscriber) throw new Error("Der Session-Stream ist noch nicht abonniert.");
+    });
+    const deliver = subscriber;
+    await act(async () => { deliver?.(events); });
+  };
+  return { api, emit };
 }
 
 afterEach(() => {
@@ -747,34 +803,30 @@ describe("Renderer UI", () => {
     const composer = await screen.findByRole("textbox", { name: "Nachricht an Gemini" });
     await waitFor(() => expect(api.git.subscribeProjectStatus).toHaveBeenCalledTimes(1));
 
-    act(() => {
-      emit([{
-        seq: 1,
-        sessionId: session.id,
-        turnId: "turn-preview",
-        timestamp: "2026-08-21T12:00:00.100Z",
-        event: {
-          type: "tool.started",
-          toolCallId: "tool-edit-auth",
-          title: "auth.ts bearbeiten",
-          kind: "edit",
-          arguments: null,
-        },
-      }]);
-    });
-    act(() => {
-      emit([{
-        seq: 2,
-        sessionId: session.id,
-        turnId: "turn-preview",
-        timestamp: "2026-08-21T12:00:00.900Z",
-        event: {
-          type: "tool.completed",
-          toolCallId: "tool-edit-auth",
-          result: null,
-        },
-      }]);
-    });
+    await emit([{
+      seq: 1,
+      sessionId: session.id,
+      turnId: "turn-preview",
+      timestamp: "2026-08-21T12:00:00.100Z",
+      event: {
+        type: "tool.started",
+        toolCallId: "tool-edit-auth",
+        title: "auth.ts bearbeiten",
+        kind: "edit",
+        arguments: null,
+      },
+    }]);
+    await emit([{
+      seq: 2,
+      sessionId: session.id,
+      turnId: "turn-preview",
+      timestamp: "2026-08-21T12:00:00.900Z",
+      event: {
+        type: "tool.completed",
+        toolCallId: "tool-edit-auth",
+        result: null,
+      },
+    }]);
 
     expect(await screen.findByRole("region", { name: "Dateiänderungen dieses Werkzeugs" })).toBeVisible();
     expect(await screen.findByText("1 geänderte Datei")).toBeVisible();
@@ -842,33 +894,31 @@ describe("Renderer UI", () => {
     await user.type(composer, "Nächsten Schritt vorbereiten");
     expect(composer).toHaveValue("Nächsten Schritt vorbereiten");
 
-    act(() => {
-      emit([
-        {
-          seq: 1,
-          sessionId: "session-1",
-          turnId: "turn-1",
-          timestamp: "2026-08-20T12:00:01.000Z",
-          event: { type: "message.assistant.delta", messageId: "assistant-1", delta: "**Gefunden:** ein Fehler." },
+    await emit([
+      {
+        seq: 1,
+        sessionId: "session-1",
+        turnId: "turn-1",
+        timestamp: "2026-08-20T12:00:01.000Z",
+        event: { type: "message.assistant.delta", messageId: "assistant-1", delta: "**Gefunden:** ein Fehler." },
+      },
+      {
+        seq: 2,
+        sessionId: "session-1",
+        turnId: "turn-1",
+        timestamp: "2026-08-20T12:00:02.000Z",
+        event: {
+          type: "permission.requested",
+          requestId: "permission-7",
+          toolCallId: null,
+          title: "auth.ts ändern",
+          options: [
+            { optionId: "allow-option-42", label: "Einmal erlauben", kind: "allow_once" },
+            { optionId: "reject-option-9", label: "Ablehnen", kind: "reject_once" },
+          ],
         },
-        {
-          seq: 2,
-          sessionId: "session-1",
-          turnId: "turn-1",
-          timestamp: "2026-08-20T12:00:02.000Z",
-          event: {
-            type: "permission.requested",
-            requestId: "permission-7",
-            toolCallId: null,
-            title: "auth.ts ändern",
-            options: [
-              { optionId: "allow-option-42", label: "Einmal erlauben", kind: "allow_once" },
-              { optionId: "reject-option-9", label: "Ablehnen", kind: "reject_once" },
-            ],
-          },
-        },
-      ]);
-    });
+      },
+    ]);
 
     expect(await screen.findByText("Gefunden:")).toBeVisible();
     expect(screen.getByText("ein Fehler.")).toBeVisible();
@@ -882,15 +932,13 @@ describe("Renderer UI", () => {
     await user.click(screen.getByRole("button", { name: "Antwort stoppen" }));
     expect(api.sessions.cancel).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "session-1" }));
 
-    act(() => {
-      emit([{
-        seq: 3,
-        sessionId: "session-1",
-        turnId: "turn-1",
-        timestamp: "2026-08-20T12:00:03.000Z",
-        event: { type: "turn.cancelled", reason: null },
-      }]);
-    });
+    await emit([{
+      seq: 3,
+      sessionId: "session-1",
+      turnId: "turn-1",
+      timestamp: "2026-08-20T12:00:03.000Z",
+      event: { type: "turn.cancelled", reason: null },
+    }]);
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Nachricht an Gemini" })).toBeEnabled());
     expect(screen.getByRole("textbox", { name: "Nachricht an Gemini" })).toHaveValue("Nächsten Schritt vorbereiten");
   });
@@ -908,38 +956,36 @@ describe("Renderer UI", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Login reparieren" });
 
-    act(() => {
-      emit([
-        {
-          seq: 1,
-          sessionId: "session-1",
-          turnId: null,
-          timestamp: "2026-08-20T12:00:01.000Z",
-          event: {
-            type: "session.ready",
-            modes: ["default", "auto_edit"],
-            models: ["gemini-2.5-flash", "gemini-2.5-pro"],
+    await emit([
+      {
+        seq: 1,
+        sessionId: "session-1",
+        turnId: null,
+        timestamp: "2026-08-20T12:00:01.000Z",
+        event: {
+          type: "session.ready",
+          modes: ["default", "auto_edit"],
+          models: ["gemini-2.5-flash", "gemini-2.5-pro"],
+        },
+      },
+      {
+        seq: 2,
+        sessionId: "session-1",
+        turnId: "turn-1",
+        timestamp: "2026-08-20T12:00:02.000Z",
+        event: {
+          type: "usage.updated",
+          snapshot: {
+            revision: 3,
+            lastTurn: null,
+            session: null,
+            context: { used: 2_048, size: 8_192, source: "acp_usage_update" },
+            cost: { amount: 0.01, currency: "USD", source: "acp_usage_update" },
+            updatedAt: "2026-08-20T12:00:02.000Z",
           },
         },
-        {
-          seq: 2,
-          sessionId: "session-1",
-          turnId: "turn-1",
-          timestamp: "2026-08-20T12:00:02.000Z",
-          event: {
-            type: "usage.updated",
-            snapshot: {
-              revision: 3,
-              lastTurn: null,
-              session: null,
-              context: { used: 2_048, size: 8_192, source: "acp_usage_update" },
-              cost: { amount: 0.01, currency: "USD", source: "acp_usage_update" },
-              updatedAt: "2026-08-20T12:00:02.000Z",
-            },
-          },
-        } satisfies StreamEnvelope,
-      ]);
-    });
+      } satisfies StreamEnvelope,
+    ]);
 
     const modelSelect = await screen.findByRole("combobox", { name: "Gemini-Modell" });
     expect(modelSelect).toHaveValue("gemini-2.5-flash");
@@ -1008,54 +1054,52 @@ describe("Renderer UI", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Login reparieren" });
 
-    act(() => {
-      emit([
-        {
-          seq: 1,
-          sessionId: "session-1",
-          turnId: "turn-1",
-          timestamp: "2026-08-20T12:00:02.000Z",
-          event: {
-            type: "usage.updated",
-            snapshot: {
-              revision: 1,
-              lastTurn: {
-                turnId: "turn-1",
-                tokens: {
-                  input: 1_234,
-                  output: 567,
-                  total: 1_801,
-                  thought: null,
-                  cachedRead: null,
-                  cachedWrite: null,
-                  tool: null,
-                  totalKind: "derived_input_plus_output",
-                },
-                byModel: [{ model: "gemini-2.5-pro", input: 1_234, output: 567 }],
-                source: "gemini_meta_quota",
+    await emit([
+      {
+        seq: 1,
+        sessionId: "session-1",
+        turnId: "turn-1",
+        timestamp: "2026-08-20T12:00:02.000Z",
+        event: {
+          type: "usage.updated",
+          snapshot: {
+            revision: 1,
+            lastTurn: {
+              turnId: "turn-1",
+              tokens: {
+                input: 1_234,
+                output: 567,
+                total: 1_801,
+                thought: null,
+                cachedRead: null,
+                cachedWrite: null,
+                tool: null,
+                totalKind: "derived_input_plus_output",
               },
-              session: {
-                tokens: {
-                  input: 12_000,
-                  output: 6_400,
-                  total: 18_400,
-                  thought: null,
-                  cachedRead: null,
-                  cachedWrite: null,
-                  tool: null,
-                  totalKind: "derived_input_plus_output",
-                },
-                coverage: "partial",
-                source: "geminui_aggregate",
-              },
-              context: null,
-              cost: null,
-              updatedAt: "2026-08-20T12:00:02.000Z",
+              byModel: [{ model: "gemini-2.5-pro", input: 1_234, output: 567 }],
+              source: "gemini_meta_quota",
             },
+            session: {
+              tokens: {
+                input: 12_000,
+                output: 6_400,
+                total: 18_400,
+                thought: null,
+                cachedRead: null,
+                cachedWrite: null,
+                tool: null,
+                totalKind: "derived_input_plus_output",
+              },
+              coverage: "partial",
+              source: "geminui_aggregate",
+            },
+            context: null,
+            cost: null,
+            updatedAt: "2026-08-20T12:00:02.000Z",
           },
-        } satisfies StreamEnvelope,
-      ]);
-    });
+        },
+      } satisfies StreamEnvelope,
+    ]);
 
     // Input, output and cache are readable straight from the header.
     const pill = (await screen.findByText("In")).closest(".usage-pill");
@@ -1108,6 +1152,77 @@ describe("Renderer UI", () => {
     expect(details).toHaveClass("error-details");
     expect(details).toHaveAttribute("tabindex", "0");
     expect(details).toHaveTextContent("Require stack: /ein/sehr/langer/pfad/der/nicht/abgeschnitten/werden/darf/main.cjs");
+  });
+
+  it("gibt ein Todo samt Anhang als Entwurf in die offene Session", async () => {
+    const user = userEvent.setup();
+    const todo: Todo = {
+      id: "51000000-0000-4000-8000-000000000001",
+      projectId: project.id,
+      title: "Login reparieren",
+      description: "Der Redirect verliert die Session.",
+      done: false,
+      sortOrder: 0,
+      attachments: [],
+      completedAt: null,
+      createdAt: "2026-08-21T09:00:00.000Z",
+      updatedAt: "2026-08-21T09:00:00.000Z",
+    };
+    const { api } = createApi({ todos: todoList([todo]) });
+    window.gemUi = api;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Login reparieren" });
+
+    await user.click(screen.getByRole("button", { name: /^Todos öffnen/ }));
+    const panel = await screen.findByRole("complementary", { name: "Todos dieses Projekts" });
+    await user.click(within(panel).getByRole("button", { name: /Der Redirect verliert die Session/ }));
+    await user.click(within(panel).getByRole("button", { name: "In diese Session" }));
+
+    await waitFor(() =>
+      expect(api.todos.prepareForSession).toHaveBeenCalledWith(
+        expect.objectContaining({ todoId: todo.id, sessionId: "session-1" }),
+      ),
+    );
+    // The draft lands in the composer instead of being sent: nothing goes to
+    // Gemini until the user presses send.
+    expect(screen.getByRole("textbox", { name: "Nachricht an Gemini" })).toHaveValue(
+      "Login reparieren\n\nDer Redirect verliert die Session.",
+    );
+    expect(api.sessions.sendPrompt).not.toHaveBeenCalled();
+  });
+
+  it("hängt einen übernommenen Entwurf an bereits getippten Text an", async () => {
+    const user = userEvent.setup();
+    const todo: Todo = {
+      id: "51000000-0000-4000-8000-000000000002",
+      projectId: project.id,
+      title: "Login reparieren",
+      description: "Der Redirect verliert die Session.",
+      done: false,
+      sortOrder: 0,
+      attachments: [],
+      completedAt: null,
+      createdAt: "2026-08-21T09:00:00.000Z",
+      updatedAt: "2026-08-21T09:00:00.000Z",
+    };
+    const { api } = createApi({ todos: todoList([todo]) });
+    window.gemUi = api;
+
+    render(<App />);
+    const composer = await screen.findByRole("textbox", { name: "Nachricht an Gemini" });
+    await user.type(composer, "Vorher getippt");
+
+    await user.click(screen.getByRole("button", { name: /^Todos öffnen/ }));
+    const panel = await screen.findByRole("complementary", { name: "Todos dieses Projekts" });
+    await user.click(within(panel).getByRole("button", { name: /Der Redirect verliert die Session/ }));
+    await user.click(within(panel).getByRole("button", { name: "In diese Session" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Nachricht an Gemini" })).toHaveValue(
+        "Vorher getippt\n\nLogin reparieren\n\nDer Redirect verliert die Session.",
+      ),
+    );
   });
 
   it("verwaltet Projektname und zusätzliche Roots über die sichere Bridge", async () => {

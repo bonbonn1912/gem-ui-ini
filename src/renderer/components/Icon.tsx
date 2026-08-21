@@ -11,6 +11,7 @@ export type IconName =
   | "chevron-up"
   | "chat"
   | "changes"
+  | "checklist"
   | "clock"
   | "copy"
   | "download"
@@ -26,6 +27,7 @@ export type IconName =
   | "menu"
   | "more"
   | "paperclip"
+  | "pencil"
   | "pin"
   | "plus"
   | "refresh"
@@ -100,6 +102,14 @@ export function Icon({ name, size = 18, ...props }: IconProps) {
       return (
         <svg {...common}>
           <path d="m5 12.5 4.3 4.3L19 7" />
+        </svg>
+      );
+    case "checklist":
+      return (
+        <svg {...common}>
+          <path d="m3.5 7 1.8 1.8L8.5 5.5" />
+          <path d="m3.5 16.5 1.8 1.8 3.2-3.3" />
+          <path d="M12 7.5h8.5M12 17h8.5" />
         </svg>
       );
     case "chevron-down":
@@ -229,6 +239,13 @@ export function Icon({ name, size = 18, ...props }: IconProps) {
       return (
         <svg {...common}>
           <path d="m9.5 12.5 5.7-5.7a3 3 0 0 1 4.2 4.2l-7.8 7.8a5 5 0 0 1-7.1-7.1l7.3-7.3" />
+        </svg>
+      );
+    case "pencil":
+      return (
+        <svg {...common}>
+          <path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3Z" />
+          <path d="m14.5 6 3.5 3.5" />
         </svg>
       );
     case "pin":

@@ -15,6 +15,7 @@ import { SessionEventHub } from "./ipc/event-hub";
 import { registerAppIpc } from "./ipc/register-app-ipc";
 import { ProjectService } from "./projects";
 import { ProjectFileService } from "./project-files";
+import { TodoService, TodoSubscriptionHub } from "./todos";
 import { LinkMetadataFetcher } from "./links";
 import {
   createMainWindow,
@@ -31,6 +32,7 @@ import {
   ProjectRepository,
   SessionRepository,
   SettingsRepository,
+  TodoRepository,
   UsageRepository,
   openAppDatabase,
   type SqliteDatabase,
@@ -54,6 +56,8 @@ let eventHub: SessionEventHub | null = null;
 let gitStatusHub: GitStatusSubscriptionHub | null = null;
 let contextAttachmentHub: ContextAttachmentSubscriptionHub | null = null;
 let contextAttachmentService: ContextAttachmentService | null = null;
+let todoService: TodoService | null = null;
+let todoHub: TodoSubscriptionHub | null = null;
 let runtimeServices: Omit<
   Parameters<typeof registerAppIpc>[0],
   "mainWindow"
@@ -140,6 +144,15 @@ async function bootstrap(): Promise<void> {
   await contextAttachmentService.initialize();
   contextAttachmentHub = new ContextAttachmentSubscriptionHub(contextAttachmentService);
 
+  const todoRepository = new TodoRepository(database, contextAttachmentRepository);
+  todoService = new TodoService(
+    todoRepository,
+    contextAttachmentService,
+    projectService,
+    sessionRepository,
+  );
+  todoHub = new TodoSubscriptionHub(todoService);
+
   const gitService = new GitService(projectService, capabilityService);
   gitStatusHub = new GitStatusSubscriptionHub(gitService);
 
@@ -196,6 +209,8 @@ async function bootstrap(): Promise<void> {
     attachments: attachmentService,
     contextAttachments: contextAttachmentService,
     contextAttachmentHub,
+    todos: todoService,
+    todoHub,
     linkMetadataFetcher,
     clientRequests: clientRequestRepository,
     eventHub,
@@ -229,12 +244,16 @@ async function cleanup(): Promise<void> {
     eventHub?.close();
     gitStatusHub?.close();
     contextAttachmentHub?.close();
+    todoHub?.close();
+    todoService?.dispose();
     contextAttachmentService?.dispose();
     await controller?.dispose();
     controller = null;
     eventHub = null;
     gitStatusHub = null;
     contextAttachmentHub = null;
+    todoHub = null;
+    todoService = null;
     contextAttachmentService = null;
     runtimeServices = null;
     if (database?.open) database.close();

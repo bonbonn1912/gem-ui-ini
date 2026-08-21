@@ -6,13 +6,19 @@ import {
   type ArchiveProjectInput,
   type AddContextFilesInput,
   type AddContextLinkInput,
+  type AddTodoFilesInput,
+  type AddTodoLinkInput,
   type AttachmentPreviewInput,
+  type AttachTodoAttachmentInput,
   type CancelTurnInput,
   type ClipboardImageInput,
   type CreateProjectInput,
   type CreateSessionInput,
+  type CreateTodoInput,
   type DeleteProjectInput,
   type DeleteSessionInput,
+  type DeleteTodoInput,
+  type DetachTodoAttachmentInput,
   type ContextAttachmentBytesInput,
   type GetProjectInput,
   type ListAgentExtensionsInput,
@@ -22,11 +28,14 @@ import {
   type ListProjectsInput,
   type ListSessionsInput,
   type ListContextAttachmentsInput,
+  type ListTodosInput,
   type OpenContextAttachmentInput,
   type OpenLinkPreviewInput,
   type PermissionResponse,
   type PickImagesInput,
+  type PrepareTodoForSessionInput,
   type RemoveAttachmentInput,
+  type ReorderTodosInput,
   type RemoveContextAttachmentInput,
   type RefreshLinkPreviewInput,
   type ReauthorizeProjectRootInput,
@@ -44,6 +53,7 @@ import {
   type SubscribeGitProjectStatusInput,
   type UpdateSessionInput,
   type UpdateContextAttachmentInput,
+  type UpdateTodoInput,
 } from "../../shared/contracts";
 import type { AgentExtensionService } from "../agent-extensions";
 import type { AppController } from "../app-controller";
@@ -56,6 +66,7 @@ import type { GeminiCapabilityService } from "../capability-service";
 import type { GitService, GitStatusSubscriptionHub } from "../git";
 import type { ProjectService } from "../projects";
 import type { ProjectFileService } from "../project-files";
+import type { TodoService, TodoSubscriptionHub } from "../todos";
 import { LinkPreviewViewHost, type LinkMetadataFetcher } from "../links";
 import type { ClientRequestRepository } from "../storage";
 import { openExternalHttps, openStoredFile } from "../security/main-window";
@@ -76,6 +87,8 @@ export type RegisterAppIpcOptions = {
   attachments: AttachmentService;
   contextAttachments: ContextAttachmentService;
   contextAttachmentHub: ContextAttachmentSubscriptionHub;
+  todos: TodoService;
+  todoHub: TodoSubscriptionHub;
   linkMetadataFetcher: LinkMetadataFetcher;
   clientRequests: ClientRequestRepository;
   eventHub: SessionEventHub;
@@ -509,6 +522,112 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
       await options.contextAttachments.getOriginalPath(
         (input as OpenContextAttachmentInput).attachmentId,
       ),
+    );
+    return { ok: true };
+  });
+  register(IPC_CHANNELS.listTodos, (input) =>
+    options.todos.list(input as ListTodosInput),
+  );
+  register(IPC_CHANNELS.createTodo, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as CreateTodoInput,
+      "todos.create",
+      () => options.todos.create(input as CreateTodoInput),
+    ),
+  );
+  register(IPC_CHANNELS.updateTodo, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as UpdateTodoInput,
+      "todos.update",
+      () => options.todos.update(input as UpdateTodoInput),
+    ),
+  );
+  register(IPC_CHANNELS.reorderTodos, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as ReorderTodosInput,
+      "todos.reorder",
+      () => options.todos.reorder(input as ReorderTodosInput),
+    ),
+  );
+  register(IPC_CHANNELS.deleteTodo, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as DeleteTodoInput,
+      "todos.delete",
+      () => options.todos.delete(input as DeleteTodoInput),
+    ),
+  );
+  register(IPC_CHANNELS.addTodoFiles, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as AddTodoFilesInput,
+      "todos.add-files",
+      async () => {
+        const value = input as AddTodoFilesInput;
+        let paths = value.paths ?? [];
+        if (paths.length === 0) {
+          const result = await dialog.showOpenDialog(options.mainWindow, {
+            title: "Dateien an dieses Todo anhängen",
+            buttonLabel: "Anhängen",
+            properties: ["openFile", "multiSelections"],
+          });
+          // An empty ingest is the cheapest way to answer with the todo's
+          // current state without teaching this handler where it lives.
+          if (result.canceled) return options.todos.addFiles({ ...value, paths: [] });
+          paths = result.filePaths;
+        }
+        if (paths.some((filePath) => !path.isAbsolute(filePath))) {
+          throw new Error("Anhangspfade müssen absolut sein.");
+        }
+        return options.todos.addFiles({ ...value, paths });
+      },
+    ),
+  );
+  register(IPC_CHANNELS.addTodoLink, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as AddTodoLinkInput,
+      "todos.add-link",
+      () => options.todos.addLink(input as AddTodoLinkInput),
+    ),
+  );
+  register(IPC_CHANNELS.attachTodoAttachment, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as AttachTodoAttachmentInput,
+      "todos.attach-attachment",
+      () => options.todos.attachAttachment(input as AttachTodoAttachmentInput),
+    ),
+  );
+  register(IPC_CHANNELS.detachTodoAttachment, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as DetachTodoAttachmentInput,
+      "todos.detach-attachment",
+      () => options.todos.detachAttachment(input as DetachTodoAttachmentInput),
+    ),
+  );
+  register(IPC_CHANNELS.prepareTodoForSession, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as PrepareTodoForSessionInput,
+      "todos.prepare-for-session",
+      () => options.todos.prepareForSession(input as PrepareTodoForSessionInput),
+    ),
+  );
+  register(IPC_CHANNELS.subscribeTodos, (input, event) =>
+    options.todoHub.subscribe({
+      value: input as ListTodosInput,
+      webContents: event.sender,
+    }),
+  );
+  register(IPC_CHANNELS.unsubscribeTodos, (input, event) => {
+    options.todoHub.unsubscribe(
+      (input as { subscriptionId: string }).subscriptionId,
+      event.sender,
     );
     return { ok: true };
   });

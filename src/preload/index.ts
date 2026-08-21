@@ -9,8 +9,11 @@ import {
   GitStatusSubscriptionResultSchema,
   IPC_CHANNELS,
   StreamEnvelopeBatchSchema,
+  TodoPushSchema,
+  TodoSubscriptionResultSchema,
   type GemUiDesktopApi,
   type ContextAttachmentList,
+  type TodoList,
   type GitLabReviewState,
   type GitProjectStatus,
   type StreamEnvelope,
@@ -32,6 +35,8 @@ const gitlabCallbacks = new Map<string, (state: GitLabReviewState) => void>();
 const pendingGitlabStates = new Map<string, GitLabReviewState[]>();
 const contextAttachmentCallbacks = new Map<string, (list: ContextAttachmentList) => void>();
 const pendingContextAttachmentLists = new Map<string, ContextAttachmentList[]>();
+const todoCallbacks = new Map<string, (list: TodoList) => void>();
+const pendingTodoLists = new Map<string, TodoList[]>();
 
 ipcRenderer.on(IPC_CHANNELS.sessionEventBatch, (_event, payload: unknown) => {
   const parsed = parseEventBatch(payload);
@@ -94,6 +99,19 @@ ipcRenderer.on(
     pendingContextAttachmentLists.set(parsed.data.subscriptionId, queued);
   },
 );
+
+ipcRenderer.on(IPC_CHANNELS.todosChanged, (_event, payload: unknown) => {
+  const parsed = TodoPushSchema.safeParse(payload);
+  if (!parsed.success) return;
+  const callback = todoCallbacks.get(parsed.data.subscriptionId);
+  if (callback) {
+    callback(parsed.data.list);
+    return;
+  }
+  const queued = pendingTodoLists.get(parsed.data.subscriptionId) ?? [];
+  if (queued.length < 10) queued.push(parsed.data.list);
+  pendingTodoLists.set(parsed.data.subscriptionId, queued);
+});
 
 const desktopApi: GemUiDesktopApi = {
   getCapabilities: () =>
@@ -209,6 +227,54 @@ const desktopApi: GemUiDesktopApi = {
         contextAttachmentCallbacks.delete(result.subscriptionId);
         pendingContextAttachmentLists.delete(result.subscriptionId);
         void ipcRenderer.invoke(IPC_CHANNELS.unsubscribeContextAttachments, {
+          subscriptionId: result.subscriptionId,
+        });
+      };
+    },
+  },
+
+  todos: {
+    list: (input) => ipcRenderer.invoke(IPC_CHANNELS.listTodos, input),
+    create: (input) => ipcRenderer.invoke(IPC_CHANNELS.createTodo, input),
+    update: (input) => ipcRenderer.invoke(IPC_CHANNELS.updateTodo, input),
+    reorder: (input) => ipcRenderer.invoke(IPC_CHANNELS.reorderTodos, input),
+    delete: (input) => ipcRenderer.invoke(IPC_CHANNELS.deleteTodo, input),
+    addFiles: (input) => ipcRenderer.invoke(IPC_CHANNELS.addTodoFiles, input),
+    addDroppedFiles: async (files, target) => {
+      const paths = files
+        .map((file) => webUtils.getPathForFile(file))
+        .filter((filePath): filePath is string => Boolean(filePath));
+      // Dropping something Electron cannot resolve to a path must not open the
+      // file dialog that an empty `paths` array triggers in the main process.
+      if (paths.length === 0) {
+        return ipcRenderer.invoke(IPC_CHANNELS.listTodos, { projectId: target.projectId });
+      }
+      return ipcRenderer.invoke(IPC_CHANNELS.addTodoFiles, {
+        todoId: target.todoId,
+        clientRequestId: createClientRequestId(),
+        paths,
+      });
+    },
+    addLink: (input) => ipcRenderer.invoke(IPC_CHANNELS.addTodoLink, input),
+    attachAttachment: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.attachTodoAttachment, input),
+    detachAttachment: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.detachTodoAttachment, input),
+    prepareForSession: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.prepareTodoForSession, input),
+    subscribe: async (input, callback) => {
+      const result = TodoSubscriptionResultSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.subscribeTodos, input),
+      );
+      todoCallbacks.set(result.subscriptionId, callback);
+      callback(result.list);
+      const queued = pendingTodoLists.get(result.subscriptionId) ?? [];
+      pendingTodoLists.delete(result.subscriptionId);
+      for (const list of queued) callback(list);
+      return () => {
+        todoCallbacks.delete(result.subscriptionId);
+        pendingTodoLists.delete(result.subscriptionId);
+        void ipcRenderer.invoke(IPC_CHANNELS.unsubscribeTodos, {
           subscriptionId: result.subscriptionId,
         });
       };
@@ -346,6 +412,7 @@ Object.freeze(desktopApi.projectFiles);
 Object.freeze(desktopApi.sessions);
 Object.freeze(desktopApi.attachments);
 Object.freeze(desktopApi.contextAttachments);
+Object.freeze(desktopApi.todos);
 Object.freeze(desktopApi.git);
 Object.freeze(desktopApi.linkPreview);
 Object.freeze(desktopApi.settings);

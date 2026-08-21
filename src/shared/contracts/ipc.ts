@@ -125,6 +125,34 @@ import {
   type SearchProjectFilesInput,
 } from "./project-files";
 import {
+  AddTodoFilesInputSchema,
+  AddTodoLinkInputSchema,
+  AttachTodoAttachmentInputSchema,
+  CreateTodoInputSchema,
+  DeleteTodoInputSchema,
+  DetachTodoAttachmentInputSchema,
+  ListTodosInputSchema,
+  PrepareTodoForSessionInputSchema,
+  ReorderTodosInputSchema,
+  TodoListSchema,
+  TodoPromptDraftSchema,
+  TodoSubscriptionResultSchema,
+  UnsubscribeTodosInputSchema,
+  UpdateTodoInputSchema,
+  type AddTodoFilesInput,
+  type AddTodoLinkInput,
+  type AttachTodoAttachmentInput,
+  type CreateTodoInput,
+  type DeleteTodoInput,
+  type DetachTodoAttachmentInput,
+  type ListTodosInput,
+  type PrepareTodoForSessionInput,
+  type ReorderTodosInput,
+  type TodoList,
+  type TodoPromptDraft,
+  type UpdateTodoInput,
+} from "./todos";
+import {
   AppSessionSchema,
   CancelTurnInputSchema,
   CreateSessionInputSchema,
@@ -354,6 +382,19 @@ export const IPC_CHANNELS = {
   unsubscribeContextAttachments: "context-attachments:unsubscribe",
   contextAttachmentsChanged: "context-attachments:changed",
   openContextAttachment: "context-attachments:open-file",
+  listTodos: "todos:list",
+  createTodo: "todos:create",
+  updateTodo: "todos:update",
+  reorderTodos: "todos:reorder",
+  deleteTodo: "todos:delete",
+  addTodoFiles: "todos:add-files",
+  addTodoLink: "todos:add-link",
+  attachTodoAttachment: "todos:attach-attachment",
+  detachTodoAttachment: "todos:detach-attachment",
+  prepareTodoForSession: "todos:prepare-for-session",
+  subscribeTodos: "todos:subscribe",
+  unsubscribeTodos: "todos:unsubscribe",
+  todosChanged: "todos:changed",
   openLinkPreviewView: "link-preview:open",
   setLinkPreviewBounds: "link-preview:set-bounds",
   closeLinkPreviewView: "link-preview:close",
@@ -435,6 +476,18 @@ export const IpcRequestSchemas = {
   [IPC_CHANNELS.subscribeContextAttachments]: ListContextAttachmentsInputSchema,
   [IPC_CHANNELS.unsubscribeContextAttachments]: UnsubscribeContextAttachmentsInputSchema,
   [IPC_CHANNELS.openContextAttachment]: OpenContextAttachmentInputSchema,
+  [IPC_CHANNELS.listTodos]: ListTodosInputSchema,
+  [IPC_CHANNELS.createTodo]: CreateTodoInputSchema,
+  [IPC_CHANNELS.updateTodo]: UpdateTodoInputSchema,
+  [IPC_CHANNELS.reorderTodos]: ReorderTodosInputSchema,
+  [IPC_CHANNELS.deleteTodo]: DeleteTodoInputSchema,
+  [IPC_CHANNELS.addTodoFiles]: AddTodoFilesInputSchema,
+  [IPC_CHANNELS.addTodoLink]: AddTodoLinkInputSchema,
+  [IPC_CHANNELS.attachTodoAttachment]: AttachTodoAttachmentInputSchema,
+  [IPC_CHANNELS.detachTodoAttachment]: DetachTodoAttachmentInputSchema,
+  [IPC_CHANNELS.prepareTodoForSession]: PrepareTodoForSessionInputSchema,
+  [IPC_CHANNELS.subscribeTodos]: ListTodosInputSchema,
+  [IPC_CHANNELS.unsubscribeTodos]: UnsubscribeTodosInputSchema,
   [IPC_CHANNELS.openLinkPreviewView]: OpenLinkPreviewInputSchema,
   [IPC_CHANNELS.setLinkPreviewBounds]: SetLinkPreviewBoundsInputSchema,
   [IPC_CHANNELS.closeLinkPreviewView]: EmptyInputSchema,
@@ -511,6 +564,18 @@ export const IpcResponseSchemas = {
   [IPC_CHANNELS.subscribeContextAttachments]: ContextAttachmentSubscriptionResultSchema,
   [IPC_CHANNELS.unsubscribeContextAttachments]: VoidResultSchema,
   [IPC_CHANNELS.openContextAttachment]: VoidResultSchema,
+  [IPC_CHANNELS.listTodos]: TodoListSchema,
+  [IPC_CHANNELS.createTodo]: TodoListSchema,
+  [IPC_CHANNELS.updateTodo]: TodoListSchema,
+  [IPC_CHANNELS.reorderTodos]: TodoListSchema,
+  [IPC_CHANNELS.deleteTodo]: TodoListSchema,
+  [IPC_CHANNELS.addTodoFiles]: TodoListSchema,
+  [IPC_CHANNELS.addTodoLink]: TodoListSchema,
+  [IPC_CHANNELS.attachTodoAttachment]: TodoListSchema,
+  [IPC_CHANNELS.detachTodoAttachment]: TodoListSchema,
+  [IPC_CHANNELS.prepareTodoForSession]: TodoPromptDraftSchema,
+  [IPC_CHANNELS.subscribeTodos]: TodoSubscriptionResultSchema,
+  [IPC_CHANNELS.unsubscribeTodos]: VoidResultSchema,
   [IPC_CHANNELS.openLinkPreviewView]: LinkPreviewViewStateSchema,
   [IPC_CHANNELS.setLinkPreviewBounds]: VoidResultSchema,
   [IPC_CHANNELS.closeLinkPreviewView]: VoidResultSchema,
@@ -629,6 +694,26 @@ export interface GemUiDesktopApi {
     subscribe(
       input: ListContextAttachmentsInput,
       callback: (list: ContextAttachmentList) => void,
+    ): Promise<() => void>;
+  };
+  todos: {
+    list(input: ListTodosInput): Promise<TodoList>;
+    create(input: CreateTodoInput): Promise<TodoList>;
+    update(input: UpdateTodoInput): Promise<TodoList>;
+    reorder(input: ReorderTodosInput): Promise<TodoList>;
+    delete(input: DeleteTodoInput): Promise<TodoList>;
+    addFiles(input: AddTodoFilesInput): Promise<TodoList>;
+    addDroppedFiles(
+      files: File[],
+      target: { todoId: string; projectId: string },
+    ): Promise<TodoList>;
+    addLink(input: AddTodoLinkInput): Promise<TodoList>;
+    attachAttachment(input: AttachTodoAttachmentInput): Promise<TodoList>;
+    detachAttachment(input: DetachTodoAttachmentInput): Promise<TodoList>;
+    prepareForSession(input: PrepareTodoForSessionInput): Promise<TodoPromptDraft>;
+    subscribe(
+      input: ListTodosInput,
+      callback: (list: TodoList) => void,
     ): Promise<() => void>;
   };
   linkPreview: {

@@ -6,4 +6,5 @@ export * from "./gitlab-repository";
 export * from "./project-repository";
 export * from "./session-repository";
 export * from "./settings-repository";
+export * from "./todo-repository";
 export * from "./usage-repository";

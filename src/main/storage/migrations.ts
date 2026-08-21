@@ -363,6 +363,44 @@ const migrations: readonly Migration[] = [
         CHECK(origin IN ('manual', 'chat'));
     `,
   },
+  {
+    version: 10,
+    name: "010_project_todos",
+    sql: `
+      CREATE TABLE todos (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        title TEXT NOT NULL CHECK(length(trim(title)) BETWEEN 1 AND 200),
+        description TEXT NOT NULL DEFAULT '' CHECK(length(description) <= 20000),
+        done INTEGER NOT NULL DEFAULT 0 CHECK(done IN (0, 1)),
+        sort_order INTEGER NOT NULL CHECK(sort_order >= 0),
+        completed_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK((done = 1) = (completed_at IS NOT NULL)),
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      ) STRICT;
+
+      CREATE INDEX todos_project_order ON todos(project_id, done, sort_order);
+
+      -- A todo's attachment is a project context attachment that is also
+      -- pinned to the todo. The link is what the todo owns; the attachment
+      -- itself stays available to the whole project, so removing one from a
+      -- todo never destroys data another todo or session still points at.
+      CREATE TABLE todo_attachment_links (
+        todo_id TEXT NOT NULL,
+        attachment_id TEXT NOT NULL,
+        sort_order INTEGER NOT NULL CHECK(sort_order >= 0),
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (todo_id, attachment_id),
+        FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE,
+        FOREIGN KEY (attachment_id) REFERENCES context_attachments(id) ON DELETE CASCADE
+      ) STRICT;
+
+      CREATE INDEX todo_attachment_links_order
+        ON todo_attachment_links(todo_id, sort_order);
+    `,
+  },
 ];
 
 export function runMigrations(database: SqliteDatabase): void {

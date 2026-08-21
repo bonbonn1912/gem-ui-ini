@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from "react";
 import { Icon } from "../components/Icon";
-import { Composer, type ComposerAttachment } from "../features/attachments/Composer";
+import {
+  Composer,
+  type ComposerAttachment,
+  type ComposerDraft,
+} from "../features/attachments/Composer";
 import { AttachmentsPanel } from "../features/attachments/AttachmentsPanel";
 import { useContextAttachments } from "../features/attachments/useContextAttachments";
 import { ChatHeader } from "../features/chat/ChatHeader";
@@ -21,7 +25,9 @@ import { useGitProjectStatus } from "../features/git/useGitProjectStatus";
 import { ProjectDialog } from "../features/projects/ProjectDialog";
 import { ProjectSettingsDialog } from "../features/projects/ProjectSettingsDialog";
 import { Sidebar } from "../features/sessions/Sidebar";
-import { GitLabPanel } from "../features/gitlab/GitLabPanel";
+import { TodosPanel } from "../features/todos/TodosPanel";
+import { useTodos } from "../features/todos/useTodos";
+import { GitLabPanel, type ReviewDelivery } from "../features/gitlab/GitLabPanel";
 import { McpPanel } from "../features/mcp/McpPanel";
 import { SkillsPanel } from "../features/skills/SkillsPanel";
 import type {
@@ -31,9 +37,11 @@ import type {
   ExternalPromptContextRef,
   GitLabRepositoryCandidate,
   GitFileChange,
+  PreparedExternalContext,
   GitProjectStatus,
   ProjectFileSearchEntry,
   ProjectRootCandidate,
+  Todo,
   UiError,
   StreamEnvelope,
 } from "../types";
@@ -169,18 +177,22 @@ function EmptyProject({
   project,
   changesCount,
   attachmentsCount,
+  todosOpenCount,
   onCreateSession,
   onToggleChanges,
   onToggleAttachments,
+  onToggleTodos,
   onToggleSkills,
   onToggleMcp,
 }: {
   project: AppProject;
   changesCount: number;
   attachmentsCount: number;
+  todosOpenCount: number;
   onCreateSession: () => void;
   onToggleChanges: () => void;
   onToggleAttachments: () => void;
+  onToggleTodos: () => void;
   onToggleSkills: () => void;
   onToggleMcp: () => void;
 }) {
@@ -198,6 +210,7 @@ function EmptyProject({
       <div className="project-empty-actions">
         <button className="primary-button" type="button" onClick={onCreateSession}><Icon name="plus" size={17} /> Neue Session</button>
         <button className="secondary-button" type="button" onClick={onToggleAttachments}><Icon name="paperclip" size={16} /> Anhänge{attachmentsCount > 0 ? ` (${attachmentsCount})` : ""}</button>
+        <button className="secondary-button" type="button" onClick={onToggleTodos}><Icon name="checklist" size={16} /> Todos{todosOpenCount > 0 ? ` (${todosOpenCount})` : ""}</button>
         <button className="secondary-button" type="button" onClick={onToggleChanges}><Icon name="changes" size={16} /> Änderungen{changesCount > 0 ? ` (${changesCount})` : ""}</button>
         <button className="secondary-button" type="button" onClick={onToggleSkills}><Icon name="skill" size={16} /> Skills</button>
         <button className="secondary-button" type="button" onClick={onToggleMcp}><Icon name="server" size={16} /> MCP</button>
@@ -219,6 +232,7 @@ type RightPanel =
   | "none"
   | "changes"
   | "attachments"
+  | "todos"
   | "gitlab"
   | "skills"
   | "mcp";
@@ -226,6 +240,7 @@ type RightPanel =
 const RESTORABLE_RIGHT_PANELS = [
   "changes",
   "attachments",
+  "todos",
   "gitlab",
   "skills",
   "mcp",
@@ -368,6 +383,8 @@ export function App() {
   const [fatalError, setFatalError] = useState<string | null>(null);
   const [reconnectedSessions, setReconnectedSessions] = useState<Record<string, boolean>>({});
   const [sessionHistoryModes, setSessionHistoryModes] = useState<Record<string, "compressed" | "fresh">>({});
+  const [composerDraft, setComposerDraft] = useState<ComposerDraft | null>(null);
+  const [pendingExternalContexts, setPendingExternalContexts] = useState<PreparedExternalContext[]>([]);
   const [pendingPrompt, setPendingPrompt] = useState<{
     text: string;
     attachments: ComposerAttachment[];
@@ -384,10 +401,12 @@ export function App() {
   const activeSession = sessions.find((session) => session.id === activeSessionId) ?? null;
   const changesOpen = rightPanel === "changes";
   const attachmentsOpen = rightPanel === "attachments";
+  const todosOpen = rightPanel === "todos";
   const contextAttachments = useContextAttachments({
     project: activeProject,
     sessionId: activeSessionId,
   });
+  const todos = useTodos({ project: activeProject });
   const gitState = useGitProjectStatus({
     project: activeProject,
     refreshToken: gitRefreshToken,
@@ -788,6 +807,10 @@ export function App() {
     }
   };
 
+  const handToComposer = useCallback((text: string) => {
+    setComposerDraft({ token: Date.now() + Math.random(), text });
+  }, []);
+
   const sendPrompt = async (
     text: string,
     attachments: ComposerAttachment[] = [],
@@ -795,11 +818,17 @@ export function App() {
     externalContextRefs: ExternalPromptContextRef[] = [],
   ) => {
     if (!activeSession) return;
+    // Review context that was parked in the composer travels with whatever the
+    // user finally types, so it is merged in here rather than at the call site.
+    const mergedRefs = [...externalContextRefs];
+    for (const context of pendingExternalContexts) {
+      if (!mergedRefs.some((ref) => ref.id === context.ref.id)) mergedRefs.push(context.ref);
+    }
     const isReconnected = reconnectedSessions[activeSession.id];
     const preChosenMode = sessionHistoryModes[activeSession.id];
 
     if (isReconnected && !preChosenMode) {
-      setPendingPrompt({ text, attachments, projectFiles, externalContextRefs });
+      setPendingPrompt({ text, attachments, projectFiles, externalContextRefs: mergedRefs });
       return;
     }
 
@@ -807,7 +836,7 @@ export function App() {
       text,
       attachments,
       projectFiles,
-      externalContextRefs,
+      mergedRefs,
       preChosenMode ?? "compressed",
     );
   };
@@ -850,6 +879,9 @@ export function App() {
         historyMode,
       });
       dispatch({ type: "turn-started", turnId: result.turnId });
+      // The prepared review snapshots are consumed once, so they must not stay
+      // attached to the next message.
+      if (externalContextRefs.length) setPendingExternalContexts([]);
     } catch (error) {
       console.error("[sendPrompt Error]:", error);
       const message = messageFrom(error);
@@ -859,6 +891,61 @@ export function App() {
       showError("Nachricht konnte nicht gesendet werden", error);
       throw error;
     }
+  };
+
+  /**
+   * Hands a todo to a session: the main process selects the todo's attachments
+   * for that session and returns the prompt text, which lands in the composer
+   * so the todo can still be adjusted before it is sent.
+   */
+  const applyTodoToSession = async (todo: Todo, sessionId: string) => {
+    const draft = await window.gemUi.todos.prepareForSession({
+      clientRequestId: createClientRequestId(),
+      todoId: todo.id,
+      sessionId,
+    });
+    contextAttachments.apply(draft.contextAttachments);
+    handToComposer(draft.text);
+    setSidebarOpen(false);
+  };
+
+  const sendTodoToActiveSession = async (todo: Todo) => {
+    if (!activeSession) {
+      throw new Error("Es ist keine Session geöffnet. Lege zuerst eine an.");
+    }
+    await applyTodoToSession(todo, activeSession.id);
+  };
+
+  const sendTodoToNewSession = async (todo: Todo) => {
+    if (!activeProjectId) return;
+    const session = await window.gemUi.sessions.create({
+      projectId: activeProjectId,
+      clientRequestId: createClientRequestId(),
+    });
+    setSessions((current) => [session, ...current]);
+    setActiveSessionId(session.id);
+    await applyTodoToSession(todo, session.id);
+  };
+
+  const deliverReviewContext = async (
+    prepared: PreparedExternalContext,
+    delivery: ReviewDelivery,
+  ) => {
+    if (delivery === "send") {
+      await sendPrompt(
+        "Bitte bearbeite das Review-Feedback zu dieser Stelle.",
+        [],
+        [],
+        [prepared.ref],
+      );
+      return;
+    }
+    setPendingExternalContexts((current) =>
+      current.some((context) => context.ref.id === prepared.ref.id)
+        ? current
+        : [...current, prepared],
+    );
+    handToComposer("Bitte bearbeite das Review-Feedback zu dieser Stelle.");
   };
 
   const cancelTurn = async () => {
@@ -994,6 +1081,8 @@ export function App() {
                 onCreateSession={() => void createSession()}
                 onToggleAttachments={() => setRightPanel((current) => current === "attachments" ? "none" : "attachments")}
                 onToggleChanges={() => setRightPanel((current) => current === "changes" ? "none" : "changes")}
+                onToggleTodos={() => setRightPanel((current) => current === "todos" ? "none" : "todos")}
+                todosOpenCount={todos.openCount}
                 onToggleSkills={() => setRightPanel((current) => current === "skills" ? "none" : "skills")}
                 onToggleMcp={() => setRightPanel((current) => current === "mcp" ? "none" : "mcp")}
               />
@@ -1027,6 +1116,20 @@ export function App() {
                 onRefresh={contextAttachments.refresh}
                 onApply={contextAttachments.apply}
                 onError={(error) => showError("Anhang konnte nicht verarbeitet werden", error)}
+                onOpenExternal={openExternal}
+              />
+            ) : rightPanel === "todos" ? (
+              <TodosPanel
+                project={activeProject}
+                list={todos.list}
+                loading={todos.loading}
+                error={todos.error}
+                hasActiveSession={false}
+                onClose={() => setRightPanel("none")}
+                onApply={todos.apply}
+                onError={(error) => showError("Todo konnte nicht gespeichert werden", error)}
+                onSendToSession={sendTodoToActiveSession}
+                onSendToNewSession={sendTodoToNewSession}
                 onOpenExternal={openExternal}
               />
             ) : rightPanel === "skills" ? (
@@ -1064,6 +1167,9 @@ export function App() {
                 attachmentsCount={contextAttachments.all.length}
                 attachmentsIncludedCount={contextAttachments.included.length}
                 onToggleAttachments={() => setRightPanel((current) => current === "attachments" ? "none" : "attachments")}
+                todosOpen={todosOpen}
+                todosOpenCount={todos.openCount}
+                onToggleTodos={() => setRightPanel((current) => current === "todos" ? "none" : "todos")}
                 changesOpen={changesOpen}
                 changesCount={changesCount}
                 onToggleChanges={() => setRightPanel((current) => current === "changes" ? "none" : "changes")}
@@ -1103,6 +1209,14 @@ export function App() {
                 contextAttachmentCount={contextAttachments.included.length}
                 contextEstimatedTokens={contextAttachments.list?.estimatedTotalTokens ?? 0}
                 contextOverBudget={contextAttachments.list?.overBudget ?? false}
+                draft={composerDraft}
+                externalContexts={pendingExternalContexts}
+                onDraftApplied={() => setComposerDraft(null)}
+                onRemoveExternalContext={(refId) =>
+                  setPendingExternalContexts((current) =>
+                    current.filter((context) => context.ref.id !== refId),
+                  )
+                }
                 onOpenContextAttachments={() => setRightPanel("attachments")}
                 onSend={sendPrompt}
                 onCancel={cancelTurn}
@@ -1140,6 +1254,20 @@ export function App() {
                 onError={(error) => showError("Anhang konnte nicht verarbeitet werden", error)}
                 onOpenExternal={openExternal}
               />
+            ) : rightPanel === "todos" ? (
+              <TodosPanel
+                project={activeProject}
+                list={todos.list}
+                loading={todos.loading}
+                error={todos.error}
+                hasActiveSession
+                onClose={() => setRightPanel("none")}
+                onApply={todos.apply}
+                onError={(error) => showError("Todo konnte nicht gespeichert werden", error)}
+                onSendToSession={sendTodoToActiveSession}
+                onSendToNewSession={sendTodoToNewSession}
+                onOpenExternal={openExternal}
+              />
             ) : rightPanel === "skills" ? (
               <SkillsPanel projectId={activeProject.id} onClose={() => setRightPanel("none")} />
             ) : rightPanel === "mcp" ? (
@@ -1150,15 +1278,7 @@ export function App() {
                 rootRevision={activeProject.rootRevision}
                 activeSession={activeSession}
                 onClose={() => setRightPanel("none")}
-                onSendExternalContextPrompt={async (ref) => {
-                  if (!activeSession) return;
-                  await sendPrompt(
-                    "Bitte bearbeite das Review-Feedback zu dieser Stelle.",
-                    [],
-                    [],
-                    [ref],
-                  );
-                }}
+                onSendExternalContextPrompt={deliverReviewContext}
                 onOpenExternal={openExternal}
                 onOpenSettings={() => setProjectSettingsOpen(true)}
               />

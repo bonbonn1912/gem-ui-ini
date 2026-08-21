@@ -19,6 +19,9 @@ type ChatHeaderProps = {
   attachmentsCount: number;
   attachmentsIncludedCount: number;
   onToggleAttachments: () => void;
+  todosOpen: boolean;
+  todosOpenCount: number;
+  onToggleTodos: () => void;
   changesOpen: boolean;
   changesCount: number;
   onToggleChanges: () => void;
@@ -245,6 +248,9 @@ export function ChatHeader({
   attachmentsCount,
   attachmentsIncludedCount,
   onToggleAttachments,
+  todosOpen,
+  todosOpenCount,
+  onToggleTodos,
   changesOpen,
   changesCount,
   onToggleChanges,
@@ -318,6 +324,17 @@ export function ChatHeader({
           <span>Anhänge</span>
           {attachmentsCount > 0 && <i>{attachmentsCount > 99 ? "99+" : attachmentsCount}</i>}
           {attachmentsIncludedCount > 0 && <em>{attachmentsIncludedCount}</em>}
+        </button>
+        <button
+          className={`todos-toggle ${todosOpen ? "todos-toggle--active" : ""}`}
+          type="button"
+          onClick={onToggleTodos}
+          aria-pressed={todosOpen}
+          aria-label={`Todos ${todosOpen ? "schließen" : "öffnen"}${todosOpenCount > 0 ? `, ${todosOpenCount} offen` : ""}`}
+        >
+          <Icon name="checklist" size={15} />
+          <span>Todos</span>
+          {todosOpenCount > 0 && <i>{todosOpenCount > 99 ? "99+" : todosOpenCount}</i>}
         </button>
         <button
           className={`changes-toggle ${changesOpen ? "changes-toggle--active" : ""}`}

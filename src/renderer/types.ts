@@ -42,6 +42,9 @@ import type {
   ProjectFileSearchEntry as ContractProjectFileSearchEntry,
   ProjectWithRoots,
   StreamEnvelope as ContractStreamEnvelope,
+  Todo as ContractTodo,
+  TodoList as ContractTodoList,
+  TodoPromptDraft as ContractTodoPromptDraft,
   TokenCounters as ContractTokenCounters,
   UsageSnapshot as ContractUsageSnapshot,
 } from "../shared/contracts";
@@ -59,6 +62,9 @@ export type ProjectFileSearchEntry = ContractProjectFileSearchEntry;
 export type Attachment = ContractAttachment;
 export type ContextAttachment = ContractContextAttachment;
 export type ContextAttachmentList = ContractContextAttachmentList;
+export type Todo = ContractTodo;
+export type TodoList = ContractTodoList;
+export type TodoPromptDraft = ContractTodoPromptDraft;
 export type PermissionOption = ContractPermissionOption;
 export type AgentEvent = ContractAgentEvent;
 export type StreamEnvelope = ContractStreamEnvelope;

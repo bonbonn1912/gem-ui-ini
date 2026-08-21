@@ -201,6 +201,28 @@ export class GitLabService implements ExternalPromptContextProvider {
     const connection = this.#repo.findConnection(input.connectionId);
     if (!connection) throw new Error("GitLab-Verbindung nicht gefunden.");
 
+    let sourceProjectId = input.sourceProjectId;
+    if (sourceProjectId <= 1 && input.sourceProjectPath) {
+      try {
+        const cipher = this.#repo.getConnectionTokenCipher(connection.id);
+        await this.#vault.withDecryptedToken(cipher, async (token) => {
+          const client = new GitLabApiClient({
+            instanceUrl: connection.instanceUrl,
+            apiBaseUrl: connection.apiBaseUrl,
+            token,
+            allowSelfSignedTls: connection.allowSelfSignedTls,
+            fetchFn: this.#fetchFn,
+          });
+          const project = await client.getProject(input.sourceProjectPath);
+          if (project.id) {
+            sourceProjectId = project.id;
+          }
+        });
+      } catch {
+        // Fallback to existing sourceProjectId if network unavailable
+      }
+    }
+
     const now = new Date().toISOString();
     const binding: GitLabRepositoryBinding = {
       id: randomUUID(),
@@ -210,7 +232,7 @@ export class GitLabService implements ExternalPromptContextProvider {
       repositoryKey: input.repositoryKey,
       remoteName: input.remoteName,
       remoteUrl: input.remoteUrl,
-      sourceProjectId: input.sourceProjectId,
+      sourceProjectId,
       sourceProjectPath: input.sourceProjectPath,
       enabled: true,
       selectedTargetProjectId: null,
@@ -262,9 +284,21 @@ export class GitLabService implements ExternalPromptContextProvider {
       // Immer alle offenen MRs des Projekts laden. Der Panel-Nutzer soll aus der
       // vollen Liste wählen können, statt eine MR-URL eintippen zu müssen; MRs
       // des aktuell ausgecheckten Branches werden lediglich nach oben sortiert.
-      const rawList = await client.listMergeRequests(binding.sourceProjectId, {
-        state: "opened",
-      });
+      const projectIdentifier = binding.sourceProjectId > 1 ? binding.sourceProjectId : binding.sourceProjectPath;
+      let rawList: Awaited<ReturnType<typeof client.listMergeRequests>> = [];
+      try {
+        rawList = await client.listMergeRequests(projectIdentifier, {
+          state: "opened",
+        });
+      } catch (err) {
+        if (typeof projectIdentifier === "number" && binding.sourceProjectPath) {
+          rawList = await client.listMergeRequests(binding.sourceProjectPath, {
+            state: "opened",
+          });
+        } else {
+          throw err;
+        }
+      }
       const list = rawList.map((raw) =>
         mapRawMergeRequest(raw, binding.sourceProjectPath),
       );
@@ -358,19 +392,31 @@ export class GitLabService implements ExternalPromptContextProvider {
       let mrSummary: GitLabMergeRequestSummary | null = null;
       let discussions: GitLabDiscussion[] = [];
 
-      let targetProjectId = binding.selectedTargetProjectId;
+      let targetProjectId: number | string | null = binding.selectedTargetProjectId;
       let mrIid = binding.selectedMergeRequestIid;
 
       // Noch kein MR gewählt: selbstständig den passendsten offenen MR ziehen.
       // Bevorzugt einen MR des ausgecheckten Branches, sonst — wenn das
       // Projekt genau einen offenen MR hat — eben diesen.
       if (!targetProjectId || !mrIid) {
-        const open = sortMergeRequests(
-          (
-            await client.listMergeRequests(binding.sourceProjectId, {
+        const projectIdentifier = binding.sourceProjectId > 1 ? binding.sourceProjectId : binding.sourceProjectPath;
+        let rawList: Awaited<ReturnType<typeof client.listMergeRequests>> = [];
+        try {
+          rawList = await client.listMergeRequests(projectIdentifier, {
+            state: "opened",
+          });
+        } catch (err) {
+          if (typeof projectIdentifier === "number" && binding.sourceProjectPath) {
+            rawList = await client.listMergeRequests(binding.sourceProjectPath, {
               state: "opened",
-            })
-          ).map((raw) => mapRawMergeRequest(raw, binding.sourceProjectPath)),
+            });
+          } else {
+            throw err;
+          }
+        }
+
+        const open = sortMergeRequests(
+          rawList.map((raw) => mapRawMergeRequest(raw, binding.sourceProjectPath)),
           candidate?.branch,
         );
 

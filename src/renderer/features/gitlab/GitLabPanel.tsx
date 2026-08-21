@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Icon } from "../../components/Icon";
-import type { AppSession, ExternalPromptContextRef } from "../../types";
+import type { AppSession, PreparedExternalContext } from "../../types";
 import { GitLabDiscussionCard } from "./GitLabDiscussionCard";
 import { GitLabMergeRequestList } from "./GitLabMergeRequestList";
 import { GitLabMergeRequestPicker } from "./GitLabMergeRequestPicker";
@@ -9,12 +9,32 @@ import { useGitLabReview } from "./useGitLabReview";
 
 type FilterTab = "unresolved" | "all" | "mine";
 
+/**
+ * Whether a review thread goes straight to Gemini or lands in the composer
+ * first. It is a panel-wide choice rather than a per-button one so every send
+ * action keeps a single, predictable meaning.
+ */
+export type ReviewDelivery = "send" | "draft";
+
+const DELIVERY_STORAGE_KEY = "geminui.gitlab.review-delivery";
+
+function initialDelivery(): ReviewDelivery {
+  try {
+    return window.localStorage.getItem(DELIVERY_STORAGE_KEY) === "draft" ? "draft" : "send";
+  } catch {
+    return "send";
+  }
+}
+
 type GitLabPanelProps = {
   projectId: string;
   rootRevision: number;
   activeSession: AppSession | null;
   onClose: () => void;
-  onSendExternalContextPrompt: (ref: ExternalPromptContextRef) => Promise<void>;
+  onSendExternalContextPrompt: (
+    prepared: PreparedExternalContext,
+    delivery: ReviewDelivery,
+  ) => Promise<void>;
   onOpenExternal: (url: string) => void;
   onOpenSettings: () => void;
 };
@@ -47,6 +67,16 @@ export function GitLabPanel({
   } = useGitLabReview(projectId, rootRevision);
 
   const [filterTab, setFilterTab] = useState<FilterTab>("unresolved");
+  const [delivery, setDelivery] = useState<ReviewDelivery>(initialDelivery);
+
+  const chooseDelivery = (next: ReviewDelivery) => {
+    setDelivery(next);
+    try {
+      window.localStorage.setItem(DELIVERY_STORAGE_KEY, next);
+    } catch {
+      // The choice still applies to this session without a preference store.
+    }
+  };
 
   const selectedCandidate = useMemo(
     () => candidates.find((c) => c.binding?.id === selectedBindingId) ?? null,
@@ -89,7 +119,7 @@ export function GitLabPanel({
     );
 
     if (prepared) {
-      await onSendExternalContextPrompt(prepared.ref);
+      await onSendExternalContextPrompt(prepared, delivery);
     }
   };
 
@@ -154,6 +184,30 @@ export function GitLabPanel({
                 onReload={() => void loadMergeRequests()}
                 onOpenExternal={onOpenExternal}
               />
+            )}
+
+            {mergeRequest && (
+              <div className="gitlab-delivery-switch" role="group" aria-label="Ziel für Review-Feedback">
+                <span>An Gemini:</span>
+                <button
+                  type="button"
+                  className={`filter-tab ${delivery === "send" ? "filter-tab--active" : ""}`}
+                  aria-pressed={delivery === "send"}
+                  title="Der Thread wird sofort als Prompt gesendet"
+                  onClick={() => chooseDelivery("send")}
+                >
+                  Direkt senden
+                </button>
+                <button
+                  type="button"
+                  className={`filter-tab ${delivery === "draft" ? "filter-tab--active" : ""}`}
+                  aria-pressed={delivery === "draft"}
+                  title="Der Thread landet im Eingabefeld, damit du eigenen Kontext ergänzen kannst"
+                  onClick={() => chooseDelivery("draft")}
+                >
+                  Bearbeiten
+                </button>
+              </div>
             )}
 
             {mergeRequest && (
@@ -255,6 +309,7 @@ export function GitLabPanel({
                     mergeRequest={mergeRequest}
                     isReadOnly={isReadOnly}
                     onSendToGemini={handleSendToGemini}
+                    delivery={delivery}
                     onResolve={(id, resolved) =>
                       resolveDiscussion(
                         mergeRequest.targetProjectId,

@@ -1493,3 +1493,71 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
   color: #94a3b8;
   line-height: 1.4;
 }
+
+/* ==========================================================================
+   Todos — Prompt-Entwürfe auf Projektebene. Panelrahmen und Leerzustand kommen
+   von .extension-panel; hier stehen nur die Teile, die es dort noch nicht gibt.
+   Ausschließlich Tokens aus :root.
+   ========================================================================== */
+
+.todos-toggle { height: 32px; padding: 0 9px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 9px; color: var(--text-soft); background: var(--surface); font-size: 10.5px; font-weight: 620; cursor: pointer; }
+.todos-toggle:hover { background: var(--surface-soft); }
+.todos-toggle--active { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, var(--border)); background: var(--accent-soft); }
+.todos-toggle i { min-width: 17px; height: 17px; padding: 0 4px; display: grid; place-items: center; border-radius: 99px; color: #fff; background: var(--accent); font-size: 8px; font-style: normal; line-height: 1; }
+
+.todos-filter-bar { padding: 9px 11px 0; display: flex; align-items: center; justify-content: flex-end; }
+.todos-filter-bar label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 9.2px; cursor: pointer; }
+.todos-filter-bar input { accent-color: var(--accent); }
+
+.todo-create-form, .todo-edit-form { padding: 10px; display: grid; gap: 7px; border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border-soft)); border-radius: 9px; background: var(--surface-soft); }
+.todo-create-form input, .todo-edit-form input,
+.todo-create-form textarea, .todo-edit-form textarea { width: 100%; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; color: var(--text); background: var(--surface); font-family: inherit; font-size: 10.5px; line-height: 1.5; outline: none; resize: vertical; }
+.todo-create-form input:focus, .todo-edit-form input:focus,
+.todo-create-form textarea:focus, .todo-edit-form textarea:focus { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.todo-create-form input::placeholder, .todo-edit-form textarea::placeholder { color: var(--faint); }
+.todo-form-actions { display: flex; justify-content: flex-end; gap: 6px; }
+
+.todo-row { min-width: 0; position: relative; display: grid; gap: 6px; border: 1px solid var(--border-soft); border-radius: 9px; background: var(--surface-soft); }
+.todo-row--expanded { border-color: color-mix(in srgb, var(--accent) 24%, var(--border)); background: var(--surface); }
+.todo-row--drop { border-color: var(--accent); background: var(--accent-soft); }
+.todo-row--done .todo-main strong { color: var(--muted); text-decoration: line-through; }
+
+.todo-row-head { min-width: 0; padding: 7px 6px 7px 9px; display: grid; grid-template-columns: 20px minmax(0, 1fr) 25px; align-items: center; gap: 4px; }
+.todo-check { display: grid; place-items: center; cursor: pointer; }
+.todo-check input { accent-color: var(--accent); cursor: pointer; }
+.todo-main { min-width: 0; padding: 2px 3px; display: grid; gap: 2px; border: 0; border-radius: 7px; background: transparent; text-align: left; cursor: pointer; }
+.todo-main:hover { background: var(--surface-hover); }
+.todo-main strong { min-width: 0; overflow: hidden; color: var(--text-soft); font-size: 10.8px; text-overflow: ellipsis; white-space: nowrap; }
+.todo-main small { min-width: 0; display: flex; align-items: center; gap: 5px; overflow: hidden; color: var(--muted); font-size: 8.8px; text-overflow: ellipsis; white-space: nowrap; }
+.todo-attachment-count { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 3px; color: var(--accent); }
+
+.todo-row-body { padding: 0 10px 10px 35px; display: grid; gap: 8px; }
+.todo-description { margin: 0; color: var(--text-soft); font-size: 9.8px; line-height: 1.55; white-space: pre-wrap; }
+
+.todo-attachments { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.todo-attachment { max-width: 100%; padding: 3px 4px 3px 7px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border-soft); border-radius: 8px; color: var(--muted); background: var(--surface); }
+.todo-attachment-title { min-width: 0; display: grid; gap: 1px; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.todo-attachment-title strong { min-width: 0; overflow: hidden; color: var(--text-soft); font-size: 9.4px; text-overflow: ellipsis; white-space: nowrap; }
+.todo-attachment-title small { min-width: 0; overflow: hidden; color: var(--faint); font-size: 8.2px; text-overflow: ellipsis; white-space: nowrap; }
+.todo-attachment-remove { width: 20px; height: 20px; flex: 0 0 auto; display: grid; place-items: center; border: 0; border-radius: 6px; color: var(--muted); background: transparent; cursor: pointer; }
+.todo-attachment-remove:hover { color: var(--red); background: var(--red-soft); }
+.todo-attachment-actions { display: inline-flex; gap: 5px; }
+.todo-attachment-actions .ghost-button { min-height: 26px; padding: 0 8px; display: inline-flex; align-items: center; gap: 5px; border: 1px dashed var(--border); border-radius: 8px; color: var(--muted); background: transparent; font-size: 9.2px; font-weight: 620; cursor: pointer; }
+.todo-attachment-actions .ghost-button:hover:not(:disabled) { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 34%, var(--border)); background: var(--accent-soft); }
+.todo-attachment-actions .ghost-button:disabled { opacity: .5; cursor: default; }
+
+.todo-send-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.todo-send-hint { margin: 0; color: var(--faint); font-size: 8.6px; line-height: 1.45; }
+
+/* Vorbereiteter Reviewkontext im Composer — Form von .project-file-reference */
+.external-context-strip { padding: 8px 10px 0; display: flex; flex-wrap: wrap; gap: 5px; }
+.external-context-chip { max-width: 100%; padding: 3px 4px 3px 7px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border-soft)); border-radius: 8px; color: var(--accent); background: var(--accent-soft); }
+.external-context-chip strong { min-width: 0; overflow: hidden; color: var(--text-soft); font-size: 9.4px; text-overflow: ellipsis; white-space: nowrap; }
+.external-context-chip small { min-width: 0; overflow: hidden; color: var(--muted); font-size: 8.2px; text-overflow: ellipsis; white-space: nowrap; }
+.external-context-chip button { width: 18px; height: 18px; flex: 0 0 auto; display: grid; place-items: center; border: 0; border-radius: 5px; color: var(--muted); background: transparent; cursor: pointer; }
+.external-context-chip button:hover { color: var(--red); background: var(--red-soft); }
+
+.gitlab-delivery-switch { display: flex; align-items: center; gap: 4px; }
+.gitlab-delivery-switch > span { flex: 0 0 auto; color: var(--muted); font-size: 9px; font-weight: 620; }
+.gitlab-delivery-switch .filter-tab { flex: 1 1 0; min-width: 0; background: var(--surface-soft); }
+.gitlab-delivery-switch .filter-tab--active { background: var(--surface); }

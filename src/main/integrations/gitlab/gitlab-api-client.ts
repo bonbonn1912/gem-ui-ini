@@ -108,64 +108,70 @@ export class GitLabApiClient {
   }
 
   async listMergeRequests(
-    projectId: number,
+    projectPathOrId: number | string,
     options?: { sourceBranch?: string; state?: string },
   ) {
+    const encoded = encodeURIComponent(String(projectPathOrId));
     const params = new URLSearchParams();
     params.set("per_page", "50");
     params.set("scope", "all");
     if (options?.state) params.set("state", options.state);
     if (options?.sourceBranch) params.set("source_branch", options.sourceBranch);
 
-    const items = await this.#requestPaginated(`/projects/${projectId}/merge_requests?${params.toString()}`);
+    const items = await this.#requestPaginated(`/projects/${encoded}/merge_requests?${params.toString()}`);
     return items.map((item) => RawGitLabMergeRequestSchema.parse(item));
   }
 
-  async getMergeRequest(projectId: number, mergeRequestIid: number) {
-    const data = await this.#request("GET", `/projects/${projectId}/merge_requests/${mergeRequestIid}`);
+  async getMergeRequest(projectPathOrId: number | string, mergeRequestIid: number) {
+    const encoded = encodeURIComponent(String(projectPathOrId));
+    const data = await this.#request("GET", `/projects/${encoded}/merge_requests/${mergeRequestIid}`);
     return RawGitLabMergeRequestSchema.parse(data);
   }
 
-  async listDiscussions(projectId: number, mergeRequestIid: number) {
+  async listDiscussions(projectPathOrId: number | string, mergeRequestIid: number) {
+    const encoded = encodeURIComponent(String(projectPathOrId));
     const items = await this.#requestPaginated(
-      `/projects/${projectId}/merge_requests/${mergeRequestIid}/discussions?per_page=100`,
+      `/projects/${encoded}/merge_requests/${mergeRequestIid}/discussions?per_page=100`,
       20,
     );
     return items.map((item) => RawGitLabDiscussionSchema.parse(item));
   }
 
   async resolveDiscussion(
-    projectId: number,
+    projectPathOrId: number | string,
     mergeRequestIid: number,
     discussionId: string,
     resolved: boolean,
   ) {
+    const encoded = encodeURIComponent(String(projectPathOrId));
     const data = await this.#request(
       "PUT",
-      `/projects/${projectId}/merge_requests/${mergeRequestIid}/discussions/${discussionId}`,
+      `/projects/${encoded}/merge_requests/${mergeRequestIid}/discussions/${discussionId}`,
       { resolved },
     );
     return RawGitLabDiscussionSchema.parse(data);
   }
 
   async replyToDiscussion(
-    projectId: number,
+    projectPathOrId: number | string,
     mergeRequestIid: number,
     discussionId: string,
     body: string,
   ) {
+    const encoded = encodeURIComponent(String(projectPathOrId));
     const data = await this.#request(
       "POST",
-      `/projects/${projectId}/merge_requests/${mergeRequestIid}/discussions/${discussionId}/notes`,
+      `/projects/${encoded}/merge_requests/${mergeRequestIid}/discussions/${discussionId}/notes`,
       { body },
     );
     return RawGitLabDiscussionNoteSchema.parse(data);
   }
 
-  async getFileContent(projectId: number, filePath: string, ref: string): Promise<string> {
+  async getFileContent(projectPathOrId: number | string, filePath: string, ref: string): Promise<string> {
+    const encodedProj = encodeURIComponent(String(projectPathOrId));
     const encodedPath = encodeURIComponent(filePath);
     const params = new URLSearchParams({ ref });
-    const data = await this.#request("GET", `/projects/${projectId}/repository/files/${encodedPath}?${params.toString()}`);
+    const data = await this.#request("GET", `/projects/${encodedProj}/repository/files/${encodedPath}?${params.toString()}`);
     const parsed = RawGitLabFileSchema.parse(data);
     if (parsed.encoding === "base64") {
       return Buffer.from(parsed.content, "base64").toString("utf-8");
@@ -303,11 +309,54 @@ export class GitLabApiClient {
       }
 
       if (!response.ok) {
-        if (response.status === 401) throw new GitLabApiError(401, "GitLab-Token ist ungültig oder abgelaufen.");
-        if (response.status === 403) throw new GitLabApiError(403, "Keine ausreichenden Berechtigungen.");
-        if (response.status === 404) throw new GitLabApiError(404, "Ressource nicht gefunden.");
-        if (response.status === 429) throw new GitLabApiError(429, "GitLab Rate Limit erreicht.");
-        throw new GitLabApiError(response.status, `GitLab API Fehler (${response.status})`);
+        let errorDetail = "";
+        try {
+          const errorJson = (await response.json()) as { message?: unknown; error?: unknown; error_description?: unknown };
+          const msg = errorJson.message || errorJson.error_description || errorJson.error;
+          if (msg) {
+            errorDetail = typeof msg === "object" ? JSON.stringify(msg) : String(msg);
+          }
+        } catch {
+          try {
+            errorDetail = (await response.text()).slice(0, 300);
+          } catch {
+            // ignore
+          }
+        }
+
+        if (response.status === 401) {
+          throw new GitLabApiError(
+            401,
+            errorDetail
+              ? `GitLab-Token ungültig/abgelehnt (${response.status}): ${errorDetail}`
+              : "GitLab-Token ist ungültig oder abgelaufen.",
+          );
+        }
+        if (response.status === 403) {
+          throw new GitLabApiError(
+            403,
+            errorDetail
+              ? `GitLab Zugriff verweigert (${response.status}): ${errorDetail}`
+              : "Keine ausreichenden Berechtigungen.",
+          );
+        }
+        if (response.status === 404) {
+          throw new GitLabApiError(
+            404,
+            errorDetail
+              ? `GitLab Ressource nicht gefunden (${response.status}): ${errorDetail}`
+              : `GitLab-Ressource unter ${nextUrl} nicht gefunden.`,
+          );
+        }
+        if (response.status === 429) {
+          throw new GitLabApiError(429, "GitLab Rate Limit erreicht.");
+        }
+        throw new GitLabApiError(
+          response.status,
+          errorDetail
+            ? `GitLab API Fehler (${response.status}): ${errorDetail}`
+            : `GitLab API Fehler (${response.status})`,
+        );
       }
 
       const json = await response.json();

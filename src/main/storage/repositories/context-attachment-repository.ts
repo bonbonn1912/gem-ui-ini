@@ -161,6 +161,31 @@ export class ContextAttachmentRepository {
     return parseStoredAttachment(row);
   }
 
+  /**
+   * Reads a hand-picked set of attachments, preserving the order of the given
+   * ids rather than the storage order. Ids that no longer exist are skipped, so
+   * a caller holding a stale list degrades to a shorter one instead of failing.
+   */
+  listByIds(
+    attachmentIds: readonly string[],
+    sessionId: string | null = null,
+  ): ContextAttachment[] {
+    if (attachmentIds.length === 0) return [];
+    const placeholders = attachmentIds.map(() => "?").join(", ");
+    const rows = this.database.prepare(
+      `${SELECT_COLUMNS} WHERE a.id IN (${placeholders})`,
+    ).all(sessionId, ...attachmentIds) as ContextAttachmentRow[];
+    const byId = new Map(
+      rows.map((row) => {
+        const attachment = parseStoredAttachment(row);
+        return [attachment.id, toPublicAttachment(attachment)];
+      }),
+    );
+    return attachmentIds
+      .map((id) => byId.get(id))
+      .filter((attachment): attachment is ContextAttachment => attachment !== undefined);
+  }
+
   findDuplicate(
     projectId: string,
     sessionId: string | null,

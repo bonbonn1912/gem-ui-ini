@@ -15,6 +15,8 @@ import {
   GetGitFileDiffInputSchema,
   GeminiSettingsSchema,
   IPC_CHANNELS,
+  IpcRequestSchemas,
+  IpcResponseSchemas,
   MAX_ADDITIONAL_ROOTS,
   OpenLinkPreviewInputSchema,
   ProjectWithRootsSchema,
@@ -258,4 +260,30 @@ describe("shared Zod contracts", () => {
       }).binaryPath,
     ).toBe("/usr/local/bin/gemini");
   });
+
+  it("validates SendPromptInputSchema with externalContextRefs", () => {
+    const valid = {
+      clientRequestId: randomUUID(),
+      sessionId: randomUUID(),
+      expectedRootRevision: 1,
+      text: "Bitte bearbeite das Review-Feedback zu dieser Stelle.",
+      attachmentIds: [],
+      contextAttachmentIds: [],
+      projectFiles: [],
+      externalContextRefs: [
+        {
+          kind: "gitlab_review" as const,
+          id: randomUUID(),
+        },
+      ],
+      historyMode: "compressed" as const,
+    };
+    expect(SendPromptInputSchema.parse(valid)).toEqual(valid);
+  });
 });
+
+
+
+
+
+

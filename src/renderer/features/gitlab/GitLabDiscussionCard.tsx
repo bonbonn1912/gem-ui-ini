@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { Icon } from "../../components/Icon";
 import type { GitLabDiscussion, GitLabMergeRequestSummary } from "../../types";
+import type { ReviewDelivery } from "./GitLabPanel";
 
 type GitLabDiscussionCardProps = {
   discussion: GitLabDiscussion;
   mergeRequest: GitLabMergeRequestSummary;
   isReadOnly: boolean;
+  delivery: ReviewDelivery;
   onSendToGemini: (discussionId: string, mode: "affected_lines" | "whole_file") => Promise<void>;
   onResolve: (discussionId: string, resolved: boolean) => Promise<void>;
   onReply: (discussionId: string, body: string) => Promise<void>;
@@ -16,6 +18,7 @@ export function GitLabDiscussionCard({
   discussion,
   mergeRequest,
   isReadOnly,
+  delivery,
   onSendToGemini,
   onResolve,
   onReply,
@@ -30,6 +33,10 @@ export function GitLabDiscussionCard({
 
   const mainNote = discussion.notes[0];
   if (!mainNote) return null;
+
+  const drafting = delivery === "draft";
+  const busyLabel = drafting ? "Übernehmen …" : "Senden …";
+  const targetLabel = drafting ? "in den Entwurf" : "an Gemini";
 
   const position = mainNote.position;
   const filePath = position?.newPath ?? position?.oldPath;
@@ -150,12 +157,14 @@ export function GitLabDiscussionCard({
             className="secondary-button prompt-btn"
             onClick={() => handlePromptSend("affected_lines")}
             disabled={sendingPromptMode !== null}
-            title="Betroffene Zeilen dieses Threads als Prompt an Gemini senden"
+            title={drafting
+              ? "Betroffene Zeilen dieses Threads in das Eingabefeld übernehmen"
+              : "Betroffene Zeilen dieses Threads sofort als Prompt an Gemini senden"}
           >
             {sendingPromptMode === "affected_lines" ? (
-              <><span className="mini-spinner" /> Senden …</>
+              <><span className="mini-spinner" /> {busyLabel}</>
             ) : (
-              <><Icon name="sparkle" size={13} /> Betroffene Zeilen an Gemini</>
+              <><Icon name={drafting ? "pencil" : "sparkle"} size={13} /> Betroffene Zeilen {targetLabel}</>
             )}
           </button>
 
@@ -165,12 +174,14 @@ export function GitLabDiscussionCard({
               className="secondary-button prompt-btn"
               onClick={() => handlePromptSend("whole_file")}
               disabled={sendingPromptMode !== null}
-              title="Vollständige Datei am Review-Stand als Prompt an Gemini senden"
+              title={drafting
+                ? "Vollständige Datei am Review-Stand in das Eingabefeld übernehmen"
+                : "Vollständige Datei am Review-Stand sofort als Prompt an Gemini senden"}
             >
               {sendingPromptMode === "whole_file" ? (
-                <><span className="mini-spinner" /> Senden …</>
+                <><span className="mini-spinner" /> {busyLabel}</>
               ) : (
-                <><Icon name="file-text" size={13} /> Ganze Datei an Gemini</>
+                <><Icon name="file-text" size={13} /> Ganze Datei {targetLabel}</>
               )}
             </button>
           )}
