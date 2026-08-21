@@ -27,6 +27,20 @@ const SessionReadyEventSchema = z
   })
   .strict();
 
+export const ExternalPromptContextSnapshotSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("gitlab_review"),
+    id: EntityIdSchema,
+    title: z.string().max(500),
+    repositoryLabel: z.string().max(200),
+    mergeRequestReference: z.string().max(1200),
+    filePath: z.string().max(1024).nullable(),
+    startLine: z.number().int().positive().nullable(),
+    endLine: z.number().int().positive().nullable(),
+    contextMode: z.enum(["affected_lines", "whole_file", "comment_only"]),
+  }).strict(),
+]);
+
 const UserMessageEventSchema = z
   .object({
     type: z.literal("message.user"),
@@ -37,7 +51,12 @@ const UserMessageEventSchema = z
       id: EntityIdSchema,
       kind: ContextAttachmentKindSchema,
       title: DisplayNameSchema,
-    }).strict()).max(MAX_CONTEXT_ATTACHMENTS_PER_PROMPT).default([]),
+    }).strict()).max(MAX_CONTEXT_ATTACHMENTS_PER_PROMPT).optional().default([]),
+    externalContexts: z
+      .array(ExternalPromptContextSnapshotSchema)
+      .max(5)
+      .optional()
+      .default([]),
   })
   .strict();
 
@@ -350,5 +369,6 @@ export type ModelTokenUsage = z.infer<typeof ModelTokenUsageSchema>;
 export type UsageSnapshot = z.infer<typeof UsageSnapshotSchema>;
 export type PermissionOption = z.infer<typeof PermissionOptionSchema>;
 export type AvailableCommand = z.infer<typeof AvailableCommandSchema>;
+export type ExternalPromptContextSnapshot = z.infer<typeof ExternalPromptContextSnapshotSchema>;
 export type AgentEvent = z.infer<typeof AgentEventSchema>;
 export type StreamEnvelope = z.infer<typeof StreamEnvelopeSchema>;

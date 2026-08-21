@@ -25,6 +25,7 @@ import {
   ClientRequestRepository,
   ContextAttachmentRepository,
   EventRepository,
+  GitLabRepository,
   ProjectRepository,
   SessionRepository,
   SettingsRepository,
@@ -33,6 +34,10 @@ import {
   type SqliteDatabase,
 } from "./storage";
 import { UsageService } from "./usage";
+import { GitLabService, GitLabSubscriptionHub, GitLabTokenVault } from "./integrations/gitlab";
+import { IntegrationRegistry } from "./integrations/integration-registry";
+import { ExternalPromptContextRegistry } from "./integrations/external-prompt-context-registry";
+import { IPC_CHANNELS } from "../shared/contracts";
 
 app.setName("GeminUI");
 configureUserDataPath();
@@ -134,6 +139,30 @@ async function bootstrap(): Promise<void> {
   const gitService = new GitService(projectService, capabilityService);
   gitStatusHub = new GitStatusSubscriptionHub(gitService);
 
+  const gitlabRepository = new GitLabRepository(database);
+  const gitlabTokenVault = new GitLabTokenVault();
+  const externalPromptContextRegistry = new ExternalPromptContextRegistry();
+  const gitlabService = new GitLabService({
+    gitlabRepository,
+    tokenVault: gitlabTokenVault,
+    projectService,
+    getGitBinaryPath: () => capabilityService.requireGitBinaryPath(),
+  });
+  externalPromptContextRegistry.registerProvider("gitlab_review", gitlabService);
+
+  const gitlabSubscriptionHub = new GitLabSubscriptionHub(
+    (projectId, bindingId) => gitlabService.getReviewState(projectId, bindingId),
+    (subscriptionId, state) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IPC_CHANNELS.gitlabReviewStateChanged, {
+          subscriptionId,
+          state,
+        });
+      }
+    },
+  );
+  const integrationRegistry = new IntegrationRegistry(gitlabRepository);
+
   eventHub = new SessionEventHub({
     eventsAfter: (sessionId, afterSeq) =>
       eventRepository.listAfter(sessionId, afterSeq),
@@ -149,6 +178,7 @@ async function bootstrap(): Promise<void> {
     capabilities: capabilityService,
     usage: usageService,
     publishEvents: (events) => eventHub?.publish(events),
+    externalContextRegistry: externalPromptContextRegistry,
   });
   projectService.setRuntimeCoordinator(controller);
 
@@ -164,6 +194,9 @@ async function bootstrap(): Promise<void> {
     eventHub,
     git: gitService,
     gitStatusHub,
+    integrations: integrationRegistry,
+    gitlab: gitlabService,
+    gitlabSubscriptionHub,
   };
   await openApplicationWindow();
 }

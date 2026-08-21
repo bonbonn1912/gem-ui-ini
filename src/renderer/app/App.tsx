@@ -17,10 +17,13 @@ import { useGitProjectStatus } from "../features/git/useGitProjectStatus";
 import { ProjectDialog } from "../features/projects/ProjectDialog";
 import { ProjectSettingsDialog } from "../features/projects/ProjectSettingsDialog";
 import { Sidebar } from "../features/sessions/Sidebar";
+import { GitLabPanel } from "../features/gitlab/GitLabPanel";
 import type {
   AppCapabilities,
   AppProject,
   AppSession,
+  ExternalPromptContextRef,
+  GitLabRepositoryCandidate,
   GitFileChange,
   GitProjectStatus,
   ProjectRootCandidate,
@@ -199,7 +202,7 @@ function RootChangeBanner() {
   );
 }
 
-type RightPanel = "none" | "changes" | "attachments";
+type RightPanel = "none" | "changes" | "attachments" | "gitlab";
 const DEFAULT_RIGHT_PANEL_WIDTH = 520;
 const MIN_RIGHT_PANEL_WIDTH = 300;
 const MIN_CHAT_WIDTH = 260;
@@ -209,7 +212,7 @@ const RIGHT_PANEL_OVERLAY_BREAKPOINT = 640;
 function initialRightPanel(): RightPanel {
   try {
     const stored = window.localStorage.getItem("geminui.right-panel");
-    if (stored === "changes" || stored === "attachments") return stored;
+    if (stored === "changes" || stored === "attachments" || stored === "gitlab") return stored;
     return window.localStorage.getItem("geminui.changes-panel.open") === "true" ? "changes" : "none";
   } catch {
     return "none";
@@ -356,10 +359,28 @@ export function App() {
     trigger: gitPreviewTrigger,
   });
   const changesCount = gitState.status?.changes.length ?? 0;
+  const [gitlabCandidates, setGitlabCandidates] = useState<GitLabRepositoryCandidate[]>([]);
 
   useEffect(() => {
-    gitStatusRef.current = gitState.status;
-  }, [gitState.status]);
+    if (!activeProject) {
+      setGitlabCandidates([]);
+      return;
+    }
+    let current = true;
+    window.gemUi.gitlab
+      .listRepositoryCandidates({ projectId: activeProject.id })
+      .then((list) => {
+        if (current) setGitlabCandidates(list);
+      })
+      .catch(() => {
+        if (current) setGitlabCandidates([]);
+      });
+    return () => {
+      current = false;
+    };
+  }, [activeProject?.id, activeProject?.rootRevision, projectSettingsOpen]);
+
+  const gitlabEnabled = gitlabCandidates.some((c) => c.binding?.enabled);
 
   useEffect(() => {
     gitToolBaselinesRef.current.clear();
@@ -669,7 +690,11 @@ export function App() {
     }
   };
 
-  const sendPrompt = async (text: string, attachments: ComposerAttachment[]) => {
+  const sendPrompt = async (
+    text: string,
+    attachments: ComposerAttachment[] = [],
+    externalContextRefs: ExternalPromptContextRef[] = [],
+  ) => {
     if (!activeSession) return;
     const clientRequestId = createClientRequestId();
     dispatch({
@@ -687,6 +712,7 @@ export function App() {
         text,
         attachmentIds: attachments.map((attachment) => attachment.id),
         contextAttachmentIds: contextAttachments.included.map((attachment) => attachment.id),
+        externalContextRefs,
         expectedRootRevision: activeProject?.rootRevision ?? 1,
         clientRequestId,
       });
@@ -836,34 +862,49 @@ export function App() {
                 onToggleChanges={() => setRightPanel((current) => current === "changes" ? "none" : "changes")}
               />
             </div>
-            {changesOpen ? <ChangesPanel
-              key={`${activeProject.id}:${activeProject.rootRevision}`}
-              open={changesOpen}
-              project={activeProject}
-              status={gitState.status}
-              loading={gitState.loading}
-              refreshing={gitState.refreshing}
-              choosingGit={gitState.choosingGit}
-              error={gitState.error}
-              selection={gitSelection}
-              onClose={() => setRightPanel("none")}
-              onSelectionChange={setGitSelection}
-              onRefresh={() => void gitState.refresh()}
-              onChooseGit={() => void gitState.chooseGit()}
-            /> : <AttachmentsPanel
-              open={attachmentsOpen}
-              project={activeProject}
-              sessionId={null}
-              list={contextAttachments.list}
-              loading={contextAttachments.loading}
-              refreshing={contextAttachments.refreshing}
-              error={contextAttachments.error}
-              onClose={() => setRightPanel("none")}
-              onRefresh={contextAttachments.refresh}
-              onApply={contextAttachments.apply}
-              onError={(error) => showError("Anhang konnte nicht verarbeitet werden", error)}
-              onOpenExternal={openExternal}
-            />}
+            {changesOpen ? (
+              <ChangesPanel
+                key={`${activeProject.id}:${activeProject.rootRevision}`}
+                open={changesOpen}
+                project={activeProject}
+                status={gitState.status}
+                loading={gitState.loading}
+                refreshing={gitState.refreshing}
+                choosingGit={gitState.choosingGit}
+                error={gitState.error}
+                selection={gitSelection}
+                onClose={() => setRightPanel("none")}
+                onSelectionChange={setGitSelection}
+                onRefresh={() => void gitState.refresh()}
+                onChooseGit={() => void gitState.chooseGit()}
+              />
+            ) : attachmentsOpen ? (
+              <AttachmentsPanel
+                open={attachmentsOpen}
+                project={activeProject}
+                sessionId={null}
+                list={contextAttachments.list}
+                loading={contextAttachments.loading}
+                refreshing={contextAttachments.refreshing}
+                error={contextAttachments.error}
+                onClose={() => setRightPanel("none")}
+                onRefresh={contextAttachments.refresh}
+                onApply={contextAttachments.apply}
+                onError={(error) => showError("Anhang konnte nicht verarbeitet werden", error)}
+                onOpenExternal={openExternal}
+              />
+            ) : rightPanel === "gitlab" ? (
+              <GitLabPanel
+                projectId={activeProject.id}
+                activeSession={null}
+                onClose={() => setRightPanel("none")}
+                onSendExternalContextPrompt={async () => {
+                  showError("Keine aktive Session", new Error("Bitte starte zuerst eine Session, um Review-Kontext zu senden."));
+                }}
+                onOpenExternal={openExternal}
+                onOpenSettings={() => setProjectSettingsOpen(true)}
+              />
+            ) : null}
             {rightPanel !== "none" && <RightPanelResizeHandle width={rightPanelWidth} onChange={setRightPanelWidth} />}
           </div>
         ) : activeProject && activeSession ? (
@@ -885,6 +926,9 @@ export function App() {
                 changesOpen={changesOpen}
                 changesCount={changesCount}
                 onToggleChanges={() => setRightPanel((current) => current === "changes" ? "none" : "changes")}
+                gitlabEnabled={gitlabEnabled}
+                gitlabOpen={rightPanel === "gitlab"}
+                onToggleGitlab={() => setRightPanel((current) => current === "gitlab" ? "none" : "gitlab")}
                 onOpenSidebar={() => setSidebarOpen(true)}
                 onEditProject={() => setProjectSettingsOpen(true)}
                 onSetMode={(mode) => void setSessionMode(activeSession.id, mode)}
@@ -913,34 +957,54 @@ export function App() {
                 onError={(error) => showError("Anhang konnte nicht verarbeitet werden", new Error(error))}
               />
             </div>
-            {changesOpen ? <ChangesPanel
-              key={`${activeProject.id}:${activeProject.rootRevision}`}
-              open={changesOpen}
-              project={activeProject}
-              status={gitState.status}
-              loading={gitState.loading}
-              refreshing={gitState.refreshing}
-              choosingGit={gitState.choosingGit}
-              error={gitState.error}
-              selection={gitSelection}
-              onClose={() => setRightPanel("none")}
-              onSelectionChange={setGitSelection}
-              onRefresh={() => void gitState.refresh()}
-              onChooseGit={() => void gitState.chooseGit()}
-            /> : <AttachmentsPanel
-              open={attachmentsOpen}
-              project={activeProject}
-              sessionId={activeSession.id}
-              list={contextAttachments.list}
-              loading={contextAttachments.loading}
-              refreshing={contextAttachments.refreshing}
-              error={contextAttachments.error}
-              onClose={() => setRightPanel("none")}
-              onRefresh={contextAttachments.refresh}
-              onApply={contextAttachments.apply}
-              onError={(error) => showError("Anhang konnte nicht verarbeitet werden", error)}
-              onOpenExternal={openExternal}
-            />}
+            {changesOpen ? (
+              <ChangesPanel
+                key={`${activeProject.id}:${activeProject.rootRevision}`}
+                open={changesOpen}
+                project={activeProject}
+                status={gitState.status}
+                loading={gitState.loading}
+                refreshing={gitState.refreshing}
+                choosingGit={gitState.choosingGit}
+                error={gitState.error}
+                selection={gitSelection}
+                onClose={() => setRightPanel("none")}
+                onSelectionChange={setGitSelection}
+                onRefresh={() => void gitState.refresh()}
+                onChooseGit={() => void gitState.chooseGit()}
+              />
+            ) : attachmentsOpen ? (
+              <AttachmentsPanel
+                open={attachmentsOpen}
+                project={activeProject}
+                sessionId={activeSession.id}
+                list={contextAttachments.list}
+                loading={contextAttachments.loading}
+                refreshing={contextAttachments.refreshing}
+                error={contextAttachments.error}
+                onClose={() => setRightPanel("none")}
+                onRefresh={contextAttachments.refresh}
+                onApply={contextAttachments.apply}
+                onError={(error) => showError("Anhang konnte nicht verarbeitet werden", error)}
+                onOpenExternal={openExternal}
+              />
+            ) : rightPanel === "gitlab" ? (
+              <GitLabPanel
+                projectId={activeProject.id}
+                activeSession={activeSession}
+                onClose={() => setRightPanel("none")}
+                onSendExternalContextPrompt={async (ref) => {
+                  if (!activeSession) return;
+                  await sendPrompt(
+                    "Bitte bearbeite das Review-Feedback zu dieser Stelle.",
+                    [],
+                    [ref],
+                  );
+                }}
+                onOpenExternal={openExternal}
+                onOpenSettings={() => setProjectSettingsOpen(true)}
+              />
+            ) : null}
             {rightPanel !== "none" && <RightPanelResizeHandle width={rightPanelWidth} onChange={setRightPanelWidth} />}
           </div>
         ) : null}

@@ -82,6 +82,15 @@ export class GeminiCapabilityService {
     return this.#gitProbe?.ok ? this.#gitProbe.binaryPath : null;
   }
 
+  requireGitBinaryPath(): string {
+    if (!this.#gitProbe?.ok) {
+      throw new Error(
+        this.#gitProbe?.message ?? "Git wurde nicht gefunden. Bitte wähle die Git-Binary aus.",
+      );
+    }
+    return this.#gitProbe.binaryPath;
+  }
+
   async #refresh(candidate?: string, gitCandidate?: string): Promise<AppCapabilities> {
     const configured = this.#settings.getGeminiSettings()?.binaryPath;
     const configuredGit = this.#settings.getGitSettings()?.binaryPath;

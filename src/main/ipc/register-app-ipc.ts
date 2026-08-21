@@ -58,6 +58,9 @@ import { openExternalHttps, openStoredFile } from "../security/main-window";
 import type { SessionEventHub } from "./event-hub";
 import { registerValidatedIpcHandler } from "./register-handler";
 
+import type { IntegrationRegistry } from "../integrations/integration-registry";
+import type { GitLabService, GitLabSubscriptionHub } from "../integrations/gitlab";
+
 export type RegisterAppIpcOptions = {
   mainWindow: BrowserWindow;
   projects: ProjectService;
@@ -71,6 +74,9 @@ export type RegisterAppIpcOptions = {
   eventHub: SessionEventHub;
   git: GitService;
   gitStatusHub: GitStatusSubscriptionHub;
+  integrations?: IntegrationRegistry;
+  gitlab?: GitLabService;
+  gitlabSubscriptionHub?: GitLabSubscriptionHub;
 };
 
 export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
@@ -561,6 +567,115 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
     await openExternalHttps((input as { url: string }).url);
     return { ok: true };
   });
+
+  if (options.integrations) {
+    register(IPC_CHANNELS.listProjectIntegrations, (input) =>
+      options.integrations!.listProjectIntegrations(
+        (input as { projectId: string }).projectId,
+      ),
+    );
+  }
+
+  if (options.gitlab) {
+    const gitlab = options.gitlab;
+
+    register(IPC_CHANNELS.listGitLabRepositoryCandidates, (input) =>
+      gitlab.listRepositoryCandidates((input as { projectId: string }).projectId),
+    );
+
+    register(IPC_CHANNELS.listGitLabConnections, () =>
+      gitlab.listConnections(),
+    );
+
+    register(IPC_CHANNELS.testGitLabConnection, (input) =>
+      gitlab.testConnection(input as any),
+    );
+
+    register(IPC_CHANNELS.saveGitLabConnection, (input) =>
+      idempotent(options.clientRequests, input as any, "gitlab.save-connection", () =>
+        gitlab.saveConnection(input as any),
+      ),
+    );
+
+    register(IPC_CHANNELS.replaceGitLabToken, (input) =>
+      idempotent(options.clientRequests, input as any, "gitlab.replace-token", () =>
+        gitlab.replaceToken(input as any),
+      ),
+    );
+
+    register(IPC_CHANNELS.removeGitLabConnection, (input) =>
+      idempotent(options.clientRequests, input as any, "gitlab.remove-connection", () => {
+        gitlab.removeConnection(input as any);
+        return { ok: true };
+      }),
+    );
+
+    register(IPC_CHANNELS.enableGitLabBinding, (input) =>
+      idempotent(options.clientRequests, input as any, "gitlab.enable-binding", () =>
+        gitlab.enableBinding(input as any),
+      ),
+    );
+
+    register(IPC_CHANNELS.disableGitLabBinding, (input) =>
+      idempotent(options.clientRequests, input as any, "gitlab.disable-binding", async () => {
+        const inp = input as { projectId: string; bindingId: string };
+        await gitlab.disableBinding(inp.projectId, inp.bindingId);
+        return { ok: true };
+      }),
+    );
+
+    register(IPC_CHANNELS.listGitLabMergeRequests, (input) => {
+      const inp = input as { projectId: string; bindingId: string };
+      return gitlab.listMergeRequests(inp.projectId, inp.bindingId);
+    });
+
+    register(IPC_CHANNELS.selectGitLabMergeRequest, (input) =>
+      idempotent(options.clientRequests, input as any, "gitlab.select-merge-request", () =>
+        gitlab.selectMergeRequest(input as any),
+      ),
+    );
+
+    register(IPC_CHANNELS.connectGitLabMergeRequestUrl, (input) =>
+      idempotent(options.clientRequests, input as any, "gitlab.connect-merge-request-url", () =>
+        gitlab.connectMergeRequestUrl(input as any),
+      ),
+    );
+
+    register(IPC_CHANNELS.getGitLabReviewState, (input) => {
+      const inp = input as { projectId: string; bindingId: string };
+      return gitlab.getReviewState(inp.projectId, inp.bindingId);
+    });
+
+    register(IPC_CHANNELS.prepareGitLabReviewContext, (input) =>
+      gitlab.prepareReviewContext(input as any),
+    );
+
+    register(IPC_CHANNELS.resolveGitLabDiscussion, (input) =>
+      idempotent(options.clientRequests, input as any, "gitlab.resolve-discussion", () =>
+        gitlab.resolveDiscussion(input as any),
+      ),
+    );
+
+    register(IPC_CHANNELS.replyToGitLabDiscussion, (input) =>
+      idempotent(options.clientRequests, input as any, "gitlab.reply-to-discussion", () =>
+        gitlab.replyToDiscussion(input as any),
+      ),
+    );
+  }
+
+  if (options.gitlabSubscriptionHub) {
+    const hub = options.gitlabSubscriptionHub;
+    register(IPC_CHANNELS.subscribeGitLabReviewState, (input) => {
+      const inp = input as { projectId: string; bindingId: string };
+      return hub.subscribe(inp.projectId, inp.bindingId);
+    });
+
+    register(IPC_CHANNELS.unsubscribeGitLabReviewState, (input) => {
+      const inp = input as { subscriptionId: string };
+      hub.unsubscribe(inp.subscriptionId);
+      return { ok: true };
+    });
+  }
 
   return () => {
     linkPreview.dispose();

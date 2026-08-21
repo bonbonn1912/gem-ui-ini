@@ -480,6 +480,509 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
   .toast-close { grid-column: 3; grid-row: 1; }
 }
 
+/* ==========================================================================
+   GitLab Integration & Review Panel
+   ========================================================================== */
+
+.gitlab-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 31px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+.gitlab-toggle:hover {
+  background: var(--surface-2);
+  color: var(--text-primary);
+  border-color: var(--border-medium);
+}
+.gitlab-toggle--active {
+  background: rgba(226, 67, 41, 0.12);
+  border-color: rgba(226, 67, 41, 0.35);
+  color: #e24329;
+}
+.gitlab-toggle i {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #e24329;
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 700;
+  font-style: normal;
+}
+
+.gitlab-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--surface-0);
+  border-left: 1px solid var(--border-subtle);
+  overflow: hidden;
+}
+
+.gitlab-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 48px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-1);
+}
+
+.panel-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.gitlab-header-icon {
+  color: #e24329;
+  display: inline-flex;
+}
+.unresolved-counter-badge {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(226, 67, 41, 0.12);
+  color: #e24329;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.gitlab-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gitlab-controls-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.gitlab-repo-picker, .gitlab-mr-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.gitlab-repo-picker select, .gitlab-mr-select {
+  flex: 1;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font-size: 11.5px;
+}
+
+.gitlab-filter-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--surface-2);
+  padding: 2px;
+  border-radius: 6px;
+  margin-top: 4px;
+}
+
+.filter-tab {
+  flex: 1;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all .12s ease;
+}
+.filter-tab--active {
+  background: var(--surface-0);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+
+.gitlab-discussion-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 10px;
+  gap: 8px;
+  transition: border-color .15s ease;
+}
+.gitlab-discussion-card--resolved {
+  opacity: 0.72;
+}
+.gitlab-discussion-card:hover {
+  border-color: var(--border-medium);
+}
+
+.discussion-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+}
+.discussion-meta-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.discussion-file-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text-primary);
+  font-family: var(--font-mono, monospace);
+  font-size: 10.5px;
+}
+
+.badge--warning {
+  background: rgba(245, 158, 11, 0.15);
+  color: #d97706;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+}
+.badge--success {
+  background: rgba(16, 185, 129, 0.15);
+  color: #059669;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.discussion-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.discussion-note {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+.note-author-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.note-avatar-initials {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-secondary);
+  font-size: 8.5px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+.note-time {
+  color: var(--text-muted);
+  font-size: 10px;
+  margin-left: auto;
+}
+.note-body-content {
+  color: var(--text-primary);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 2px 0 2px 24px;
+}
+
+.discussion-card-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-subtle);
+}
+.prompt-actions-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.prompt-btn {
+  font-size: 11px;
+  padding: 4px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.discussion-tools-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.tool-btn {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  padding: 3px 7px;
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.tool-btn:hover {
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+.tool-btn--resolve {
+  color: #059669;
+  border-color: rgba(5, 150, 105, 0.3);
+}
+.tool-btn--reopen {
+  color: var(--text-secondary);
+}
+
+.discussion-reply-form textarea {
+  width: 100%;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-0);
+  color: var(--text-primary);
+  padding: 6px;
+  font-size: 11.5px;
+  resize: vertical;
+}
+.reply-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+.reply-btns {
+  display: flex;
+  gap: 4px;
+}
+
+/* Dialog Tabs */
+.dialog-tab-bar {
+  display: flex;
+  gap: 6px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-1);
+}
+.dialog-tab {
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.dialog-tab--active {
+  border-bottom-color: var(--primary);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Integration Settings */
+.integrations-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.integration-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--surface-1);
+  padding: 14px;
+}
+.integration-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.integration-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.gitlab-icon-color {
+  color: #e24329;
+}
+.optional-tag {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 500;
+}
+.repo-candidate-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--surface-0);
+  border: 1px solid var(--border-subtle);
+  margin-top: 8px;
+}
+.candidate-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.branch-tag {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  font-family: var(--font-mono, monospace);
+  font-size: 10.5px;
+}
+.status-pill {
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.status-pill--active {
+  background: rgba(16, 185, 129, 0.15);
+  color: #059669;
+}
+.status-pill--inactive {
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+.remote-summary {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin: 3px 0 0;
+}
+
+/* Timeline Chip */
+.sent-context-attachment--gitlab {
+  border-color: rgba(226, 67, 41, 0.3);
+  background: rgba(226, 67, 41, 0.08);
+  color: #e24329;
+}
+
+/* Setup Dialog */
+.connection-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0;
+}
+.connection-card {
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-0);
+  cursor: pointer;
+  transition: all .12s ease;
+}
+.connection-card:hover {
+  border-color: var(--border-medium);
+}
+.connection-card--selected {
+  border-color: var(--primary);
+  background: rgba(59, 130, 246, 0.06);
+}
+.connection-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+.connection-access-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.connection-access-badge--read_write {
+  background: rgba(16, 185, 129, 0.15);
+  color: #059669;
+}
+.connection-access-badge--read_only {
+  background: rgba(245, 158, 11, 0.15);
+  color: #d97706;
+}
+
+.gitlab-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+  font-size: 11.5px;
+}
+.gitlab-success-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+  font-size: 11.5px;
+}
+
+@media (max-width: 640px) {
+  .gitlab-toggle { width: 32px; padding: 0; justify-content: center; }
+  .gitlab-toggle span { display: none; }
+  .gitlab-toggle i { min-width: 14px; height: 14px; padding: 0 3px; position: absolute; margin: -23px 0 0 22px; font-size: 6.5px; }
+  .gitlab-panel { width: 100vw; position: absolute; inset: 0 0 0 auto; z-index: 90; box-shadow: -16px 0 45px rgba(15,17,23,.18); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+

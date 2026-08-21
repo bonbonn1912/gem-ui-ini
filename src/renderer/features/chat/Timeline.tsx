@@ -212,6 +212,16 @@ function TimelineEntry({
             ))}
           </div>
         )}
+        {item.externalContexts && item.externalContexts.length > 0 && (
+          <div className="sent-context-attachments" aria-label="Verwendeter GitLab-Kontext">
+            {item.externalContexts.map((ctx) => (
+              <span className="sent-context-attachment sent-context-attachment--gitlab" key={ctx.id}>
+                <Icon name="gitlab" size={13} />
+                <span>{ctx.title} {ctx.filePath ? `(${ctx.filePath}${ctx.startLine ? `:${ctx.startLine}` : ""})` : ""}</span>
+              </span>
+            ))}
+          </div>
+        )}
         {item.text && <p>{item.text}</p>}
         {item.failed && <span className="message-error-label">Nicht gesendet</span>}
       </article>

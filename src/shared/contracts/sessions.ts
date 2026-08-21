@@ -104,6 +104,13 @@ export const DeleteSessionInputSchema = z
   })
   .strict();
 
+export const ExternalPromptContextRefSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("gitlab_review"),
+    id: EntityIdSchema,
+  }).strict(),
+]);
+
 export const SendPromptInputSchema = z
   .object({
     clientRequestId: ClientRequestIdSchema,
@@ -115,11 +122,18 @@ export const SendPromptInputSchema = z
       .array(EntityIdSchema)
       .max(MAX_CONTEXT_ATTACHMENTS_PER_PROMPT)
       .default([]),
+    externalContextRefs: z
+      .array(ExternalPromptContextRefSchema)
+      .max(5)
+      .default([]),
   })
   .strict()
   .refine(
-    (input) => input.text.trim().length > 0 || input.attachmentIds.length > 0,
-    { message: "A prompt requires text or at least one attachment" },
+    (input) =>
+      input.text.trim().length > 0 ||
+      input.attachmentIds.length > 0 ||
+      (input.externalContextRefs && input.externalContextRefs.length > 0),
+    { message: "A prompt requires text, at least one attachment, or an external context" },
   );
 
 export const CancelTurnInputSchema = z
@@ -162,6 +176,7 @@ export type CreateSessionInput = z.input<typeof CreateSessionInputSchema>;
 export type ListSessionsInput = z.input<typeof ListSessionsInputSchema>;
 export type UpdateSessionInput = z.input<typeof UpdateSessionInputSchema>;
 export type DeleteSessionInput = z.input<typeof DeleteSessionInputSchema>;
+export type ExternalPromptContextRef = z.infer<typeof ExternalPromptContextRefSchema>;
 export type SendPromptInput = z.input<typeof SendPromptInputSchema>;
 export type CancelTurnInput = z.input<typeof CancelTurnInputSchema>;
 export type PermissionResponse = z.input<typeof PermissionResponseSchema>;

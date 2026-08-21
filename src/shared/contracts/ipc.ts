@@ -205,6 +205,60 @@ export const EventSubscriptionResultSchema = z
   })
   .strict();
 
+import {
+  ConnectGitLabMergeRequestUrlInputSchema,
+  DisableGitLabBindingInputSchema,
+  EnableGitLabBindingInputSchema,
+  GetGitLabReviewStateInputSchema,
+  GitLabConnectionSummarySchema,
+  GitLabDiscussionSchema,
+  GitLabMergeRequestSummarySchema,
+  GitLabRepositoryBindingSchema,
+  GitLabRepositoryCandidateSchema,
+  GitLabReviewStatePushSchema,
+  GitLabReviewStateSchema,
+  GitLabReviewStateSubscriptionResultSchema,
+  ListGitLabMergeRequestsInputSchema,
+  ListGitLabRepositoryCandidatesInputSchema,
+  ListProjectIntegrationsInputSchema,
+  PreparedExternalContextSchema,
+  PrepareGitLabReviewContextInputSchema,
+  ProjectIntegrationStatusSchema,
+  RemoveGitLabConnectionInputSchema,
+  ReplaceGitLabTokenInputSchema,
+  ReplyToGitLabDiscussionInputSchema,
+  ResolveGitLabDiscussionInputSchema,
+  SaveGitLabConnectionInputSchema,
+  SelectGitLabMergeRequestInputSchema,
+  SubscribeGitLabReviewStateInputSchema,
+  TestGitLabConnectionInputSchema,
+  UnsubscribeGitLabReviewStateInputSchema,
+  type ConnectGitLabMergeRequestUrlInput,
+  type DisableGitLabBindingInput,
+  type EnableGitLabBindingInput,
+  type GetGitLabReviewStateInput,
+  type GitLabConnectionSummary,
+  type GitLabDiscussion,
+  type GitLabMergeRequestSummary,
+  type GitLabRepositoryBinding,
+  type GitLabRepositoryCandidate,
+  type GitLabReviewState,
+  type ListGitLabMergeRequestsInput,
+  type ListGitLabRepositoryCandidatesInput,
+  type ListProjectIntegrationsInput,
+  type PreparedExternalContext,
+  type PrepareGitLabReviewContextInput,
+  type ProjectIntegrationStatus,
+  type RemoveGitLabConnectionInput,
+  type ReplaceGitLabTokenInput,
+  type ReplyToGitLabDiscussionInput,
+  type ResolveGitLabDiscussionInput,
+  type SaveGitLabConnectionInput,
+  type SelectGitLabMergeRequestInput,
+  type SubscribeGitLabReviewStateInput,
+  type TestGitLabConnectionInput,
+} from "./gitlab";
+
 export const IPC_CHANNELS = {
   getCapabilities: "app:get-capabilities",
   listProjects: "projects:list",
@@ -259,6 +313,25 @@ export const IPC_CHANNELS = {
   subscribeGitProjectStatus: "git:subscribe-project-status",
   unsubscribeGitProjectStatus: "git:unsubscribe-project-status",
   gitProjectStatusChanged: "git:project-status-changed",
+  listProjectIntegrations: "integrations:list-project",
+  listGitLabRepositoryCandidates: "gitlab:list-repository-candidates",
+  listGitLabConnections: "gitlab:list-connections",
+  testGitLabConnection: "gitlab:test-connection",
+  saveGitLabConnection: "gitlab:save-connection",
+  replaceGitLabToken: "gitlab:replace-token",
+  removeGitLabConnection: "gitlab:remove-connection",
+  enableGitLabBinding: "gitlab:enable-binding",
+  disableGitLabBinding: "gitlab:disable-binding",
+  listGitLabMergeRequests: "gitlab:list-merge-requests",
+  selectGitLabMergeRequest: "gitlab:select-merge-request",
+  connectGitLabMergeRequestUrl: "gitlab:connect-merge-request-url",
+  getGitLabReviewState: "gitlab:get-review-state",
+  subscribeGitLabReviewState: "gitlab:subscribe-review-state",
+  unsubscribeGitLabReviewState: "gitlab:unsubscribe-review-state",
+  gitlabReviewStateChanged: "gitlab:review-state-changed",
+  prepareGitLabReviewContext: "gitlab:prepare-review-context",
+  resolveGitLabDiscussion: "gitlab:resolve-discussion",
+  replyToGitLabDiscussion: "gitlab:reply-to-discussion",
   openExternalHttpsUrl: "external:open-https-url",
 } as const;
 
@@ -313,6 +386,24 @@ export const IpcRequestSchemas = {
   [IPC_CHANNELS.getGitFileDiff]: GetGitFileDiffInputSchema,
   [IPC_CHANNELS.subscribeGitProjectStatus]: SubscribeGitProjectStatusInputSchema,
   [IPC_CHANNELS.unsubscribeGitProjectStatus]: UnsubscribeGitProjectStatusInputSchema,
+  [IPC_CHANNELS.listProjectIntegrations]: ListProjectIntegrationsInputSchema,
+  [IPC_CHANNELS.listGitLabRepositoryCandidates]: ListGitLabRepositoryCandidatesInputSchema,
+  [IPC_CHANNELS.listGitLabConnections]: EmptyInputSchema,
+  [IPC_CHANNELS.testGitLabConnection]: TestGitLabConnectionInputSchema,
+  [IPC_CHANNELS.saveGitLabConnection]: SaveGitLabConnectionInputSchema,
+  [IPC_CHANNELS.replaceGitLabToken]: ReplaceGitLabTokenInputSchema,
+  [IPC_CHANNELS.removeGitLabConnection]: RemoveGitLabConnectionInputSchema,
+  [IPC_CHANNELS.enableGitLabBinding]: EnableGitLabBindingInputSchema,
+  [IPC_CHANNELS.disableGitLabBinding]: DisableGitLabBindingInputSchema,
+  [IPC_CHANNELS.listGitLabMergeRequests]: ListGitLabMergeRequestsInputSchema,
+  [IPC_CHANNELS.selectGitLabMergeRequest]: SelectGitLabMergeRequestInputSchema,
+  [IPC_CHANNELS.connectGitLabMergeRequestUrl]: ConnectGitLabMergeRequestUrlInputSchema,
+  [IPC_CHANNELS.getGitLabReviewState]: GetGitLabReviewStateInputSchema,
+  [IPC_CHANNELS.subscribeGitLabReviewState]: SubscribeGitLabReviewStateInputSchema,
+  [IPC_CHANNELS.unsubscribeGitLabReviewState]: UnsubscribeGitLabReviewStateInputSchema,
+  [IPC_CHANNELS.prepareGitLabReviewContext]: PrepareGitLabReviewContextInputSchema,
+  [IPC_CHANNELS.resolveGitLabDiscussion]: ResolveGitLabDiscussionInputSchema,
+  [IPC_CHANNELS.replyToGitLabDiscussion]: ReplyToGitLabDiscussionInputSchema,
   [IPC_CHANNELS.openExternalHttpsUrl]: OpenExternalHttpsUrlInputSchema,
 } as const;
 
@@ -367,6 +458,24 @@ export const IpcResponseSchemas = {
   [IPC_CHANNELS.getGitFileDiff]: GitFileDiffSchema,
   [IPC_CHANNELS.subscribeGitProjectStatus]: GitStatusSubscriptionResultSchema,
   [IPC_CHANNELS.unsubscribeGitProjectStatus]: VoidResultSchema,
+  [IPC_CHANNELS.listProjectIntegrations]: z.array(ProjectIntegrationStatusSchema),
+  [IPC_CHANNELS.listGitLabRepositoryCandidates]: z.array(GitLabRepositoryCandidateSchema),
+  [IPC_CHANNELS.listGitLabConnections]: z.array(GitLabConnectionSummarySchema),
+  [IPC_CHANNELS.testGitLabConnection]: GitLabConnectionSummarySchema,
+  [IPC_CHANNELS.saveGitLabConnection]: GitLabConnectionSummarySchema,
+  [IPC_CHANNELS.replaceGitLabToken]: GitLabConnectionSummarySchema,
+  [IPC_CHANNELS.removeGitLabConnection]: VoidResultSchema,
+  [IPC_CHANNELS.enableGitLabBinding]: GitLabRepositoryBindingSchema,
+  [IPC_CHANNELS.disableGitLabBinding]: VoidResultSchema,
+  [IPC_CHANNELS.listGitLabMergeRequests]: z.array(GitLabMergeRequestSummarySchema),
+  [IPC_CHANNELS.selectGitLabMergeRequest]: GitLabRepositoryBindingSchema,
+  [IPC_CHANNELS.connectGitLabMergeRequestUrl]: GitLabRepositoryBindingSchema,
+  [IPC_CHANNELS.getGitLabReviewState]: GitLabReviewStateSchema,
+  [IPC_CHANNELS.subscribeGitLabReviewState]: GitLabReviewStateSubscriptionResultSchema,
+  [IPC_CHANNELS.unsubscribeGitLabReviewState]: VoidResultSchema,
+  [IPC_CHANNELS.prepareGitLabReviewContext]: PreparedExternalContextSchema,
+  [IPC_CHANNELS.resolveGitLabDiscussion]: GitLabDiscussionSchema,
+  [IPC_CHANNELS.replyToGitLabDiscussion]: GitLabDiscussionSchema,
   [IPC_CHANNELS.openExternalHttpsUrl]: VoidResultSchema,
 } as const;
 
@@ -462,6 +571,44 @@ export interface GemUiDesktopApi {
       input: SubscribeGitProjectStatusInput,
       callback: (status: GitProjectStatus) => void,
     ): Promise<() => void>;
+  };
+  integrations: {
+    listProject(input: ListProjectIntegrationsInput): Promise<ProjectIntegrationStatus[]>;
+  };
+  gitlab: {
+    listRepositoryCandidates(
+      input: ListGitLabRepositoryCandidatesInput,
+    ): Promise<GitLabRepositoryCandidate[]>;
+    listConnections(): Promise<GitLabConnectionSummary[]>;
+    testConnection(input: TestGitLabConnectionInput): Promise<GitLabConnectionSummary>;
+    saveConnection(input: SaveGitLabConnectionInput): Promise<GitLabConnectionSummary>;
+    replaceToken(input: ReplaceGitLabTokenInput): Promise<GitLabConnectionSummary>;
+    removeConnection(input: RemoveGitLabConnectionInput): Promise<VoidResult>;
+    enableBinding(input: EnableGitLabBindingInput): Promise<GitLabRepositoryBinding>;
+    disableBinding(input: DisableGitLabBindingInput): Promise<VoidResult>;
+    listMergeRequests(
+      input: ListGitLabMergeRequestsInput,
+    ): Promise<GitLabMergeRequestSummary[]>;
+    selectMergeRequest(
+      input: SelectGitLabMergeRequestInput,
+    ): Promise<GitLabRepositoryBinding>;
+    connectMergeRequestUrl(
+      input: ConnectGitLabMergeRequestUrlInput,
+    ): Promise<GitLabRepositoryBinding>;
+    getReviewState(input: GetGitLabReviewStateInput): Promise<GitLabReviewState>;
+    subscribeReviewState(
+      input: SubscribeGitLabReviewStateInput,
+      callback: (state: GitLabReviewState) => void,
+    ): Promise<() => void>;
+    prepareReviewContext(
+      input: PrepareGitLabReviewContextInput,
+    ): Promise<PreparedExternalContext>;
+    resolveDiscussion(
+      input: ResolveGitLabDiscussionInput,
+    ): Promise<GitLabDiscussion>;
+    replyToDiscussion(
+      input: ReplyToGitLabDiscussionInput,
+    ): Promise<GitLabDiscussion>;
   };
   subscribeSessionEvents(
     input: SubscribeSessionEventsInput,

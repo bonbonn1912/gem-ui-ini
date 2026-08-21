@@ -63,6 +63,8 @@ type PendingEventBuffer = {
   }>;
 };
 
+import type { ExternalPromptContextRegistry } from "./integrations/external-prompt-context-registry";
+
 export type AppControllerOptions = {
   projects: ProjectService;
   sessions: SessionRepository;
@@ -73,6 +75,7 @@ export type AppControllerOptions = {
   capabilities: GeminiCapabilityService;
   usage: UsageService;
   publishEvents: (events: StreamEnvelope[]) => void | Promise<void>;
+  externalContextRegistry?: ExternalPromptContextRegistry;
 };
 
 export class AppController implements ProjectRuntimeCoordinator {
@@ -85,6 +88,7 @@ export class AppController implements ProjectRuntimeCoordinator {
   readonly #capabilities: GeminiCapabilityService;
   readonly #usage: UsageService;
   readonly #publishEvents: AppControllerOptions["publishEvents"];
+  readonly #externalContextRegistry?: ExternalPromptContextRegistry;
   readonly #activeTurns = new Map<string, ActiveTurn>();
   readonly #eventBuffers = new Map<string, PendingEventBuffer>();
   #manager: GeminiSessionManager | null = null;
@@ -101,6 +105,7 @@ export class AppController implements ProjectRuntimeCoordinator {
     this.#capabilities = options.capabilities;
     this.#usage = options.usage;
     this.#publishEvents = options.publishEvents;
+    this.#externalContextRegistry = options.externalContextRegistry;
   }
 
   listSessions(input: ListSessionsInput): AppSession[] {
@@ -244,7 +249,11 @@ export class AppController implements ProjectRuntimeCoordinator {
       attachmentIds: input.contextAttachmentIds ?? [],
       imagesSupported: this.#capabilities.snapshot().gemini.images,
     });
-    const parts: PromptPart[] = [...context.parts];
+    const external = this.#externalContextRegistry
+      ? await this.#externalContextRegistry.resolve(input.externalContextRefs ?? [])
+      : { parts: [], snapshots: [] };
+
+    const parts: PromptPart[] = [...external.parts, ...context.parts];
     for (const image of images) {
       parts.push({
         type: "image",
@@ -272,6 +281,7 @@ export class AppController implements ProjectRuntimeCoordinator {
         text: input.text,
         attachmentIds: input.attachmentIds,
         contextAttachments: context.snapshots,
+        externalContexts: external.snapshots,
       },
       timestamp,
     });

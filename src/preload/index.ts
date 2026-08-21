@@ -3,12 +3,15 @@ import {
   EventSubscriptionResultSchema,
   ContextAttachmentPushSchema,
   ContextAttachmentSubscriptionResultSchema,
+  GitLabReviewStatePushSchema,
+  GitLabReviewStateSubscriptionResultSchema,
   GitStatusPushSchema,
   GitStatusSubscriptionResultSchema,
   IPC_CHANNELS,
   StreamEnvelopeBatchSchema,
   type GemUiDesktopApi,
   type ContextAttachmentList,
+  type GitLabReviewState,
   type GitProjectStatus,
   type StreamEnvelope,
   type UsageSnapshot,
@@ -25,6 +28,8 @@ const callbacks = new Map<string, EventCallback>();
 const pendingBatches = new Map<string, StreamEnvelope[][]>();
 const gitCallbacks = new Map<string, (status: GitProjectStatus) => void>();
 const pendingGitStatuses = new Map<string, GitProjectStatus[]>();
+const gitlabCallbacks = new Map<string, (state: GitLabReviewState) => void>();
+const pendingGitlabStates = new Map<string, GitLabReviewState[]>();
 const contextAttachmentCallbacks = new Map<string, (list: ContextAttachmentList) => void>();
 const pendingContextAttachmentLists = new Map<string, ContextAttachmentList[]>();
 
@@ -59,6 +64,22 @@ ipcRenderer.on(
 );
 
 ipcRenderer.on(
+  IPC_CHANNELS.gitlabReviewStateChanged,
+  (_event, payload: unknown) => {
+    const parsed = GitLabReviewStatePushSchema.safeParse(payload);
+    if (!parsed.success) return;
+    const callback = gitlabCallbacks.get(parsed.data.subscriptionId);
+    if (callback) {
+      callback(parsed.data.state);
+      return;
+    }
+    const queued = pendingGitlabStates.get(parsed.data.subscriptionId) ?? [];
+    if (queued.length < 10) queued.push(parsed.data.state);
+    pendingGitlabStates.set(parsed.data.subscriptionId, queued);
+  },
+);
+
+ipcRenderer.on(
   IPC_CHANNELS.contextAttachmentsChanged,
   (_event, payload: unknown) => {
     const parsed = ContextAttachmentPushSchema.safeParse(payload);
@@ -69,7 +90,7 @@ ipcRenderer.on(
       return;
     }
     const queued = pendingContextAttachmentLists.get(parsed.data.subscriptionId) ?? [];
-    if (queued.length < 20) queued.push(parsed.data.list);
+    if (queued.length < 10) queued.push(parsed.data.list);
     pendingContextAttachmentLists.set(parsed.data.subscriptionId, queued);
   },
 );
@@ -93,9 +114,7 @@ const desktopApi: GemUiDesktopApi = {
     getApprovalPolicy: (input) =>
       ipcRenderer.invoke(IPC_CHANNELS.getProjectApprovalPolicy, input),
     pickFolders: () =>
-      ipcRenderer.invoke(IPC_CHANNELS.pickProjectFolders, {
-        allowMultiple: true,
-      }),
+      ipcRenderer.invoke(IPC_CHANNELS.pickProjectFolders, {}),
     create: (input) => ipcRenderer.invoke(IPC_CHANNELS.createProject, input),
     rename: (input) => ipcRenderer.invoke(IPC_CHANNELS.renameProject, input),
     setArchived: (input) =>
@@ -122,14 +141,14 @@ const desktopApi: GemUiDesktopApi = {
 
   attachments: {
     pickImages: (input) => ipcRenderer.invoke(IPC_CHANNELS.pickImages, input),
-    stageDroppedFiles: (files, sessionId = null) => {
+    stageDroppedFiles: async (files, sessionId = null) => {
       const paths = files
         .map((file) => webUtils.getPathForFile(file))
-        .filter((filePath) => filePath.length > 0);
+        .filter((filePath): filePath is string => Boolean(filePath));
+      if (paths.length === 0) return [];
       return ipcRenderer.invoke(IPC_CHANNELS.stageDroppedPaths, {
-        clientRequestId: globalThis.crypto.randomUUID(),
-        sessionId,
         paths,
+        sessionId,
       });
     },
     stageClipboardImage: (input) =>
@@ -142,14 +161,19 @@ const desktopApi: GemUiDesktopApi = {
   contextAttachments: {
     list: (input) => ipcRenderer.invoke(IPC_CHANNELS.listContextAttachments, input),
     addFiles: (input) => ipcRenderer.invoke(IPC_CHANNELS.addContextFiles, input),
-    addDroppedFiles: (files, target) => {
-      const paths = files
+    addDroppedFiles: async (files, target) => {
+      const filePaths = files
         .map((file) => webUtils.getPathForFile(file))
-        .filter((filePath) => filePath.length > 0);
+        .filter((filePath): filePath is string => Boolean(filePath));
+      if (filePaths.length === 0) {
+        return ipcRenderer.invoke(IPC_CHANNELS.listContextAttachments, {
+          projectId: target.projectId,
+          sessionId: target.scope === "session" ? target.sessionId : null,
+        });
+      }
       return ipcRenderer.invoke(IPC_CHANNELS.addContextFiles, {
         ...target,
-        clientRequestId: globalThis.crypto.randomUUID(),
-        paths,
+        filePaths,
       });
     },
     addLink: (input) => ipcRenderer.invoke(IPC_CHANNELS.addContextLink, input),
@@ -211,6 +235,61 @@ const desktopApi: GemUiDesktopApi = {
     },
   },
 
+  integrations: {
+    listProject: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.listProjectIntegrations, input),
+  },
+
+  gitlab: {
+    listRepositoryCandidates: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.listGitLabRepositoryCandidates, input),
+    listConnections: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.listGitLabConnections, {}),
+    testConnection: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.testGitLabConnection, input),
+    saveConnection: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.saveGitLabConnection, input),
+    replaceToken: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.replaceGitLabToken, input),
+    removeConnection: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.removeGitLabConnection, input),
+    enableBinding: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.enableGitLabBinding, input),
+    disableBinding: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.disableGitLabBinding, input),
+    listMergeRequests: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.listGitLabMergeRequests, input),
+    selectMergeRequest: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.selectGitLabMergeRequest, input),
+    connectMergeRequestUrl: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.connectGitLabMergeRequestUrl, input),
+    getReviewState: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.getGitLabReviewState, input),
+    subscribeReviewState: async (input, callback) => {
+      const result = GitLabReviewStateSubscriptionResultSchema.parse(
+        await ipcRenderer.invoke(IPC_CHANNELS.subscribeGitLabReviewState, input),
+      );
+      gitlabCallbacks.set(result.subscriptionId, callback);
+      callback(result.initial);
+      const queued = pendingGitlabStates.get(result.subscriptionId) ?? [];
+      pendingGitlabStates.delete(result.subscriptionId);
+      for (const state of queued) callback(state);
+      return () => {
+        gitlabCallbacks.delete(result.subscriptionId);
+        pendingGitlabStates.delete(result.subscriptionId);
+        void ipcRenderer.invoke(IPC_CHANNELS.unsubscribeGitLabReviewState, {
+          subscriptionId: result.subscriptionId,
+        });
+      };
+    },
+    prepareReviewContext: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.prepareGitLabReviewContext, input),
+    resolveDiscussion: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.resolveGitLabDiscussion, input),
+    replyToDiscussion: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.replyToGitLabDiscussion, input),
+  },
+
   subscribeSessionEvents: async (
     input: unknown,
     callback: EventCallback,
@@ -249,6 +328,8 @@ Object.freeze(desktopApi.contextAttachments);
 Object.freeze(desktopApi.git);
 Object.freeze(desktopApi.linkPreview);
 Object.freeze(desktopApi.settings);
+Object.freeze(desktopApi.integrations);
+Object.freeze(desktopApi.gitlab);
 contextBridge.exposeInMainWorld("gemUi", Object.freeze(desktopApi));
 
 function parseEventBatch(value: unknown): EventBatch | null {

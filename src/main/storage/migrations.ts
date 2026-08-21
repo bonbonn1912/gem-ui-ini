@@ -283,6 +283,68 @@ const migrations: readonly Migration[] = [
         CHECK(json_valid(available_modes_json));
     `,
   },
+  {
+    version: 7,
+    name: "gitlab_integration",
+    sql: `
+      CREATE TABLE gitlab_connections (
+        id TEXT PRIMARY KEY,
+        instance_url TEXT NOT NULL CHECK(length(instance_url) BETWEEN 8 AND 2048),
+        api_base_url TEXT NOT NULL CHECK(length(api_base_url) BETWEEN 15 AND 2048),
+        user_id INTEGER NOT NULL CHECK(user_id > 0),
+        username TEXT NOT NULL CHECK(length(trim(username)) BETWEEN 1 AND 255),
+        display_name TEXT NOT NULL CHECK(length(trim(display_name)) BETWEEN 1 AND 255),
+        token_cipher BLOB NOT NULL CHECK(length(token_cipher) > 0),
+        access_mode TEXT NOT NULL CHECK(access_mode IN (
+          'read_only', 'read_write', 'unknown', 'reauthentication_required'
+        )),
+        scopes_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(scopes_json)),
+        expires_at TEXT,
+        last_validated_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(instance_url, user_id)
+      ) STRICT;
+
+      CREATE TABLE gitlab_repository_bindings (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        root_id TEXT NOT NULL,
+        connection_id TEXT NOT NULL,
+        repository_key TEXT NOT NULL
+          CHECK(length(repository_key) = 64 AND repository_key NOT GLOB '*[^0-9a-f]*'),
+        remote_name TEXT NOT NULL CHECK(length(remote_name) BETWEEN 1 AND 255),
+        remote_url TEXT NOT NULL CHECK(length(remote_url) BETWEEN 1 AND 2048),
+        source_project_id INTEGER NOT NULL CHECK(source_project_id > 0),
+        source_project_path TEXT NOT NULL
+          CHECK(length(source_project_path) BETWEEN 1 AND 1024),
+        enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0, 1)),
+        selected_target_project_id INTEGER CHECK(selected_target_project_id > 0),
+        selected_target_project_path TEXT
+          CHECK(selected_target_project_path IS NULL OR length(selected_target_project_path) BETWEEN 1 AND 1024),
+        selected_merge_request_iid INTEGER CHECK(selected_merge_request_iid > 0),
+        last_synced_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        FOREIGN KEY (root_id) REFERENCES project_roots(id) ON DELETE CASCADE,
+        FOREIGN KEY (connection_id) REFERENCES gitlab_connections(id) ON DELETE RESTRICT,
+        UNIQUE(project_id, repository_key),
+        CHECK(
+          (selected_target_project_id IS NULL AND selected_target_project_path IS NULL
+            AND selected_merge_request_iid IS NULL) OR
+          (selected_target_project_id IS NOT NULL AND selected_target_project_path IS NOT NULL
+            AND selected_merge_request_iid IS NOT NULL)
+        )
+      ) STRICT;
+
+      CREATE INDEX gitlab_bindings_project
+        ON gitlab_repository_bindings(project_id, enabled, updated_at);
+
+      CREATE INDEX gitlab_bindings_connection
+        ON gitlab_repository_bindings(connection_id, enabled);
+    `,
+  },
 ];
 
 export function runMigrations(database: SqliteDatabase): void {

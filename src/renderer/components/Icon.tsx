@@ -17,6 +17,7 @@ export type IconName =
   | "folder-plus"
   | "external"
   | "file-text"
+  | "gitlab"
   | "globe"
   | "image"
   | "link"
@@ -160,6 +161,12 @@ export function Icon({ name, size = 18, ...props }: IconProps) {
         <svg {...common}>
           <path d="M6 3.5h8l4 4V20H6Z" />
           <path d="M14 3.5V8h4M9 12h6m-6 3h6" />
+        </svg>
+      );
+    case "gitlab":
+      return (
+        <svg {...common}>
+          <path d="m22 13.29-1.32-4.05a1.13 1.13 0 0 0-2.16-.06l-1.63 5h-9.78l-1.63-5a1.13 1.13 0 0 0-2.16.06L2 13.29a1.17 1.17 0 0 0 .42 1.3l9.58 7a1.17 1.17 0 0 0 1.38 0l9.58-7a1.17 1.17 0 0 0 .44-1.3Z" />
         </svg>
       );
     case "globe":

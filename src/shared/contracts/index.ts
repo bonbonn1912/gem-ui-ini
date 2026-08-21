@@ -3,6 +3,7 @@ export * from "./common";
 export * from "./context-attachments";
 export * from "./events";
 export * from "./git";
+export * from "./gitlab";
 export * from "./ipc";
 export * from "./projects";
 export * from "./settings";

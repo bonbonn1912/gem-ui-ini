@@ -21,6 +21,10 @@ type ChatHeaderProps = {
   changesOpen: boolean;
   changesCount: number;
   onToggleChanges: () => void;
+  gitlabEnabled?: boolean;
+  gitlabOpen?: boolean;
+  gitlabUnresolvedCount?: number;
+  onToggleGitlab?: () => void;
   onSetMode: (mode: string) => void;
   onSetModel: (model: string) => void;
 };
@@ -239,6 +243,10 @@ export function ChatHeader({
   changesOpen,
   changesCount,
   onToggleChanges,
+  gitlabEnabled,
+  gitlabOpen,
+  gitlabUnresolvedCount,
+  onToggleGitlab,
   onSetMode,
   onSetModel,
 }: ChatHeaderProps) {
@@ -312,6 +320,21 @@ export function ChatHeader({
           <span>Änderungen</span>
           {changesCount > 0 && <i>{changesCount > 999 ? "999+" : changesCount}</i>}
         </button>
+        {gitlabEnabled && (
+          <button
+            className={`gitlab-toggle ${gitlabOpen ? "gitlab-toggle--active" : ""}`}
+            type="button"
+            onClick={onToggleGitlab}
+            aria-pressed={gitlabOpen}
+            aria-label={`GitLab Review ${gitlabOpen ? "schließen" : "öffnen"}${
+              (gitlabUnresolvedCount ?? 0) > 0 ? `, ${gitlabUnresolvedCount} offene Threads` : ""
+            }`}
+          >
+            <Icon name="gitlab" size={15} />
+            <span>GitLab</span>
+            {(gitlabUnresolvedCount ?? 0) > 0 && <i>{gitlabUnresolvedCount}</i>}
+          </button>
+        )}
         <details className="roots-menu">
           <summary>
             <Icon name="folder" size={15} />

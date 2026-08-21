@@ -2,6 +2,7 @@ export * from "./attachment-repository";
 export * from "./client-request-repository";
 export * from "./context-attachment-repository";
 export * from "./event-repository";
+export * from "./gitlab-repository";
 export * from "./project-repository";
 export * from "./session-repository";
 export * from "./settings-repository";
