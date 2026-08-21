@@ -252,10 +252,32 @@ describe("repositories", () => {
           delta: "B",
         },
       });
+      const third = events.append({
+        sessionId,
+        turnId: null,
+        timestamp,
+        event: {
+          type: "message.user",
+          messageId: randomUUID(),
+          text: "Hier ist ein Prompt mit geheimem Begriff für den Test.",
+          attachmentIds: [],
+          contextAttachments: [],
+          projectFiles: [],
+          externalContexts: [],
+        },
+      });
 
-      expect([first.seq, second.seq]).toEqual([1, 2]);
-      expect(events.latestSequence(sessionId)).toBe(2);
-      expect(events.listAfter(sessionId, 1)).toEqual([second]);
+      expect([first.seq, second.seq, third.seq]).toEqual([1, 2, 3]);
+      expect(events.latestSequence(sessionId)).toBe(3);
+      expect(events.listAfter(sessionId, 2)).toEqual([third]);
+
+      // Content search test
+      const results = events.searchByContent(fixture.project.id, "Prompt mit geheimem Begriff");
+      expect(results).toHaveLength(1);
+      expect(results[0].sessionId).toBe(sessionId);
+      expect(results[0].snippet).toContain("geheimem Begriff");
+
+      expect(events.searchByContent(fixture.project.id, "Nicht vorhanden")).toEqual([]);
     } finally {
       fixture.database.close();
     }

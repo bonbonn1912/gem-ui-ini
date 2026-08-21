@@ -1,4 +1,4 @@
-import { useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { Icon } from "../../components/Icon";
 import { useDismissOnOutsideClick } from "../../hooks/useDismissOnOutsideClick";
 import type { AppCapabilities, AppProject, AppSession } from "../../types";
@@ -51,15 +51,42 @@ function statusLabel(status: AppSession["status"]): string {
   }
 }
 
+function HighlightText({ text, query }: { text: string; query: string }) {
+  const trimmed = query.trim();
+  if (!trimmed) return <>{text}</>;
+
+  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(${escaped})`, "gi");
+  const parts = text.split(regex);
+
+  return (
+    <>
+      {parts.map((part, index) =>
+        regex.test(part) ? (
+          <mark key={index} className="search-highlight">
+            {part}
+          </mark>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
+
 function SessionRow({
   session,
   active,
+  searchQuery,
+  matchedSnippet,
   onSelect,
   onUpdate,
   onDelete,
 }: {
   session: AppSession;
   active: boolean;
+  searchQuery?: string;
+  matchedSnippet?: string | null;
   onSelect: () => void;
   onUpdate: (patch: Partial<SessionPatch>) => void;
   onDelete: () => void;
@@ -106,7 +133,14 @@ function SessionRow({
               aria-label="Session umbenennen"
             />
           ) : (
-            <span className="session-title">{session.title}</span>
+            <span className="session-title">
+              {searchQuery ? <HighlightText text={session.title} query={searchQuery} /> : session.title}
+            </span>
+          )}
+          {matchedSnippet && (
+            <span className="session-search-snippet" title={matchedSnippet}>
+              <HighlightText text={matchedSnippet} query={searchQuery ?? ""} />
+            </span>
           )}
           <span className="session-meta">
             {session.status !== "idle" ? statusLabel(session.status) : relativeTime(session.updatedAt)}
@@ -137,6 +171,8 @@ function SessionGroup({
   label,
   sessions,
   activeSessionId,
+  searchQuery,
+  contentMatches,
   onSelectSession,
   onUpdateSession,
   onDeleteSession,
@@ -144,6 +180,8 @@ function SessionGroup({
   label: string;
   sessions: AppSession[];
   activeSessionId: string | null;
+  searchQuery?: string;
+  contentMatches?: Map<string, string>;
   onSelectSession: (sessionId: string) => void;
   onUpdateSession: (sessionId: string, patch: Partial<SessionPatch>) => void;
   onDeleteSession: (sessionId: string) => void;
@@ -151,13 +189,15 @@ function SessionGroup({
   if (!sessions.length) return null;
   return (
     <section className="session-group">
-      <h2>{label}</h2>
+      {label ? <h2>{label}</h2> : null}
       <div className="session-list">
         {sessions.map((session) => (
           <SessionRow
             key={session.id}
             session={session}
             active={session.id === activeSessionId}
+            searchQuery={searchQuery}
+            matchedSnippet={contentMatches?.get(session.id)}
             onSelect={() => onSelectSession(session.id)}
             onUpdate={(patch) => onUpdateSession(session.id, patch)}
             onDelete={() => onDeleteSession(session.id)}
@@ -186,11 +226,51 @@ export function Sidebar({
   onDeleteSession,
 }: SidebarProps) {
   const [query, setQuery] = useState("");
+  const [searchContent, setSearchContent] = useState(false);
+  const [contentMatches, setContentMatches] = useState<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (!searchContent || !trimmed || !activeProjectId) {
+      setContentMatches(new Map());
+      return;
+    }
+
+    let active = true;
+    const timeoutId = window.setTimeout(() => {
+      window.gemUi.sessions
+        .search({ projectId: activeProjectId, query: trimmed, searchContent: true })
+        .then((result) => {
+          if (!active) return;
+          const map = new Map<string, string>();
+          for (const res of result.results) {
+            if (res.matchedSnippet) {
+              map.set(res.sessionId, res.matchedSnippet);
+            }
+          }
+          setContentMatches(map);
+        })
+        .catch(() => {
+          if (active) setContentMatches(new Map());
+        });
+    }, 150);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [searchContent, query, activeProjectId]);
+
   const normalizedQuery = query.trim().toLocaleLowerCase("de");
-  const filtered = useMemo(
-    () => sessions.filter((session) => session.title.toLocaleLowerCase("de").includes(normalizedQuery)),
-    [normalizedQuery, sessions],
-  );
+  const filtered = useMemo(() => {
+    if (!normalizedQuery) return sessions;
+    return sessions.filter((session) => {
+      const titleMatch = session.title.toLocaleLowerCase("de").includes(normalizedQuery);
+      const contentMatch = searchContent && contentMatches.has(session.id);
+      return titleMatch || contentMatch;
+    });
+  }, [normalizedQuery, searchContent, contentMatches, sessions]);
+
   const active = filtered.filter((session) => !session.archived);
   const pinned = active.filter((session) => session.pinned);
   const recent = active.filter((session) => !session.pinned);
@@ -251,19 +331,29 @@ export function Sidebar({
           <span className="shortcut">⌘ N</span>
         </button>
 
-        <label className="session-search">
-          <Icon name="search" size={15} />
-          <span className="sr-only">Sessions durchsuchen</span>
-          <input
-            type="search"
-            placeholder="Sessions suchen"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          {query && (
-            <button type="button" onClick={() => setQuery("")} aria-label="Suche leeren"><Icon name="x" size={13} /></button>
-          )}
-        </label>
+        <div className="session-search-wrapper">
+          <label className="session-search">
+            <Icon name="search" size={15} />
+            <span className="sr-only">Sessions durchsuchen</span>
+            <input
+              type="search"
+              placeholder={searchContent ? "Inhalt & Titel suchen…" : "Sessions suchen…"}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+            {query && (
+              <button type="button" onClick={() => setQuery("")} aria-label="Suche leeren"><Icon name="x" size={13} /></button>
+            )}
+          </label>
+          <label className="session-search-toggle" title="Durchsucht auch alle Nachrichten und Antworten innerhalb der Sessions">
+            <input
+              type="checkbox"
+              checked={searchContent}
+              onChange={(event) => setSearchContent(event.target.checked)}
+            />
+            <span>Inhalt durchsuchen</span>
+          </label>
+        </div>
 
         <div className="sessions-scroll">
           {sessionsLoading ? (
@@ -272,12 +362,39 @@ export function Sidebar({
             </div>
           ) : filtered.length ? (
             <>
-              <SessionGroup label="Angepinnt" sessions={pinned} activeSessionId={activeSessionId} onSelectSession={onSelectSession} onUpdateSession={onUpdateSession} onDeleteSession={onDeleteSession} />
-              <SessionGroup label={pinned.length ? "Zuletzt" : "Sessions"} sessions={recent} activeSessionId={activeSessionId} onSelectSession={onSelectSession} onUpdateSession={onUpdateSession} onDeleteSession={onDeleteSession} />
+              <SessionGroup
+                label="Angepinnt"
+                sessions={pinned}
+                activeSessionId={activeSessionId}
+                searchQuery={normalizedQuery ? query : undefined}
+                contentMatches={contentMatches}
+                onSelectSession={onSelectSession}
+                onUpdateSession={onUpdateSession}
+                onDeleteSession={onDeleteSession}
+              />
+              <SessionGroup
+                label={pinned.length ? "Zuletzt" : "Sessions"}
+                sessions={recent}
+                activeSessionId={activeSessionId}
+                searchQuery={normalizedQuery ? query : undefined}
+                contentMatches={contentMatches}
+                onSelectSession={onSelectSession}
+                onUpdateSession={onUpdateSession}
+                onDeleteSession={onDeleteSession}
+              />
               {archived.length > 0 && (
                 <details className="archived-sessions">
                   <summary><Icon name="archive" size={13} /> Archiviert <span>{archived.length}</span></summary>
-                  <SessionGroup label="" sessions={archived} activeSessionId={activeSessionId} onSelectSession={onSelectSession} onUpdateSession={onUpdateSession} onDeleteSession={onDeleteSession} />
+                  <SessionGroup
+                    label=""
+                    sessions={archived}
+                    activeSessionId={activeSessionId}
+                    searchQuery={normalizedQuery ? query : undefined}
+                    contentMatches={contentMatches}
+                    onSelectSession={onSelectSession}
+                    onUpdateSession={onUpdateSession}
+                    onDeleteSession={onDeleteSession}
+                  />
                 </details>
               )}
             </>

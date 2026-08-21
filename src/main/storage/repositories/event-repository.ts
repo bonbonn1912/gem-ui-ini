@@ -72,6 +72,59 @@ export class EventRepository {
     return row.seq ?? 0;
   }
 
+  searchByContent(projectId: string, query: string): Array<{ sessionId: string; snippet: string }> {
+    EntityIdSchema.parse(projectId);
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+
+    const searchPattern = `%${trimmed}%`;
+    const rows = this.database
+      .prepare(
+        `SELECT e.session_id, e.payload_json
+         FROM events e
+         JOIN sessions s ON s.id = e.session_id
+         WHERE s.project_id = ? AND e.payload_json LIKE ?
+         ORDER BY e.created_at DESC`,
+      )
+      .all(projectId, searchPattern) as Array<{ session_id: string; payload_json: string }>;
+
+    const resultMap = new Map<string, string>();
+    const lowerQuery = trimmed.toLowerCase();
+
+    for (const row of rows) {
+      if (resultMap.has(row.session_id)) continue;
+      try {
+        const event = JSON.parse(row.payload_json) as Record<string, unknown>;
+        let text = "";
+        if (typeof event.text === "string") {
+          text = event.text;
+        } else if (typeof event.delta === "string") {
+          text = event.delta;
+        } else if (typeof event.title === "string") {
+          text = event.title;
+        } else if (typeof event.error === "string") {
+          text = event.error;
+        }
+        const idx = text.toLowerCase().indexOf(lowerQuery);
+        if (idx !== -1) {
+          const start = Math.max(0, idx - 25);
+          const end = Math.min(text.length, idx + trimmed.length + 35);
+          const prefix = start > 0 ? "…" : "";
+          const suffix = end < text.length ? "…" : "";
+          const snippet = `${prefix}${text.slice(start, end).replaceAll("\n", " ").trim()}${suffix}`;
+          resultMap.set(row.session_id, snippet);
+        }
+      } catch {
+        // ignore parse error
+      }
+    }
+
+    return Array.from(resultMap.entries()).map(([sessionId, snippet]) => ({
+      sessionId,
+      snippet,
+    }));
+  }
+
   private appendInsideTransaction(input: AppendEventInput): StreamEnvelope {
     const sessionId = EntityIdSchema.parse(input.sessionId);
     const turnId = input.turnId === null ? null : EntityIdSchema.parse(input.turnId);

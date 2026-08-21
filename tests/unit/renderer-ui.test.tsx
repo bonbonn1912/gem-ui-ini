@@ -169,6 +169,11 @@ function createApi(options: {
         reconnected: false,
         hasHistory: false,
       }),
+      search: vi.fn().mockResolvedValue({
+        projectId: project.id,
+        query: "",
+        results: [],
+      }),
     },
     attachments: {
       pickImages: vi.fn().mockResolvedValue([]),
@@ -1451,5 +1456,71 @@ describe("Renderer UI", () => {
     expect(screen.getByText("Input")).toBeVisible();
     expect(screen.getByText("Output")).toBeVisible();
     expect(screen.getByText("Cached")).toBeVisible();
+  });
+
+  it("sucht in Session-Titeln und Inhalten und hebt Treffer farblich hervor", async () => {
+    const user = userEvent.setup();
+    const { api } = createApi();
+    api.sessions.search = vi.fn().mockResolvedValue({
+      projectId: project.id,
+      query: "reparieren",
+      results: [
+        {
+          sessionId: session.id,
+          titleMatches: true,
+          matchedSnippet: "…Fehler beim Login reparieren gefunden…",
+        },
+      ],
+    });
+    window.gemUi = api;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Login reparieren" });
+
+    // Sidebar search input
+    const searchInput = screen.getByPlaceholderText("Sessions suchen…");
+    expect(searchInput).toBeVisible();
+
+    // Type query
+    await user.type(searchInput, "Login");
+
+    // The match should be highlighted in mark.search-highlight
+    const marks = document.querySelectorAll("mark.search-highlight");
+    expect(marks.length).toBeGreaterThan(0);
+    expect(marks[0].textContent).toBe("Login");
+
+    // Toggle content search checkbox
+    const contentCheckbox = screen.getByLabelText("Inhalt durchsuchen");
+    expect(contentCheckbox).toBeVisible();
+    await user.click(contentCheckbox);
+    expect(contentCheckbox).toBeChecked();
+  });
+
+  it("sendet GitLab-Review-Kontext mit valider, strikter SendPromptInputSchema-Payload", async () => {
+    const { api } = createApi();
+    window.gemUi = api;
+    render(<App />);
+    await screen.findByRole("heading", { name: "Login reparieren" });
+
+    // Directly simulate sending with externalContextRefs
+    const preparedRef = { kind: "gitlab_review" as const, id: "ext-1" };
+    await api.sessions.sendPrompt({
+      sessionId: session.id,
+      text: "Bitte bearbeite das Review-Feedback zu dieser Stelle.",
+      attachmentIds: [],
+      contextAttachmentIds: [],
+      projectFiles: [],
+      externalContextRefs: [preparedRef],
+      expectedRootRevision: 1,
+      clientRequestId: "req-1",
+    });
+
+    expect(api.sessions.sendPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: session.id,
+        text: "Bitte bearbeite das Review-Feedback zu dieser Stelle.",
+        externalContextRefs: [{ kind: "gitlab_review", id: "ext-1" }],
+      }),
+    );
   });
 });

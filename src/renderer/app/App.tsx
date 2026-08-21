@@ -865,13 +865,13 @@ export function App() {
       const result = await window.gemUi.sessions.sendPrompt({
         sessionId: activeSession.id,
         text,
-        attachmentIds: attachments.map((attachment) => attachment.id),
-        contextAttachmentIds: contextAttachments.included.map((attachment) => attachment.id),
+        attachmentIds: attachments.map((attachment) => typeof attachment === "string" ? attachment : attachment.id),
+        contextAttachmentIds: contextAttachments.included.map((attachment) => typeof attachment === "string" ? attachment : attachment.id),
         projectFiles: projectFiles.map(({ rootId, relativePath }) => ({ rootId, relativePath })),
-        externalContextRefs,
+        externalContextRefs: (externalContextRefs ?? []).map((ref) => ({ kind: ref.kind, id: ref.id })),
         expectedRootRevision: activeProject?.rootRevision ?? 1,
         clientRequestId,
-        historyMode,
+        ...(historyMode ? { historyMode } : {}),
       });
       dispatch({ type: "turn-started", turnId: result.turnId });
       // The prepared review snapshots are consumed once, so they must not stay

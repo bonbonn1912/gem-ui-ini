@@ -182,6 +182,30 @@ export const SetSessionModelInputSchema = z
   })
   .strict();
 
+export const SearchSessionsInputSchema = z
+  .object({
+    projectId: EntityIdSchema,
+    query: z.string().trim().min(1).max(500),
+    searchContent: z.boolean().default(false),
+  })
+  .strict();
+
+export const SessionSearchResultItemSchema = z
+  .object({
+    sessionId: EntityIdSchema,
+    titleMatches: z.boolean(),
+    matchedSnippet: z.string().nullable(),
+  })
+  .strict();
+
+export const SessionSearchResultSchema = z
+  .object({
+    projectId: EntityIdSchema,
+    query: z.string(),
+    results: z.array(SessionSearchResultItemSchema),
+  })
+  .strict();
+
 export type SessionStatus = z.infer<typeof SessionStatusSchema>;
 export type SessionOption = z.infer<typeof SessionOptionSchema>;
 export type AppSession = z.infer<typeof AppSessionSchema>;
@@ -195,6 +219,9 @@ export type CancelTurnInput = z.input<typeof CancelTurnInputSchema>;
 export type PermissionResponse = z.input<typeof PermissionResponseSchema>;
 export type SetSessionModeInput = z.input<typeof SetSessionModeInputSchema>;
 export type SetSessionModelInput = z.input<typeof SetSessionModelInputSchema>;
+export type SearchSessionsInput = z.input<typeof SearchSessionsInputSchema>;
+export type SessionSearchResultItem = z.infer<typeof SessionSearchResultItemSchema>;
+export type SessionSearchResult = z.infer<typeof SessionSearchResultSchema>;
 
 export function generateSessionTitleFromPrompt(prompt: string): string {
   let clean = prompt

@@ -15,6 +15,8 @@ import {
   type ProjectApprovalPolicy,
   type ProjectWithRoots,
   type PermissionResponse as UiPermissionResponse,
+  type SearchSessionsInput,
+  type SessionSearchResult,
   type SendPromptInput,
   type SessionOption,
   type SessionReconnectState,
@@ -183,6 +185,41 @@ export class AppController implements ProjectRuntimeCoordinator {
       ...(input.archived !== undefined ? { archived: input.archived } : {}),
       updatedAt: new Date().toISOString(),
     });
+  }
+
+  searchSessions(input: SearchSessionsInput): SessionSearchResult {
+    const sessions = this.#sessions.listByProject(input.projectId, true);
+    const lowerQuery = input.query.toLowerCase();
+    const titleMatches = new Set<string>();
+
+    for (const s of sessions) {
+      if (s.title.toLowerCase().includes(lowerQuery)) {
+        titleMatches.add(s.id);
+      }
+    }
+
+    const contentMatches = input.searchContent
+      ? this.#events.searchByContent(input.projectId, input.query)
+      : [];
+
+    const contentMatchMap = new Map(contentMatches.map((m) => [m.sessionId, m.snippet]));
+
+    const allMatchingSessionIds = new Set([
+      ...titleMatches,
+      ...contentMatchMap.keys(),
+    ]);
+
+    const results = Array.from(allMatchingSessionIds).map((sessionId) => ({
+      sessionId,
+      titleMatches: titleMatches.has(sessionId),
+      matchedSnippet: contentMatchMap.get(sessionId) ?? null,
+    }));
+
+    return {
+      projectId: input.projectId,
+      query: input.query,
+      results,
+    };
   }
 
   async deleteSession(input: DeleteSessionInput): Promise<void> {
