@@ -291,6 +291,83 @@ export class AppUpdateService {
         }, 300);
       }
     } else if (this.#platform === "darwin") {
+      const currentPid = process.pid;
+      const lower = filePath.toLowerCase();
+
+      if (lower.endsWith(".zip")) {
+        const extractDir = path.join(os.tmpdir(), `geminui-update-${Date.now()}`);
+        fs.mkdirSync(extractDir, { recursive: true });
+
+        // Extract using native macOS ditto
+        try {
+          const { execSync } = await import("node:child_process");
+          execSync(`ditto -xk "${filePath}" "${extractDir}"`);
+        } catch {
+          // Fallback to unzip
+          try {
+            const { execSync } = await import("node:child_process");
+            execSync(`unzip -q -o "${filePath}" -d "${extractDir}"`);
+          } catch {
+            // ignore
+          }
+        }
+
+        // Find .app bundle in extractDir
+        let extractedAppPath: string | null = null;
+        try {
+          const files = fs.readdirSync(extractDir);
+          const appBundle = files.find((f) => f.endsWith(".app"));
+          if (appBundle) {
+            extractedAppPath = path.join(extractDir, appBundle);
+          }
+        } catch {
+          // ignore
+        }
+
+        // Determine destination target path
+        let targetAppPath = "/Applications/GeminUI.app";
+        const exec = process.execPath;
+        const appIndex = exec.indexOf(".app/Contents/MacOS");
+        if (appIndex !== -1) {
+          targetAppPath = exec.slice(0, appIndex + 4);
+        }
+
+        if (extractedAppPath && fs.existsSync(extractedAppPath)) {
+          const script = `
+PID=$1
+NEW_APP=$2
+TARGET_APP=$3
+
+while kill -0 "$PID" 2>/dev/null; do
+  sleep 0.15
+done
+
+if [ -d "$TARGET_APP" ] && [ "$TARGET_APP" != "$NEW_APP" ]; then
+  rm -rf "$TARGET_APP"
+  ditto "$NEW_APP" "$TARGET_APP"
+  xattr -cr "$TARGET_APP" 2>/dev/null || true
+  open "$TARGET_APP"
+else
+  xattr -cr "$NEW_APP" 2>/dev/null || true
+  open "$NEW_APP"
+fi
+`;
+          const child = spawn("/bin/sh", ["-c", script, "_", String(currentPid), extractedAppPath, targetAppPath], {
+            detached: true,
+            stdio: "ignore",
+          });
+          child.unref();
+
+          if (app?.quit) {
+            setTimeout(() => {
+              app.quit();
+            }, 300);
+          }
+          return;
+        }
+      }
+
+      // Fallback if not zip or extraction failed
       await shell.openPath(filePath);
       if (app?.quit) {
         setTimeout(() => {
@@ -298,6 +375,25 @@ export class AppUpdateService {
         }, 500);
       }
     } else {
+      if (filePath.endsWith(".AppImage")) {
+        try {
+          fs.chmodSync(filePath, 0o755);
+          const child = spawn(filePath, [], {
+            detached: true,
+            stdio: "ignore",
+          });
+          child.unref();
+          if (app?.quit) {
+            setTimeout(() => {
+              app.quit();
+            }, 300);
+          }
+          return;
+        } catch {
+          // fallback below
+        }
+      }
+
       await shell.openPath(filePath);
       if (app?.quit) {
         setTimeout(() => {

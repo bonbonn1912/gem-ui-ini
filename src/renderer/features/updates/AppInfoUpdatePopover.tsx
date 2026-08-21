@@ -144,19 +144,29 @@ export function AppInfoUpdatePopover({ capabilities }: AppInfoUpdatePopoverProps
               <span className="app-info-logo-badge">
                 <Icon name="sparkle" size={14} />
               </span>
-              <div>
+              <div className="app-info-title-group">
                 <strong>GeminUI</strong>
                 <span className="app-version-tag">v{currentAppVersion}</span>
               </div>
             </div>
+            <button
+              type="button"
+              className="app-info-close-button"
+              onClick={() => setOpen(false)}
+              aria-label="Schließen"
+            >
+              <Icon name="x" size={12} />
+            </button>
           </header>
 
           <div className="app-info-popover-body">
-            <div className="app-info-cli-status">
-              <span className={`agent-dot agent-dot--${geminiAvailable ? "ready" : "error"}`} />
-              <span>
-                Gemini CLI: {geminiAvailable ? (capabilities.gemini.version ? `v${capabilities.gemini.version}` : "bereit") : "nicht bereit"}
-              </span>
+            <div className="app-info-status-card">
+              <div className="app-info-cli-status">
+                <span className={`agent-dot agent-dot--${geminiAvailable ? "ready" : "error"}`} />
+                <span className="app-info-cli-label">
+                  Gemini CLI: <strong>{geminiAvailable ? (capabilities.gemini.version ? `v${capabilities.gemini.version}` : "bereit") : "nicht bereit"}</strong>
+                </span>
+              </div>
             </div>
 
             {updateInfo?.updateAvailable && (
@@ -166,29 +176,33 @@ export function AppInfoUpdatePopover({ capabilities }: AppInfoUpdatePopoverProps
                     <Icon name="download" size={14} />
                   </span>
                   <div>
-                    <strong>Update verfügbar!</strong>
-                    <p className="update-version-label">Version v{updateInfo.latestVersion}</p>
+                    <div className="update-badge">Update verfügbar</div>
+                    <strong className="update-version-title">Version v{updateInfo.latestVersion}</strong>
                   </div>
                 </div>
+
                 {updateInfo.releaseNotes && (
-                  <p className="update-release-snippet">{updateInfo.releaseNotes.slice(0, 150)}...</p>
+                  <p className="update-release-snippet">{updateInfo.releaseNotes.slice(0, 140)}...</p>
                 )}
 
                 {downloadedFilePath ? (
                   <div className="update-ready-box">
                     <div className="update-ready-status">
-                      <Icon name="check" size={14} />
-                      <span>Update bereit zur Installation</span>
+                      <span className="update-ready-dot" />
+                      <div>
+                        <strong>Update heruntergeladen</strong>
+                        <span className="update-ready-subtext">Wird direkt mit der neuen Version neu gestartet.</span>
+                      </div>
                     </div>
                     <button
                       type="button"
-                      className="primary-button update-action-button"
+                      className="primary-button update-install-now-button"
                       onClick={handleInstallUpdate}
                       disabled={installing}
                     >
                       {installing ? (
                         <>
-                          <span className="mini-spinner" /> Starte Installation …
+                          <span className="mini-spinner" /> Starte Aktualisierung …
                         </>
                       ) : (
                         <>
@@ -200,12 +214,10 @@ export function AppInfoUpdatePopover({ capabilities }: AppInfoUpdatePopoverProps
                 ) : downloading ? (
                   <div className="update-downloading-box">
                     <div className="update-progress-info">
-                      <span>Lade Update herunter …</span>
-                      <span>
-                        {downloadProgress
-                          ? `${downloadProgress.percent}%`
-                          : "Startet …"}
-                      </span>
+                      <span>Herunterladen …</span>
+                      <strong className="update-progress-percent">
+                        {downloadProgress ? `${downloadProgress.percent}%` : "0%"}
+                      </strong>
                     </div>
                     <div className="update-progress-bar-track">
                       <div
@@ -234,7 +246,7 @@ export function AppInfoUpdatePopover({ capabilities }: AppInfoUpdatePopoverProps
                 )}
 
                 {downloadError && (
-                  <div className="update-error-banner" style={{ marginTop: "8px" }}>
+                  <div className="update-error-banner">
                     <Icon name="warning" size={14} />
                     <span>{downloadError}</span>
                   </div>
@@ -269,7 +281,7 @@ export function AppInfoUpdatePopover({ capabilities }: AppInfoUpdatePopoverProps
                   </>
                 ) : (
                   <>
-                    <Icon name="refresh" size={13} /> Nach Update suchen
+                    <Icon name="refresh" size={13} /> Nach Updates suchen
                   </>
                 )}
               </button>
