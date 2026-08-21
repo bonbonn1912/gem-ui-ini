@@ -292,6 +292,25 @@ describe("shared Zod contracts", () => {
     expect(OpenLinkPreviewInputSchema.safeParse({ url: "not-a-url" }).success).toBe(false);
     expect(OpenLinkPreviewInputSchema.safeParse({ url: "file:///etc/passwd" }).success).toBe(false);
   });
+
+  describe("generateSessionTitleFromPrompt", () => {
+    it("generiert saubere Titel aus dem ersten Prompt", async () => {
+      const { generateSessionTitleFromPrompt } = await import("../../src/shared");
+      expect(generateSessionTitleFromPrompt("Fix the authentication redirect bug in login.ts")).toBe(
+        "Fix the authentication redirect bug in…",
+      );
+      expect(generateSessionTitleFromPrompt("Fix the login bug")).toBe(
+        "Fix the login bug",
+      );
+      expect(generateSessionTitleFromPrompt("# Architekturplan\nSchritt 1: Initialisierung")).toBe(
+        "Architekturplan",
+      );
+      expect(generateSessionTitleFromPrompt("Kannst du bitte eine REST API für Benutzer anlegen?")).toBe(
+        "Eine REST API für Benutzer anlegen?",
+      );
+      expect(generateSessionTitleFromPrompt("   ")).toBe("Neue Session");
+    });
+  });
 });
 
 

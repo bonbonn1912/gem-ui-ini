@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   AppSessionSchema,
+  generateSessionTitleFromPrompt,
   JsonValueSchema,
   type AgentEvent,
   type AppSession,
@@ -319,7 +320,13 @@ export class AppController implements ProjectRuntimeCoordinator {
       this.#attachmentRepository.markSent(image.id, session.id, turnId);
     }
 
+    const isInitialTitle = !session.title || session.title.trim() === "Neue Session";
+    const nextTitle = isInitialTitle && input.text.trim()
+      ? generateSessionTitleFromPrompt(input.text)
+      : session.title;
+
     this.#sessions.update(session.id, {
+      title: nextTitle,
       status: "running",
       updatedAt: timestamp,
     });

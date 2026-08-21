@@ -50,6 +50,8 @@ import type {
   UsageSnapshot as ContractUsageSnapshot,
 } from "../shared/contracts";
 
+export { generateSessionTitleFromPrompt } from "../shared/contracts";
+
 export type ExternalPromptContextRef = ContractExternalPromptContextRef;
 export type ExternalPromptContextSnapshot = ContractExternalPromptContextSnapshot;
 export type AppCapabilities = ContractAppCapabilities;
