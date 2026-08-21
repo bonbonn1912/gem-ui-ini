@@ -406,6 +406,40 @@ describe("Renderer UI", () => {
     })));
   });
 
+  it("klappt beim Öffnen der Live-Ansicht die Anhänge in eine Dropdown-Leiste zusammen und stellt vertikale Höhenanpassung bereit", async () => {
+    const user = userEvent.setup();
+    const contextList = populatedContextList();
+    const { api } = createApi({ contextList });
+    vi.mocked(api.linkPreview.open).mockResolvedValue({
+      attachmentId: "41000000-0000-4000-8000-000000000002",
+      host: "jira.example.com",
+      loading: false,
+    });
+    window.gemUi = api;
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Anhänge öffnen, 2 Anhänge, 1 im Kontext" }));
+
+    // Link-Anhang auswählen
+    await user.click(screen.getByRole("button", { name: /Jira LOGIN-42/ }));
+    expect(await screen.findByRole("button", { name: "Live-Ansicht öffnen" })).toBeVisible();
+
+    // Live-Ansicht öffnen
+    await user.click(screen.getByRole("button", { name: "Live-Ansicht öffnen" }));
+
+    // Dropdown-Leiste und Höhen-Trennleiste sollen sichtbar sein
+    const dropdownBar = await screen.findByRole("button", { name: "Live-Ansicht einklappen und alle Anhänge anzeigen" });
+    expect(dropdownBar).toBeVisible();
+    expect(within(dropdownBar).getByText("Live-Ansicht: jira.example.com")).toBeVisible();
+    expect(screen.getByRole("separator", { name: "Höhe der Live-Vorschau ändern" })).toBeVisible();
+
+    // Klick auf die Dropdown-Leiste schließt die Live-Ansicht und stellt die vollständige Anhangsliste wieder her
+    await user.click(dropdownBar);
+    expect(screen.queryByRole("button", { name: "Live-Ansicht einklappen und alle Anhänge anzeigen" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Live-Ansicht öffnen" })).toBeVisible();
+    expect(screen.getByText("Architektur.md")).toBeVisible();
+  });
+
   it("schließt die native Linkvorschau beim Abbauen zuverlässig", async () => {
     const { api } = createApi();
     vi.mocked(api.linkPreview.open).mockResolvedValue({

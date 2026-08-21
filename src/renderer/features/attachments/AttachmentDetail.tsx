@@ -9,6 +9,8 @@ type AttachmentDetailProps = {
   onBack: () => void;
   onOpenExternal: (url: string) => void;
   onOpenFile: (attachmentId: string) => Promise<void>;
+  live?: boolean;
+  onLiveToggle?: (live: boolean) => void;
 };
 
 function readableSize(bytes: number): string {
@@ -85,14 +87,9 @@ export function AttachmentDetail({
   onBack,
   onOpenExternal,
   onOpenFile,
+  live = false,
+  onLiveToggle,
 }: AttachmentDetailProps) {
-  const [live, setLive] = useState(false);
-
-  useEffect(() => {
-    setLive(false);
-    void window.gemUi.linkPreview.close();
-  }, [attachment.id]);
-
   const file = attachment.file;
   const link = attachment.link;
   const isImage = Boolean(file?.mimeType.startsWith("image/") && file.renderable);
@@ -138,7 +135,7 @@ export function AttachmentDetail({
             </div>
           </article>
           {!live ? (
-            <button className="secondary-button attachment-live-button" type="button" onClick={() => setLive(true)}>
+            <button className="secondary-button attachment-live-button" type="button" onClick={() => onLiveToggle?.(true)}>
               <Icon name="globe" size={15} /> Live-Ansicht öffnen
             </button>
           ) : (
@@ -147,7 +144,7 @@ export function AttachmentDetail({
               host={link.host}
               url={link.url}
               onOpenExternal={onOpenExternal}
-              onClose={() => setLive(false)}
+              onClose={() => onLiveToggle?.(false)}
             />
           )}
         </>

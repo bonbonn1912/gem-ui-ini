@@ -8,6 +8,7 @@ export type IconName =
   | "brain"
   | "check"
   | "chevron-down"
+  | "chevron-up"
   | "chat"
   | "changes"
   | "clock"
@@ -100,6 +101,12 @@ export function Icon({ name, size = 18, ...props }: IconProps) {
       return (
         <svg {...common}>
           <path d="m7 9.5 5 5 5-5" />
+        </svg>
+      );
+    case "chevron-up":
+      return (
+        <svg {...common}>
+          <path d="m17 14.5-5-5-5 5" />
         </svg>
       );
     case "chat":

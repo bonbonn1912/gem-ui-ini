@@ -8,7 +8,76 @@ type LinkPreviewSurfaceProps = {
   url: string;
   onOpenExternal: (url: string) => void;
   onClose: () => void;
+  height?: number;
+  isExpanded?: boolean;
+  showHeader?: boolean;
 };
+
+type LinkPreviewHeightHandleProps = {
+  height: number;
+  onChange: (nextHeight: number) => void;
+  onReset: () => void;
+};
+
+export function LinkPreviewHeightHandle({ height, onChange, onReset }: LinkPreviewHeightHandleProps) {
+  const dragRef = useRef<{ pointerId: number; startY: number; startHeight: number } | null>(null);
+
+  return (
+    <div
+      className="live-preview-height-handle"
+      role="separator"
+      aria-label="Höhe der Live-Vorschau ändern"
+      aria-orientation="horizontal"
+      aria-valuenow={height}
+      tabIndex={0}
+      title="Ziehen, um die Höhe der Live-Vorschau zu ändern · Doppelklick setzt zurück"
+      onDoubleClick={onReset}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          onChange(Math.max(200, height + 30));
+        } else if (event.key === "ArrowDown") {
+          event.preventDefault();
+          onChange(Math.max(200, height - 30));
+        }
+      }}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        dragRef.current = {
+          pointerId: event.pointerId,
+          startY: event.clientY,
+          startHeight: height,
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        event.currentTarget.classList.add("live-preview-height-handle--dragging");
+        event.preventDefault();
+      }}
+      onPointerMove={(event) => {
+        const active = dragRef.current;
+        if (!active || active.pointerId !== event.pointerId) return;
+        const delta = active.startY - event.clientY;
+        const next = Math.max(200, Math.min(1200, active.startHeight + delta));
+        onChange(next);
+      }}
+      onPointerUp={(event) => {
+        if (dragRef.current?.pointerId !== event.pointerId) return;
+        dragRef.current = null;
+        event.currentTarget.classList.remove("live-preview-height-handle--dragging");
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+      }}
+      onPointerCancel={(event) => {
+        dragRef.current = null;
+        event.currentTarget.classList.remove("live-preview-height-handle--dragging");
+      }}
+      onLostPointerCapture={(event) => {
+        dragRef.current = null;
+        event.currentTarget.classList.remove("live-preview-height-handle--dragging");
+      }}
+    />
+  );
+}
 
 export function LinkPreviewSurface({
   attachmentId,
@@ -16,6 +85,9 @@ export function LinkPreviewSurface({
   url,
   onOpenExternal,
   onClose,
+  height,
+  isExpanded = false,
+  showHeader = true,
 }: LinkPreviewSurfaceProps) {
   const surfaceRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<number | null>(null);
@@ -70,16 +142,23 @@ export function LinkPreviewSurface({
   }, [open, scheduleBounds]);
 
   return (
-    <section className="link-live-preview">
-      <header>
-        <span><Icon name="globe" size={14} />{host}</span>
-        {loading && <span className="mini-spinner" aria-label="Seite wird geladen" />}
-        <button type="button" onClick={() => void open()} aria-label="Live-Ansicht neu laden" title="Neu laden"><Icon name="refresh" size={14} /></button>
-        <button type="button" onClick={() => onOpenExternal(url)} aria-label="Im Browser öffnen" title="Im Browser öffnen"><Icon name="external" size={14} /></button>
-        <button type="button" onClick={onClose} aria-label="Live-Ansicht schließen" title="Schließen"><Icon name="x" size={14} /></button>
-      </header>
+    <section className={`link-live-preview ${isExpanded ? "link-live-preview--expanded" : ""}`}>
+      {showHeader && (
+        <header>
+          <span><Icon name="globe" size={14} />{host}</span>
+          {loading && <span className="mini-spinner" aria-label="Seite wird geladen" />}
+          <button type="button" onClick={() => void open()} aria-label="Live-Ansicht neu laden" title="Neu laden"><Icon name="refresh" size={14} /></button>
+          <button type="button" onClick={() => onOpenExternal(url)} aria-label="Im Browser öffnen" title="Im Browser öffnen"><Icon name="external" size={14} /></button>
+          <button type="button" onClick={onClose} aria-label="Live-Ansicht schließen" title="Schließen"><Icon name="x" size={14} /></button>
+        </header>
+      )}
       {error && <p className="link-live-error"><Icon name="warning" size={14} />{error}</p>}
-      <div ref={surfaceRef} className="link-preview-surface" aria-label={`Live-Ansicht von ${host}`}>
+      <div
+        ref={surfaceRef}
+        className="link-preview-surface"
+        aria-label={`Live-Ansicht von ${host}`}
+        style={height ? { height: `${height}px` } : undefined}
+      >
         <span>Die sichere Live-Ansicht von {host} wird hier eingebettet.</span>
       </div>
     </section>

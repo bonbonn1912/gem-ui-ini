@@ -6,6 +6,7 @@ import { createClientRequestId } from "../../utils/client-request-id";
 import { AddLinkDialog } from "./AddLinkDialog";
 import { AttachmentDetail } from "./AttachmentDetail";
 import { AttachmentRow } from "./AttachmentRow";
+import { LinkPreviewHeightHandle } from "./LinkPreviewSurface";
 
 type AttachmentScope = "project" | "session";
 
@@ -80,6 +81,8 @@ export function AttachmentsPanel({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [linkScope, setLinkScope] = useState<AttachmentScope | null>(null);
   const [dragScope, setDragScope] = useState<AttachmentScope | null>(null);
+  const [isLive, setIsLive] = useState(false);
+  const [previewHeight, setPreviewHeight] = useState<number>(480);
 
   const all = useMemo(() => list ? [...list.projectAttachments, ...list.sessionAttachments] : [], [list]);
   const selected = all.find((attachment) => attachment.id === selectedId) ?? null;
@@ -88,9 +91,14 @@ export function AttachmentsPanel({
     if (!open) {
       setSelectedId(null);
       setLinkScope(null);
+      setIsLive(false);
       void window.gemUi.linkPreview.close();
     }
   }, [open]);
+
+  useEffect(() => {
+    setIsLive(false);
+  }, [selectedId]);
 
   useEffect(() => {
     if (selectedId && !all.some((attachment) => attachment.id === selectedId)) setSelectedId(null);
@@ -260,28 +268,102 @@ export function AttachmentsPanel({
         <button className="icon-button" type="button" onClick={onClose} aria-label="Anhänge schließen"><Icon name="x" size={17} /></button>
       </header>
 
-      <div className={`attachments-panel-body ${selected ? "attachments-panel-body--detail" : ""}`}>
-        <div className="attachments-list-pane">
-          {loading && !list ? <div className="attachments-loading"><span className="mini-spinner" />Anhänge werden geladen …</div> : null}
-          {error && <div className="attachments-error"><Icon name="warning" size={17} /><p><strong>Anhänge konnten nicht geladen werden</strong><span>{error}</span></p><button type="button" onClick={() => void onRefresh()}>Erneut</button></div>}
-          {!loading && !error && list && all.length === 0 && (
-            <div className="attachments-empty">
-              <span><Icon name="paperclip" size={23} /></span>
-              <strong>Noch keine Anhänge</strong>
-              <p>Lege Dateien hier ab oder füge einen Link hinzu.</p>
-              <div><button type="button" onClick={() => void addFiles("project")}><Icon name="file-text" size={14} />Dateien wählen</button><button type="button" onClick={() => setLinkScope("project")}><Icon name="link" size={14} />Link hinzufügen</button></div>
+      <div className={`attachments-panel-body ${selected ? "attachments-panel-body--detail" : ""} ${isLive ? "attachments-panel-body--live" : ""}`}>
+        {isLive && selected?.link ? (
+          <div
+            className="attachments-live-dropdown-bar"
+            onClick={() => {
+              setIsLive(false);
+              void window.gemUi.linkPreview.close();
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label="Live-Ansicht einklappen und alle Anhänge anzeigen"
+            title="Klicken, um die Live-Ansicht zu schließen und alle Anhänge wieder anzuzeigen"
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                setIsLive(false);
+                void window.gemUi.linkPreview.close();
+              }
+            }}
+          >
+            <div className="dropdown-bar-main">
+              <span className="dropdown-bar-chevron"><Icon name="chevron-down" size={16} /></span>
+              <span className="dropdown-bar-icon"><Icon name="globe" size={15} /></span>
+              <div className="dropdown-bar-titles">
+                <strong>Live-Ansicht: {selected.link.host}</strong>
+                <span>Klicken, um alle Anhänge wieder anzuzeigen</span>
+              </div>
             </div>
-          )}
-          {list && all.length > 0 && (
-            <>
-              {renderGroup("project", "Projekt", list.projectAttachments)}
-              {sessionId && renderGroup("session", "Diese Session", list.sessionAttachments)}
-              {!sessionId && <p className="attachment-session-hint"><Icon name="clock" size={14} />Die Kontextauswahl wird verfügbar, sobald eine Session aktiv ist.</p>}
-            </>
-          )}
-        </div>
+            <div className="dropdown-bar-actions" onClick={(event) => event.stopPropagation()}>
+              <button
+                className="dropdown-bar-action"
+                type="button"
+                onClick={() => onOpenExternal(selected.link!.url)}
+                title="Im Browser öffnen"
+                aria-label="Im Browser öffnen"
+              >
+                <Icon name="external" size={14} />
+              </button>
+              <button
+                className="dropdown-bar-close"
+                type="button"
+                onClick={() => {
+                  setIsLive(false);
+                  void window.gemUi.linkPreview.close();
+                }}
+                title="Live-Ansicht schließen und alle Anhänge anzeigen"
+                aria-label="Live-Ansicht schließen"
+              >
+                <Icon name="x" size={15} />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="attachments-list-pane">
+            {loading && !list ? <div className="attachments-loading"><span className="mini-spinner" />Anhänge werden geladen …</div> : null}
+            {error && <div className="attachments-error"><Icon name="warning" size={17} /><p><strong>Anhänge konnten nicht geladen werden</strong><span>{error}</span></p><button type="button" onClick={() => void onRefresh()}>Erneut</button></div>}
+            {!loading && !error && list && all.length === 0 && (
+              <div className="attachments-empty">
+                <span><Icon name="paperclip" size={23} /></span>
+                <strong>Noch keine Anhänge</strong>
+                <p>Lege Dateien hier ab oder füge einen Link hinzu.</p>
+                <div><button type="button" onClick={() => void addFiles("project")}><Icon name="file-text" size={14} />Dateien wählen</button><button type="button" onClick={() => setLinkScope("project")}><Icon name="link" size={14} />Link hinzufügen</button></div>
+              </div>
+            )}
+            {list && all.length > 0 && (
+              <>
+                {renderGroup("project", "Projekt", list.projectAttachments)}
+                {sessionId && renderGroup("session", "Diese Session", list.sessionAttachments)}
+                {!sessionId && <p className="attachment-session-hint"><Icon name="clock" size={14} />Die Kontextauswahl wird verfügbar, sobald eine Session aktiv ist.</p>}
+              </>
+            )}
+          </div>
+        )}
+
+        {isLive && (
+          <LinkPreviewHeightHandle
+            height={previewHeight}
+            onChange={(nextHeight) => setPreviewHeight(nextHeight)}
+            onReset={() => setPreviewHeight(480)}
+          />
+        )}
+
         <div className="attachments-detail-pane">
-          {selected && <AttachmentDetail attachment={selected} onBack={() => setSelectedId(null)} onOpenExternal={onOpenExternal} onOpenFile={(attachmentId) => window.gemUi.contextAttachments.openFile({ attachmentId }).then(() => undefined)} />}
+          {selected && (
+            <AttachmentDetail
+              attachment={selected}
+              onBack={() => {
+                setIsLive(false);
+                setSelectedId(null);
+              }}
+              onOpenExternal={onOpenExternal}
+              onOpenFile={(attachmentId) => window.gemUi.contextAttachments.openFile({ attachmentId }).then(() => undefined)}
+              live={isLive}
+              onLiveToggle={(live) => setIsLive(live)}
+            />
+          )}
         </div>
       </div>
 
