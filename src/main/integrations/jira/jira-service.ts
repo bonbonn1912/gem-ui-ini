@@ -98,13 +98,13 @@ export class JiraService {
     input: GetJiraProjectIntegrationInput,
   ): JiraProjectIntegration {
     const parsed = GetJiraProjectIntegrationInputSchema.parse(input);
-    this.#projects.get(parsed.projectId);
+    this.#projects?.get(parsed.projectId);
     return this.#readProjectIntegration(parsed.projectId);
   }
 
   activate(input: ActivateJiraProjectIntegrationInput): JiraProjectIntegration {
     const parsed = ActivateJiraProjectIntegrationInputSchema.parse(input);
-    this.#projects.get(parsed.projectId);
+    this.#projects?.get(parsed.projectId);
     const config = this.#repository.findConfig(parsed.configId);
     if (!config) throw new Error("Diese Jira-Integration existiert nicht mehr.");
     // One row per project: activating a second configuration replaces the
@@ -121,7 +121,7 @@ export class JiraService {
     input: DeactivateJiraProjectIntegrationInput,
   ): JiraProjectIntegration {
     const parsed = DeactivateJiraProjectIntegrationInputSchema.parse(input);
-    this.#projects.get(parsed.projectId);
+    this.#projects?.get(parsed.projectId);
     this.#repository.clearProjectIntegration(parsed.projectId);
     return this.#readProjectIntegration(parsed.projectId);
   }
@@ -158,6 +158,7 @@ export class JiraService {
       url,
       title: parsed.issueKey,
       origin: "manual",
+      defaultInclude: false,
     });
 
     return {

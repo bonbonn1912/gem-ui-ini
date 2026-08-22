@@ -137,6 +137,7 @@ export const AddContextFilesInputSchema = ContextTargetSchema.extend({
   clientRequestId: ClientRequestIdSchema,
   paths: z.array(FileSystemPathSchema).max(20).default([]),
   origin: ContextAttachmentOriginSchema.default("manual"),
+  defaultInclude: z.boolean().optional(),
 }).strict();
 
 export const AddContextLinkInputSchema = ContextTargetSchema.extend({
@@ -144,6 +145,7 @@ export const AddContextLinkInputSchema = ContextTargetSchema.extend({
   url: z.url(),
   title: DisplayNameSchema.optional(),
   origin: ContextAttachmentOriginSchema.default("manual"),
+  defaultInclude: z.boolean().optional(),
 }).strict();
 
 export const UpdateContextAttachmentInputSchema = z.object({
