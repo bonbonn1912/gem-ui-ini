@@ -1799,4 +1799,25 @@ describe("Renderer UI", () => {
     expect(screen.getByText(/gemini-sess-reconnected/i)).toBeInTheDocument();
     expect(screen.getByText("Kontext übergeben")).toBeInTheDocument();
   });
+
+  it("lässt das Info-Icon pulsieren wenn ein Update verfügbar ist", async () => {
+    const { api } = createApi();
+    api.app.checkForUpdates = vi.fn().mockResolvedValue({
+      currentVersion: "0.1.0",
+      latestVersion: "0.5.1",
+      updateAvailable: true,
+      releaseName: "v0.5.1",
+      releaseNotes: "Fehlerbehebungen",
+      downloadUrl: "https://example.com/update.exe",
+      error: null,
+    });
+    window.gemUi = api;
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Login reparieren" });
+
+    const infoButton = await screen.findByRole("button", { name: /Update verfügbar/i });
+    expect(infoButton).toHaveClass("app-info-trigger-button--update-available");
+    expect(infoButton.querySelector(".app-info-trigger-icon--pulse")).toBeInTheDocument();
+  });
 });

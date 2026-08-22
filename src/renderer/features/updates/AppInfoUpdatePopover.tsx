@@ -83,7 +83,21 @@ export function AppInfoUpdatePopover({ capabilities }: AppInfoUpdatePopoverProps
     };
   }, []);
 
+  // Automatische Suche 1x pro Stunde nach Updates (und direkt bei App-Start)
+  useEffect(() => {
+    void handleCheckForUpdates();
+
+    const intervalId = window.setInterval(() => {
+      void handleCheckForUpdates();
+    }, 60 * 60 * 1000); // 1 Stunde
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
   const handleCheckForUpdates = async () => {
+    if (!window.gemUi?.app?.checkForUpdates) return;
     setChecking(true);
     setDownloadError(null);
     setDownloadedFilePath(null);
@@ -147,12 +161,29 @@ export function AppInfoUpdatePopover({ capabilities }: AppInfoUpdatePopoverProps
     >
       <button
         type="button"
-        className={`app-info-trigger-button ${open ? "app-info-trigger-button--active" : ""}`}
+        className={`app-info-trigger-button ${open ? "app-info-trigger-button--active" : ""} ${
+          updateInfo?.updateAvailable ? "app-info-trigger-button--update-available" : ""
+        }`}
         onClick={toggleOpen}
-        aria-label="App-Informationen und Updates"
-        title={`GeminUI v${currentAppVersion} - App-Informationen & Updates`}
+        aria-label={
+          updateInfo?.updateAvailable
+            ? `Update verfügbar: v${updateInfo.latestVersion}. App-Informationen und Updates`
+            : "App-Informationen und Updates"
+        }
+        title={
+          updateInfo?.updateAvailable
+            ? `Update verfügbar: v${updateInfo.latestVersion} (GeminUI v${currentAppVersion})`
+            : `GeminUI v${currentAppVersion} - App-Informationen & Updates`
+        }
       >
-        <Icon name="info" size={14} />
+        <span
+          className={`app-info-trigger-icon ${
+            updateInfo?.updateAvailable ? "app-info-trigger-icon--pulse" : ""
+          }`}
+        >
+          <Icon name="info" size={14} />
+          {updateInfo?.updateAvailable && <span className="update-available-dot" />}
+        </span>
         <span className="app-info-trigger-version">v{currentAppVersion}</span>
       </button>
 
