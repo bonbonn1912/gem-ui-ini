@@ -124,7 +124,7 @@ export class ContextAttachmentService {
         sha256: blob.sha256,
         storageDir: blob.storageDir,
         fileName: blob.fileName,
-        defaultInclude: parsed.scope === "session",
+        defaultInclude: parsed.defaultInclude ?? (parsed.scope === "session"),
         createdAt: new Date().toISOString(),
       });
       this.#extractor.enqueue(attachment.id);
@@ -157,7 +157,7 @@ export class ContextAttachmentService {
         url: parsed.url,
         normalizedUrl: normalizedValue,
         host: normalized.hostname,
-        defaultInclude: parsed.scope === "session",
+        defaultInclude: parsed.defaultInclude ?? (parsed.scope === "session"),
         createdAt: new Date().toISOString(),
       });
       void this.refreshLinkPreviewById(attachment.id).catch(() => undefined);

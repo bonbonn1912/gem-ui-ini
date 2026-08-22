@@ -181,6 +181,24 @@ describe("repositories", () => {
           .find(({ id }) => id === chatAttachment.id)?.origin,
       ).toBe("chat");
 
+      const jiraLink = attachments.insertLink({
+        id: randomUUID(),
+        projectId: fixture.project.id,
+        scope: "session",
+        sessionId,
+        title: "AML-1234",
+        origin: "manual",
+        url: "https://jira.example.com/browse/AML-1234",
+        normalizedUrl: "https://jira.example.com/browse/AML-1234",
+        host: "jira.example.com",
+        defaultInclude: false,
+        createdAt: timestamp,
+      });
+      expect(
+        attachments.list(fixture.project.id, sessionId).sessionAttachments
+          .find(({ id }) => id === jiraLink.id)?.includedInContext,
+      ).toBe(false);
+
       attachments.setInclusion(sessionId, [projectAttachment.id], true, timestamp);
       list = attachments.list(fixture.project.id, sessionId);
       expect(list.projectAttachments[0]?.includedInContext).toBe(true);

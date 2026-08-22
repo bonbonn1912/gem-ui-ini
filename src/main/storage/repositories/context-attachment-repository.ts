@@ -238,7 +238,7 @@ export class ContextAttachmentRepository {
         input.storageDir,
         input.fileName,
       );
-      if (input.sessionId) this.writeSelection(input.sessionId, input.id, true, input.createdAt);
+      if (input.sessionId) this.writeSelection(input.sessionId, input.id, input.defaultInclude, input.createdAt);
     })();
     return this.getInternal(input.id, input.sessionId);
   }
@@ -272,7 +272,7 @@ export class ContextAttachmentRepository {
            attachment_id, url, host, preview_state
          ) VALUES (?, ?, ?, 'pending')`,
       ).run(input.id, input.url, input.host);
-      if (input.sessionId) this.writeSelection(input.sessionId, input.id, true, input.createdAt);
+      if (input.sessionId) this.writeSelection(input.sessionId, input.id, input.defaultInclude, input.createdAt);
     })();
     return this.getInternal(input.id, input.sessionId);
   }

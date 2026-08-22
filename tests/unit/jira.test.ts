@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { JiraService } from "../../src/main/integrations/jira/jira-service";
+import {
+  JiraRepository,
+  openSqliteDatabase,
+  ProjectRepository,
+} from "../../src/main/storage";
 import {
   ActivateJiraProjectIntegrationInputSchema,
   AttachJiraIssueInputSchema,
@@ -140,5 +146,97 @@ describe("Jira contracts", () => {
       "AML-12",
     );
     expect(AttachJiraIssueInputSchema.safeParse({ ...base, issueKey: "AML" }).success).toBe(false);
+  });
+});
+
+describe("JiraService attachIssue", () => {
+  it("attaches Jira issue with defaultInclude: false so it is not active for the prompt by default", async () => {
+    const database = openSqliteDatabase(":memory:");
+    try {
+      const jiraRepo = new JiraRepository(database);
+      const ingestLink = vi.fn().mockResolvedValue({
+        id: randomUUID(),
+        projectId: randomUUID(),
+        scope: "session",
+        sessionId: randomUUID(),
+        title: "AML-1234",
+        url: "https://jira.example.com/browse/AML-1234",
+      });
+
+      const jiraService = new JiraService({
+        repository: jiraRepo,
+        contextAttachments: { ingestLink },
+      });
+
+      const projectRepo = new ProjectRepository(database);
+      const projectId = randomUUID();
+      const sessionId = randomUUID();
+      const rootId = randomUUID();
+
+      projectRepo.create(
+        {
+          id: projectId,
+          name: "Test Project",
+          primaryRootId: rootId,
+          rootRevision: 1,
+          rootFingerprint: "a".repeat(64),
+          approvalModeId: null,
+          approvalModeState: "gemini_default",
+          archived: false,
+          createdAt: "2026-08-22T10:00:00.000Z",
+          updatedAt: "2026-08-22T10:00:00.000Z",
+        },
+        [
+          {
+            id: rootId,
+            projectId,
+            kind: "primary",
+            path: "/tmp/primary",
+            realPath: "/tmp/primary",
+            label: "primary",
+            sortOrder: 0,
+            createdAt: "2026-08-22T10:00:00.000Z",
+            updatedAt: "2026-08-22T10:00:00.000Z",
+          },
+        ],
+      );
+
+      const config = await jiraService.saveConfig({
+        clientRequestId: randomUUID(),
+        name: "Firmen-Jira",
+        baseUrl: "https://jira.example.com",
+        issuePrefixes: ["AML"],
+      });
+
+      await jiraService.activate({
+        clientRequestId: randomUUID(),
+        projectId,
+        configId: config.id,
+      });
+
+      const clientRequestId = randomUUID();
+      const result = await jiraService.attachIssue({
+        clientRequestId,
+        projectId,
+        sessionId,
+        issueKey: "AML-1234",
+      });
+
+      expect(result.match.issueKey).toBe("AML-1234");
+      expect(result.match.url).toBe("https://jira.example.com/browse/AML-1234");
+
+      expect(ingestLink).toHaveBeenCalledWith({
+        clientRequestId,
+        projectId,
+        scope: "session",
+        sessionId,
+        url: "https://jira.example.com/browse/AML-1234",
+        title: "AML-1234",
+        origin: "manual",
+        defaultInclude: false,
+      });
+    } finally {
+      database.close();
+    }
   });
 });
