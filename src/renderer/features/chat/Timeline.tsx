@@ -251,6 +251,109 @@ function ToolRunGroup({
   );
 }
 
+function AssistantMarkBadge({ item }: { item: MessageItem }) {
+  const [open, setOpen] = useState(false);
+  const timeoutRef = useRef<number | null>(null);
+
+  const handleMouseEnter = () => {
+    if (timeoutRef.current) {
+      window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    setOpen(true);
+  };
+
+  const handleMouseLeave = () => {
+    timeoutRef.current = window.setTimeout(() => {
+      setOpen(false);
+    }, 150);
+  };
+
+  const modelName =
+    (item.turnUsage?.byModel && item.turnUsage.byModel.length > 0
+      ? item.turnUsage.byModel.map((m) => m.model).join(", ")
+      : item.model) || "Gemini";
+
+  const total = item.turnUsage?.tokens.total ?? (
+    item.turnUsage?.tokens.input !== null && item.turnUsage?.tokens.input !== undefined &&
+    item.turnUsage?.tokens.output !== null && item.turnUsage?.tokens.output !== undefined
+      ? item.turnUsage.tokens.input + item.turnUsage.tokens.output
+      : null
+  );
+
+  return (
+    <div
+      className="assistant-mark-container"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
+      <div
+        className="assistant-mark"
+        role="button"
+        tabIndex={0}
+        onClick={() => setOpen((v) => !v)}
+        aria-label={`Antwort von ${modelName}`}
+      >
+        <Icon name="sparkle" size={15} />
+      </div>
+
+      {open && (
+        <div
+          className="assistant-mark-popover"
+          role="tooltip"
+          aria-label="Antwort-Details"
+        >
+          <div className="assistant-popover-header">
+            <Icon name="sparkle" size={13} />
+            <strong className="assistant-popover-model">{modelName}</strong>
+          </div>
+
+          {item.turnUsage ? (
+            <div className="assistant-popover-body">
+              <div className="assistant-popover-total">
+                <span>Verbrauch dieser Antwort:</span>
+                <strong>{total !== null ? `${new Intl.NumberFormat("de-DE").format(total)} Token` : "–"}</strong>
+              </div>
+              <div className="assistant-popover-stats">
+                <div className="assistant-popover-stat">
+                  <span className="assistant-popover-stat-label">Input</span>
+                  <span className="assistant-popover-stat-val">
+                    {item.turnUsage.tokens.input !== null && item.turnUsage.tokens.input !== undefined
+                      ? new Intl.NumberFormat("de-DE").format(item.turnUsage.tokens.input)
+                      : "–"}
+                  </span>
+                </div>
+                <div className="assistant-popover-stat">
+                  <span className="assistant-popover-stat-label">Output</span>
+                  <span className="assistant-popover-stat-val">
+                    {item.turnUsage.tokens.output !== null && item.turnUsage.tokens.output !== undefined
+                      ? new Intl.NumberFormat("de-DE").format(item.turnUsage.tokens.output)
+                      : "–"}
+                  </span>
+                </div>
+                {item.turnUsage.tokens.cachedRead !== null &&
+                  item.turnUsage.tokens.cachedRead !== undefined &&
+                  item.turnUsage.tokens.cachedRead > 0 && (
+                    <div className="assistant-popover-stat">
+                      <span className="assistant-popover-stat-label">Cache</span>
+                      <span className="assistant-popover-stat-val">
+                        {new Intl.NumberFormat("de-DE").format(item.turnUsage.tokens.cachedRead)}
+                      </span>
+                    </div>
+                  )}
+              </div>
+            </div>
+          ) : (
+            <div className="assistant-popover-pending">
+              <span>{item.streaming ? "Antwort wird generiert …" : "Token-Verbrauch wird erfasst."}</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AssistantMessage({
   item,
   onOpenExternal,
@@ -268,9 +371,7 @@ function AssistantMessage({
 
   return (
     <article className="message message--assistant">
-      <div className="assistant-mark">
-        <Icon name="sparkle" size={15} />
-      </div>
+      <AssistantMarkBadge item={item} />
       <div className="assistant-content">
         {isPlanOrMarkdown && !item.streaming && (
           <button

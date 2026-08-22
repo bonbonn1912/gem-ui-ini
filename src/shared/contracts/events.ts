@@ -196,6 +196,7 @@ export const UsageSnapshotSchema = z
     session: z
       .object({
         tokens: TokenCountersSchema,
+        byModel: z.array(ModelTokenUsageSchema).max(50).optional(),
         coverage: z.enum(["complete", "partial", "provider_reported"]),
         source: z.enum(["geminui_aggregate", "acp_prompt_usage", "legacy_event"]),
       })

@@ -1537,4 +1537,266 @@ describe("Renderer UI", () => {
       }),
     );
   });
+
+  it("deaktiviert den Neue-Session-Button und zeigt einen Ladekreis während des Anlegens", async () => {
+    const user = userEvent.setup();
+    const { api } = createApi();
+    type CreatedSession = Awaited<ReturnType<typeof api.sessions.create>>;
+    let resolveCreate: (s: CreatedSession) => void;
+    const createPromise = new Promise<CreatedSession>((resolve) => {
+      resolveCreate = resolve;
+    });
+    vi.mocked(api.sessions.create).mockImplementation(() => createPromise);
+    window.gemUi = api;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Login reparieren" });
+
+    const newSessionBtn = screen.getByRole("button", { name: /Neue Session/ });
+    expect(newSessionBtn).not.toBeDisabled();
+    expect(newSessionBtn.querySelector(".mini-spinner")).toBeNull();
+
+    // Click Neue Session
+    await user.click(newSessionBtn);
+
+    // Button should be disabled and show spinner
+    expect(newSessionBtn).toBeDisabled();
+    expect(newSessionBtn.querySelector(".mini-spinner")).not.toBeNull();
+    expect(api.sessions.create).toHaveBeenCalledTimes(1);
+
+    // Second click while pending should not trigger another call
+    await user.click(newSessionBtn);
+    expect(api.sessions.create).toHaveBeenCalledTimes(1);
+
+    // Resolve create
+    const newSession: CreatedSession = {
+      ...session,
+      status: "idle",
+      id: "session-2",
+      title: "Neue Session 2",
+    };
+    await act(async () => {
+      resolveCreate!(newSession);
+    });
+
+    await waitFor(() => {
+      expect(newSessionBtn.querySelector(".mini-spinner")).toBeNull();
+      expect(newSessionBtn).not.toBeDisabled();
+    });
+  });
+
+  it("schaltet über den Theme-Button zwischen Light- und Darkmode um", async () => {
+    const user = userEvent.setup();
+    const { api } = createApi();
+    window.gemUi = api;
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Login reparieren" });
+
+    const themeToggle = screen.getByRole("button", { name: /Modus aktivieren/i });
+    expect(themeToggle).toBeInTheDocument();
+
+    const initialTheme = document.documentElement.getAttribute("data-theme") ?? "light";
+    await user.click(themeToggle);
+
+    const nextTheme = document.documentElement.getAttribute("data-theme");
+    expect(nextTheme).toBe(initialTheme === "dark" ? "light" : "dark");
+  });
+
+  it("benennt den YOLO-Modus in Developer um", async () => {
+    const { api } = createApi({
+      sessions: [
+        {
+          ...session,
+          id: "session-1",
+          title: "Test Session",
+          mode: "yolo",
+          availableModes: [
+            { id: "yolo", name: "yolo", description: "All permissions" },
+            { id: "plan", name: "plan", description: "Planning mode" },
+          ],
+        },
+      ],
+    });
+    window.gemUi = api;
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Test Session" });
+    expect(screen.getAllByText(/Developer/i).length).toBeGreaterThan(0);
+  });
+
+  it("zeigt im Token-Nutzungs-Modal die Nutzung nach Modell gestaffelt an", async () => {
+    const user = userEvent.setup();
+    const { api, emit } = createApi();
+    window.gemUi = api;
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Login reparieren" });
+
+    await emit([
+      {
+        seq: 1,
+        sessionId: session.id,
+        turnId: "turn-1",
+        timestamp: new Date().toISOString(),
+        event: {
+          type: "usage.updated",
+          snapshot: {
+            revision: 1,
+            lastTurn: {
+              turnId: "turn-1",
+              tokens: {
+                input: 1200,
+                output: 350,
+                total: 1550,
+                thought: null,
+                cachedRead: null,
+                cachedWrite: null,
+                tool: null,
+                totalKind: "derived_input_plus_output",
+              },
+              byModel: [
+                { model: "gemini-2.5-pro", input: 1000, output: 300 },
+                { model: "gemini-2.5-flash", input: 200, output: 50 },
+              ],
+              source: "gemini_meta_quota",
+            },
+            session: {
+              tokens: {
+                input: 1200,
+                output: 350,
+                total: 1550,
+                thought: null,
+                cachedRead: null,
+                cachedWrite: null,
+                tool: null,
+                totalKind: "derived_input_plus_output",
+              },
+              coverage: "complete",
+              source: "geminui_aggregate",
+            },
+            context: {
+              used: 1550,
+              size: 1_000_000,
+              source: "acp_usage_update",
+            },
+            cost: null,
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      },
+    ]);
+
+    const pill = document.querySelector(".usage-pill")!;
+    await user.hover(pill);
+
+    expect(await screen.findByRole("dialog", { name: "Token-Nutzung Details" })).toBeVisible();
+    expect(screen.getByText("Nutzung nach Modell")).toBeInTheDocument();
+    expect(screen.getByText("gemini-2.5-pro")).toBeInTheDocument();
+    expect(screen.getByText("gemini-2.5-flash")).toBeInTheDocument();
+  });
+
+  it("zeigt on hover beim Antwort-Icon das Modell und die Token-Kosten an", async () => {
+    const user = userEvent.setup();
+    const { api, emit } = createApi();
+    window.gemUi = api;
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Login reparieren" });
+
+    // Stream an assistant message
+    await emit([
+      {
+        seq: 1,
+        sessionId: session.id,
+        turnId: "turn-abc",
+        timestamp: new Date().toISOString(),
+        event: {
+          type: "message.assistant.delta",
+          messageId: "msg-123",
+          delta: "Hier ist die Antwort von Gemini.",
+        },
+      },
+      {
+        seq: 2,
+        sessionId: session.id,
+        turnId: "turn-abc",
+        timestamp: new Date().toISOString(),
+        event: {
+          type: "usage.updated",
+          snapshot: {
+            revision: 1,
+            lastTurn: {
+              turnId: "turn-abc",
+              tokens: {
+                input: 800,
+                output: 150,
+                total: 950,
+                thought: null,
+                cachedRead: 200,
+                cachedWrite: null,
+                tool: null,
+                totalKind: "derived_input_plus_output",
+              },
+              byModel: [{ model: "gemini-2.5-pro", input: 800, output: 150 }],
+              source: "gemini_meta_quota",
+            },
+            session: null,
+            context: null,
+            cost: null,
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      },
+    ]);
+
+    const assistantMark = document.querySelector(".assistant-mark")!;
+    expect(assistantMark).toBeInTheDocument();
+    await user.hover(assistantMark);
+
+    expect(await screen.findByRole("tooltip", { name: "Antwort-Details" })).toBeVisible();
+    expect(screen.getByText("gemini-2.5-pro")).toBeInTheDocument();
+    expect(screen.getByText(/950 Token/i)).toBeInTheDocument();
+  });
+
+  it("zeigt in der Leiste die Gemini-Session-Historie mit Kontext-Gehirn-Icon an", async () => {
+    const user = userEvent.setup();
+    const { api, emit } = createApi();
+    window.gemUi = api;
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Login reparieren" });
+
+    // Emit reconnect session.started
+    await emit([
+      {
+        seq: 1,
+        sessionId: session.id,
+        turnId: null,
+        timestamp: "2026-08-22T10:00:00.000Z",
+        event: {
+          type: "session.started",
+          providerSessionId: "gemini-sess-initial",
+        },
+      },
+      {
+        seq: 2,
+        sessionId: session.id,
+        turnId: null,
+        timestamp: "2026-08-22T11:00:00.000Z",
+        event: {
+          type: "session.started",
+          providerSessionId: "gemini-sess-reconnected",
+        },
+      },
+    ]);
+
+    const historyBtn = screen.getByRole("button", { name: "Gemini-Sitzungsverlauf anzeigen" });
+    await user.hover(historyBtn);
+
+    expect(await screen.findByRole("dialog", { name: "Gemini-Sitzungshistorie" })).toBeVisible();
+    expect(screen.getByText(/gemini-sess-initial/i)).toBeInTheDocument();
+    expect(screen.getByText(/gemini-sess-reconnected/i)).toBeInTheDocument();
+    expect(screen.getByText("Kontext übergeben")).toBeInTheDocument();
+  });
 });

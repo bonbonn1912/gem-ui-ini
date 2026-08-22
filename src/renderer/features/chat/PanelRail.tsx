@@ -26,36 +26,63 @@ export type PanelRailItem = {
 type PanelRailProps = {
   items: PanelRailItem[];
   activeId: string;
+  theme?: "light" | "dark";
   onToggle: (id: string) => void;
+  onToggleTheme?: () => void;
 };
 
 function cap(value: number, limit: number): string {
   return value > limit ? `${limit}+` : String(value);
 }
 
-export function PanelRail({ items, activeId, onToggle }: PanelRailProps) {
+export function PanelRail({
+  items,
+  activeId,
+  theme = "light",
+  onToggle,
+  onToggleTheme,
+}: PanelRailProps) {
   return (
     <nav className="panel-rail" aria-label="Panels">
-      {items.map((item) => {
-        const open = activeId === item.id;
-        const name = item.name ?? item.label;
-        return (
+      <div className="panel-rail-items">
+        {items.map((item) => {
+          const open = activeId === item.id;
+          const name = item.name ?? item.label;
+          return (
+            <button
+              key={item.id}
+              className={`panel-rail-button ${open ? "panel-rail-button--active" : ""}`}
+              type="button"
+              aria-pressed={open}
+              aria-label={`${name} ${open ? "schließen" : "öffnen"}${item.detail ? `, ${item.detail}` : ""}`}
+              title={item.label}
+              onClick={() => onToggle(item.id)}
+            >
+              <Icon name={item.icon} size={18} />
+              <span className="panel-rail-label" aria-hidden="true">{item.label}</span>
+              {Boolean(item.badge) && <i>{cap(item.badge!, 99)}</i>}
+              {Boolean(item.subBadge) && <em>{cap(item.subBadge!, 99)}</em>}
+            </button>
+          );
+        })}
+      </div>
+
+      {onToggleTheme && (
+        <div className="panel-rail-bottom">
           <button
-            key={item.id}
-            className={`panel-rail-button ${open ? "panel-rail-button--active" : ""}`}
+            className="panel-rail-button panel-rail-theme-toggle"
             type="button"
-            aria-pressed={open}
-            aria-label={`${name} ${open ? "schließen" : "öffnen"}${item.detail ? `, ${item.detail}` : ""}`}
-            title={item.label}
-            onClick={() => onToggle(item.id)}
+            aria-label={theme === "dark" ? "Hellen Modus aktivieren" : "Dunklen Modus aktivieren"}
+            title={theme === "dark" ? "Hellen Modus aktivieren" : "Dunklen Modus aktivieren"}
+            onClick={onToggleTheme}
           >
-            <Icon name={item.icon} size={18} />
-            <span className="panel-rail-label" aria-hidden="true">{item.label}</span>
-            {Boolean(item.badge) && <i>{cap(item.badge!, 99)}</i>}
-            {Boolean(item.subBadge) && <em>{cap(item.subBadge!, 99)}</em>}
+            <Icon name={theme === "dark" ? "sun" : "moon"} size={18} />
+            <span className="panel-rail-label" aria-hidden="true">
+              {theme === "dark" ? "Hell" : "Dunkel"}
+            </span>
           </button>
-        );
-      })}
+        </div>
+      )}
     </nav>
   );
 }

@@ -460,7 +460,7 @@ export function TodosPanel({
                         title="Neue Session anlegen und das Todo dort übernehmen"
                         onClick={() => void send(todo, "new")}
                       >
-                        <Icon name="plus" size={15} /> Neue Session
+                        {busy ? <span className="mini-spinner" /> : <Icon name="plus" size={15} />} Neue Session
                       </button>
                     </div>
                     <p className="todo-send-hint">

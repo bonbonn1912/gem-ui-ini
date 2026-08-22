@@ -309,13 +309,16 @@ export function ProjectSettingsDialog({
                     Nicht verfügbar: {approvalPolicy.modeId}
                   </option>
                 )}
-                {approvalPolicy?.availableModes.map((mode) => (
-                  <option key={mode.id} value={mode.id}>
-                    {mode.unrestricted
-                      ? `Alles erlauben (${mode.name})`
-                      : mode.name}
-                  </option>
-                ))}
+                {approvalPolicy?.availableModes.map((mode) => {
+                  const displayName = mode.id === "yolo" || mode.name.toLowerCase() === "yolo" ? "Developer" : mode.name;
+                  return (
+                    <option key={mode.id} value={mode.id}>
+                      {mode.unrestricted
+                        ? `Alles erlauben (${displayName})`
+                        : displayName}
+                    </option>
+                  );
+                })}
               </select>
               <Icon name="chevron-down" size={14} />
             </label>

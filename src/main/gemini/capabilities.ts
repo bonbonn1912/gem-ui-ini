@@ -57,7 +57,7 @@ export function normalizeModes(
     currentModeId: modes.currentModeId,
     availableModes: modes.availableModes.map((mode) => ({
       id: mode.id,
-      name: mode.name,
+      name: mode.id === "yolo" || mode.name.toLowerCase() === "yolo" ? "Developer" : mode.name,
       ...(mode.description ? { description: mode.description } : {}),
     })),
   };

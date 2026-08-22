@@ -7,6 +7,7 @@ type GitLabDiscussionCardProps = {
   discussion: GitLabDiscussion;
   mergeRequest: GitLabMergeRequestSummary;
   isReadOnly: boolean;
+  currentUsername?: string | null;
   delivery: ReviewDelivery;
   onSendToGemini: (discussionId: string, mode: "affected_lines" | "whole_file") => Promise<void>;
   onResolve: (discussionId: string, resolved: boolean) => Promise<void>;
@@ -14,10 +15,29 @@ type GitLabDiscussionCardProps = {
   onOpenExternal: (url: string) => void;
 };
 
+/** Stabiler Farbton je Autor — dieselbe Person bekommt immer dieselbe
+ *  Avatarfarbe, damit sich Kommentare verschiedener Leute unterscheiden. */
+function authorHue(username: string): string {
+  let hash = 0;
+  for (let i = 0; i < username.length; i += 1) {
+    hash = (hash * 31 + username.charCodeAt(i)) % 360;
+  }
+  return String(hash);
+}
+
+/** Für heutige Notizen reicht die Uhrzeit, ältere brauchen das Datum. */
+function noteTimestamp(iso: string): string {
+  const date = new Date(iso);
+  const time = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (date.toDateString() === new Date().toDateString()) return time;
+  return `${date.toLocaleDateString([], { day: "2-digit", month: "2-digit" })} · ${time}`;
+}
+
 export function GitLabDiscussionCard({
   discussion,
   mergeRequest,
   isReadOnly,
+  currentUsername,
   delivery,
   onSendToGemini,
   onResolve,
@@ -99,8 +119,17 @@ export function GitLabDiscussionCard({
     }
   };
 
+  const visibleNotes = discussion.notes.filter((note) => !note.system);
+  const cardClasses = [
+    "gitlab-discussion-card",
+    discussion.resolved ? "gitlab-discussion-card--resolved" : "",
+    position?.outdated ? "gitlab-discussion-card--outdated" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <article className={`gitlab-discussion-card ${discussion.resolved ? "gitlab-discussion-card--resolved" : ""}`}>
+    <article className={cardClasses}>
       {/* Header Info */}
       <header className="discussion-card-header">
         <div className="discussion-meta-left">
@@ -122,24 +151,49 @@ export function GitLabDiscussionCard({
             </span>
           )}
         </div>
+        {visibleNotes.length > 1 && (
+          <span
+            className="discussion-note-count"
+            title={`${visibleNotes.length} Kommentare in diesem Thread`}
+          >
+            {visibleNotes.length} Kommentare
+          </span>
+        )}
       </header>
 
       {/* Notes / Comments */}
       <div className="discussion-notes">
-        {discussion.notes
-          .filter((note) => !note.system)
-          .map((note) => (
-            <div key={note.id} className="discussion-note">
+        {visibleNotes.map((note, index) => {
+          const isOwn = currentUsername
+            ? note.author.username.toLowerCase() === currentUsername.toLowerCase()
+            : false;
+          const noteClasses = [
+            "discussion-note",
+            index === 0 ? "discussion-note--root" : "discussion-note--reply",
+            isOwn ? "discussion-note--own" : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
+
+          return (
+            <div key={note.id} className={noteClasses}>
               <div className="note-author-row">
-                <span className="note-avatar-initials">
+                <span
+                  className="note-avatar-initials"
+                  style={{ "--author-hue": authorHue(note.author.username) } as React.CSSProperties}
+                >
                   {note.author.name.slice(0, 2).toUpperCase()}
                 </span>
                 <strong className="note-author-name">@{note.author.username}</strong>
-                <span className="note-time">{new Date(note.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                {isOwn && <span className="note-you-tag">du</span>}
+                <span className="note-time" title={new Date(note.createdAt).toLocaleString()}>
+                  {noteTimestamp(note.createdAt)}
+                </span>
               </div>
               <div className="note-body-content">{note.body}</div>
             </div>
-          ))}
+          );
+        })}
       </div>
 
       {error && (

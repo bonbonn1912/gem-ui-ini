@@ -82,6 +82,7 @@ export class UsageRepository {
   aggregatedTurns(sessionId: string): {
     turns: number;
     tokens: TokenCounters;
+    byModel: ModelTokenUsage[];
   } {
     const row = this.database
       .prepare(
@@ -98,6 +99,40 @@ export class UsageRepository {
          FROM turn_usage WHERE session_id = ?`,
       )
       .get(sessionId) as SumRow;
+
+    const modelRows = this.database
+      .prepare(
+        `SELECT model_usage_json FROM turn_usage WHERE session_id = ? AND model_usage_json IS NOT NULL`,
+      )
+      .all(sessionId) as { model_usage_json: string }[];
+
+    const modelMap = new Map<string, { input: number; output: number }>();
+    for (const r of modelRows) {
+      try {
+        const list = JSON.parse(r.model_usage_json) as ModelTokenUsage[];
+        if (Array.isArray(list)) {
+          for (const m of list) {
+            if (m && typeof m.model === "string") {
+              const current = modelMap.get(m.model) ?? { input: 0, output: 0 };
+              modelMap.set(m.model, {
+                input: current.input + (m.input || 0),
+                output: current.output + (m.output || 0),
+              });
+            }
+          }
+        }
+      } catch {
+        // ignore malformed JSON
+      }
+    }
+
+    const byModel: ModelTokenUsage[] = Array.from(modelMap.entries()).map(
+      ([model, counts]) => ({
+        model,
+        input: counts.input,
+        output: counts.output,
+      }),
+    );
 
     const total = safeSum(row.total_tokens);
     return {
@@ -117,6 +152,7 @@ export class UsageRepository {
               ? "provider"
               : "derived_input_plus_output",
       },
+      byModel,
     };
   }
 

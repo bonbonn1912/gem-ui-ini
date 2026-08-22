@@ -70,12 +70,14 @@ export class UsageService {
       const session: UsageSnapshot["session"] = providerSession
         ? {
             tokens: providerSession,
+            byModel: aggregate.byModel,
             coverage: "provider_reported",
             source: "acp_prompt_usage",
           }
         : aggregate.turns > 0
           ? {
               tokens: aggregate.tokens,
+              byModel: aggregate.byModel,
               coverage: this.#repository.hasUnaccountedTurns(input.sessionId)
                 ? "partial"
                 : "complete",

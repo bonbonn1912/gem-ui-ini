@@ -24,7 +24,7 @@ import type { JiraRepository } from "../../storage";
 
 export type JiraServiceOptions = {
   repository: JiraRepository;
-  projects: ProjectService;
+  projects?: ProjectService;
   contextAttachments: ContextAttachmentService;
 };
 
@@ -39,7 +39,7 @@ export type JiraServiceOptions = {
  */
 export class JiraService {
   readonly #repository: JiraRepository;
-  readonly #projects: ProjectService;
+  readonly #projects?: ProjectService;
   readonly #contextAttachments: ContextAttachmentService;
 
   constructor(options: JiraServiceOptions) {

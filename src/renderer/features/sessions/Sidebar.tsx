@@ -14,6 +14,7 @@ type SidebarProps = {
   sessions: AppSession[];
   activeSessionId: string | null;
   sessionsLoading: boolean;
+  creatingSession?: boolean;
   onClose: () => void;
   onCreateProject: () => void;
   onEditProject: () => void;
@@ -216,6 +217,7 @@ export function Sidebar({
   sessions,
   activeSessionId,
   sessionsLoading,
+  creatingSession = false,
   onClose,
   onCreateProject,
   onEditProject,
@@ -325,8 +327,14 @@ export function Sidebar({
           </div>
         )}
 
-        <button className="new-session-button" type="button" onClick={onCreateSession} disabled={!activeProjectId}>
-          <Icon name="plus" size={17} />
+        <button
+          className="new-session-button"
+          type="button"
+          onClick={onCreateSession}
+          disabled={!activeProjectId || creatingSession}
+          aria-busy={creatingSession}
+        >
+          {creatingSession ? <span className="mini-spinner" /> : <Icon name="plus" size={17} />}
           Neue Session
           <span className="shortcut">⌘ N</span>
         </button>
@@ -401,7 +409,19 @@ export function Sidebar({
           ) : sessions.length ? (
             <div className="sidebar-empty"><Icon name="search" size={20} /><p>Keine passende Session</p></div>
           ) : (
-            <div className="sidebar-empty"><Icon name="chat" size={20} /><p>Noch keine Sessions</p><button type="button" onClick={onCreateSession}>Erste Session starten</button></div>
+            <div className="sidebar-empty">
+              <Icon name="chat" size={20} />
+              <p>Noch keine Sessions</p>
+              <button
+                type="button"
+                onClick={onCreateSession}
+                disabled={!activeProjectId || creatingSession}
+                aria-busy={creatingSession}
+              >
+                {creatingSession ? <span className="mini-spinner" /> : null}
+                Erste Session starten
+              </button>
+            </div>
           )}
         </div>
 

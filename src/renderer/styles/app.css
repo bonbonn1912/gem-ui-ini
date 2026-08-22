@@ -50,6 +50,49 @@
   --primary-soft: var(--accent-soft);
 }
 
+:root[data-theme="dark"],
+[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #0d0f14;
+  --surface: #151821;
+  --surface-soft: #1c202c;
+  --surface-hover: #242938;
+  --text: #f1f5f9;
+  --text-soft: #cbd5e1;
+  --muted: #94a3b8;
+  --faint: #64748b;
+  --border: #2d3345;
+  --border-soft: #202432;
+  --accent: #7c79f2;
+  --accent-strong: #918ef8;
+  --accent-soft: rgba(124, 121, 242, 0.18);
+  --green: #34d399;
+  --green-soft: rgba(52, 211, 153, 0.16);
+  --amber: #fbbf24;
+  --amber-soft: rgba(251, 191, 36, 0.16);
+  --red: #f87171;
+  --red-soft: rgba(248, 113, 113, 0.16);
+  --sidebar: #0e1017;
+  --sidebar-raised: #161922;
+  --sidebar-hover: #1e222e;
+  --sidebar-text: #f1f5f9;
+  --sidebar-muted: #94a3b8;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.6), 0 3px 14px rgba(0, 0, 0, 0.4);
+
+  --surface-0: var(--surface);
+  --surface-1: var(--surface-soft);
+  --surface-2: var(--surface-hover);
+  --border-subtle: var(--border-soft);
+  --border-medium: var(--border);
+  --text-primary: var(--text);
+  --text-secondary: var(--text-soft);
+  --text-muted: var(--muted);
+  --primary: var(--accent);
+  --primary-strong: var(--accent-strong);
+  --primary-soft: var(--accent-soft);
+}
+
 * { box-sizing: border-box; }
 html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 body { background: var(--canvas); color: var(--text); }
@@ -98,6 +141,8 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .root-summary-dot { width: 3px; height: 3px; border-radius: 50%; background: #5d616c; }
 .new-session-button { height: 38px; margin: 4px 12px 10px; padding: 0 11px; display: flex; align-items: center; gap: 9px; border: 1px solid rgba(255,255,255,.09); border-radius: 10px; color: var(--sidebar-text); background: rgba(255,255,255,.045); font-size: 12.5px; font-weight: 610; cursor: pointer; }
 .new-session-button:hover:not(:disabled) { background: var(--sidebar-hover); border-color: rgba(255,255,255,.14); }
+.new-session-button:disabled { opacity: 0.55; cursor: not-allowed; }
+.new-session-button .mini-spinner { width: 15px; height: 15px; flex-shrink: 0; }
 .shortcut { margin-left: auto; color: #737783; font-size: 10px; font-weight: 500; }
 .session-search-wrapper { margin: 0 12px 8px; display: grid; gap: 4px; }
 .session-search { height: 33px; margin: 0 12px 8px; padding: 0 9px; display: flex; align-items: center; gap: 7px; border-radius: 8px; color: #767b87; background: rgba(255,255,255,.045); border: 1px solid transparent; }
@@ -537,118 +582,151 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
    ========================================================================== */
 
 
-/* Panel-Rahmen — identisch zu .changes-panel / .attachments-panel */
-.gitlab-panel { width: 100%; height: 100%; min-width: 0; min-height: 0; display: grid; grid-template-rows: 68px minmax(0, 1fr); overflow: hidden; border-left: 1px solid var(--border); background: var(--surface); }
+/* Panel-Rahmen — identisch zu .changes-panel / .attachments-panel.
+   Farbebenen: Im hellen Modus lagen Panel, Karte und Notiz zuvor alle auf
+   #ffffff, dadurch verschwammen die Threads ineinander. Es gibt jetzt drei
+   bewusst getrennte Ebenen — vertiefter Grund, gehobene Karte, abgesetzte
+   Notiz — ausschliesslich aus Tokens gemischt, damit der Dark-Mode mitlaeuft. */
+.gitlab-panel {
+  --gl-ground: color-mix(in srgb, var(--canvas) 92%, var(--surface));
+  --gl-raised: var(--surface);
+  --gl-inset: color-mix(in srgb, var(--surface-soft) 78%, var(--surface));
+  --gl-line: var(--border);
+  --gl-line-strong: color-mix(in srgb, var(--muted) 30%, var(--border));
+  --gl-card-shadow: 0 1px 1px color-mix(in srgb, var(--text) 6%, transparent), 0 4px 12px color-mix(in srgb, var(--text) 4%, transparent);
+  width: 100%; height: 100%; min-width: 0; min-height: 0; display: grid; grid-template-rows: 68px minmax(0, 1fr); overflow: hidden; border-left: 1px solid var(--border); background: var(--gl-ground);
+}
+[data-theme="dark"] .gitlab-panel { --gl-card-shadow: 0 1px 2px rgba(0, 0, 0, .45); }
 
-.gitlab-panel-header { min-width: 0; padding: 0 10px 0 15px; display: grid; grid-template-columns: minmax(0, 1fr) 34px 34px; align-items: center; gap: 3px; border-bottom: 1px solid var(--border-soft); background: color-mix(in srgb, var(--canvas) 80%, var(--surface)); -webkit-app-region: drag; }
+.gitlab-panel-header { min-width: 0; padding: 0 10px 0 15px; display: grid; grid-template-columns: minmax(0, 1fr) 34px 34px; align-items: center; gap: 3px; border-bottom: 1px solid var(--gl-line); background: var(--gl-raised); -webkit-app-region: drag; }
 .gitlab-panel-header button { -webkit-app-region: no-drag; }
 .gitlab-panel-header > div { min-width: 0; display: flex; align-items: center; gap: 9px; }
 .gitlab-panel-header > div > div { min-width: 0; display: grid; gap: 2px; }
 .gitlab-panel-header strong { overflow: hidden; font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
 .gitlab-panel-header > div > div span { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.gitlab-panel-icon { width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 8px; color: #e24329; background: color-mix(in srgb, #e24329 11%, var(--surface)); }
-.gitlab-open-badge { padding: 3px 6px; flex: 0 0 auto; border-radius: 5px; color: #e24329; background: color-mix(in srgb, #e24329 11%, var(--surface)); font-size: 8px; font-weight: 750; text-transform: uppercase; letter-spacing: .04em; }
+.gitlab-panel-icon { width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 8px; color: #e24329; background: color-mix(in srgb, #e24329 12%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, #e24329 20%, transparent); }
+.gitlab-open-badge { padding: 3px 6px; flex: 0 0 auto; border-radius: 5px; color: #e24329; background: color-mix(in srgb, #e24329 12%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, #e24329 22%, transparent); font-size: 8px; font-weight: 750; text-transform: uppercase; letter-spacing: .04em; }
 
 .gitlab-panel-body { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
-.gitlab-panel-scroll { min-height: 0; padding: 10px 9px 18px; overflow-y: auto; display: grid; gap: 8px; align-content: start; }
+.gitlab-panel-scroll { min-height: 0; padding: 11px 10px 20px; overflow-y: auto; display: grid; gap: 9px; align-content: start; background: var(--gl-ground); }
 
-/* Steuerleiste: Repository, Merge Request, Filter */
-.gitlab-controls-bar { padding: 9px 10px; display: grid; gap: 8px; border-bottom: 1px solid var(--border-soft); background: color-mix(in srgb, var(--surface-soft) 45%, var(--surface)); }
+/* Steuerleiste: Repository, Merge Request, Filter. Sie bildet zusammen mit dem
+   Kopf eine gehobene Platte; darunter beginnt der vertiefte Scrollbereich. */
+.gitlab-controls-bar { padding: 9px 10px; display: grid; gap: 8px; border-bottom: 1px solid var(--gl-line); background: var(--gl-raised); box-shadow: 0 1px 3px color-mix(in srgb, var(--text) 5%, transparent); }
 .gitlab-picker { min-width: 0; display: grid; gap: 5px; }
 .gitlab-picker-label { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 8.5px; font-weight: 740; letter-spacing: .06em; text-transform: uppercase; }
 .gitlab-picker-control { min-width: 0; display: flex; align-items: center; gap: 4px; }
 .gitlab-select { min-width: 0; flex: 1; position: relative; display: block; }
-.gitlab-select select { width: 100%; height: 31px; padding: 0 27px 0 9px; appearance: none; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; outline: 0; color: var(--text-soft); background: var(--surface); font-size: 10px; text-overflow: ellipsis; }
-.gitlab-select select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 9%, transparent); }
+.gitlab-select select { width: 100%; height: 31px; padding: 0 27px 0 9px; appearance: none; overflow: hidden; border: 1px solid var(--gl-line-strong); border-radius: 8px; outline: 0; color: var(--text-soft); background: var(--gl-raised); font-size: 10px; text-overflow: ellipsis; }
+.gitlab-select select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
 .gitlab-select > svg { position: absolute; top: 9px; right: 9px; color: var(--muted); pointer-events: none; }
-.gitlab-picker-empty { min-width: 0; flex: 1; height: 31px; padding: 0 9px; display: flex; align-items: center; overflow: hidden; border: 1px dashed var(--border); border-radius: 8px; color: var(--muted); font-size: 9.5px; text-overflow: ellipsis; white-space: nowrap; }
-.gitlab-picker-action { width: 31px; height: 31px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); background: var(--surface); cursor: pointer; }
-.gitlab-picker-action:hover:not(:disabled) { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 32%, var(--border)); background: var(--accent-soft); }
+.gitlab-picker-empty { min-width: 0; flex: 1; height: 31px; padding: 0 9px; display: flex; align-items: center; overflow: hidden; border: 1px dashed var(--gl-line-strong); border-radius: 8px; color: var(--muted); font-size: 9.5px; text-overflow: ellipsis; white-space: nowrap; }
+.gitlab-picker-action { width: 31px; height: 31px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid var(--gl-line-strong); border-radius: 8px; color: var(--muted); background: var(--gl-raised); cursor: pointer; }
+.gitlab-picker-action:hover:not(:disabled) { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: var(--accent-soft); }
 .gitlab-picker-action .mini-spinner { width: 12px; height: 12px; }
 
-.gitlab-filter-tabs { padding: 2px; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; border-radius: 9px; background: var(--surface-soft); }
-.filter-tab { min-height: 26px; padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; border: 0; border-radius: 7px; color: var(--muted); background: transparent; font-size: 9.5px; font-weight: 640; cursor: pointer; }
-.filter-tab:hover:not(.filter-tab--active) { color: var(--text-soft); }
-.filter-tab i { min-width: 15px; padding: 1px 4px; border-radius: 99px; color: var(--muted); background: var(--surface); font-size: 7.5px; font-style: normal; font-weight: 750; }
-.filter-tab--active { color: var(--accent-strong); background: var(--surface); box-shadow: 0 1px 2px rgba(20, 22, 28, .07); }
+.gitlab-filter-tabs { padding: 2px; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; border: 1px solid var(--gl-line); border-radius: 9px; background: var(--gl-inset); }
+.filter-tab { min-height: 26px; padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; border: 1px solid transparent; border-radius: 7px; color: var(--muted); background: transparent; font-size: 9.5px; font-weight: 640; cursor: pointer; }
+.filter-tab:hover:not(.filter-tab--active) { color: var(--text-soft); background: color-mix(in srgb, var(--surface) 60%, transparent); }
+.filter-tab i { min-width: 15px; padding: 1px 4px; border-radius: 99px; color: var(--muted); background: color-mix(in srgb, var(--muted) 14%, transparent); font-size: 7.5px; font-style: normal; font-weight: 750; }
+.filter-tab--active { color: var(--accent-strong); border-color: color-mix(in srgb, var(--accent) 30%, var(--border)); background: var(--gl-raised); box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 8%, transparent); }
 .filter-tab--active i { color: var(--accent); background: var(--accent-soft); }
 
-/* Zustände: leer, laden, Fehler */
+/* Zustaende: leer, laden, Fehler */
 .gitlab-panel-state { padding: 28px 22px; display: grid; place-items: center; align-content: center; gap: 7px; text-align: center; }
-.gitlab-state-icon { width: 42px; height: 42px; margin-bottom: 3px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 12px; color: #e24329; background: var(--surface); }
-.gitlab-state-icon--ok { color: var(--green); border-color: color-mix(in srgb, var(--green) 22%, var(--border)); background: color-mix(in srgb, var(--green-soft) 55%, var(--surface)); }
+.gitlab-state-icon { width: 42px; height: 42px; margin-bottom: 3px; display: grid; place-items: center; border: 1px solid var(--gl-line); border-radius: 12px; color: #e24329; background: var(--gl-raised); box-shadow: var(--gl-card-shadow); }
+.gitlab-state-icon--ok { color: var(--green); border-color: color-mix(in srgb, var(--green) 30%, var(--border)); background: color-mix(in srgb, var(--green-soft) 70%, var(--surface)); }
 .gitlab-panel-state strong { color: var(--text-soft); font-size: 10.5px; }
 .gitlab-panel-state p { max-width: 320px; margin: 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
-.gitlab-panel-state--calm { padding: 34px 22px; }
+.gitlab-panel-state--calm { padding: 30px 22px; border: 1px solid var(--gl-line); border-radius: 11px; background: var(--gl-raised); box-shadow: var(--gl-card-shadow); }
 .gitlab-panel-state .primary-button { min-height: 34px; margin-top: 5px; padding: 0 12px; border-radius: 8px; font-size: 10px; }
-.gitlab-ghost-button { min-height: 30px; margin-top: 3px; padding: 0 10px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border); border-radius: 8px; color: var(--accent); background: var(--surface); font-size: 9.5px; font-weight: 660; cursor: pointer; }
-.gitlab-ghost-button:hover { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 32%, var(--border)); }
+.gitlab-ghost-button { min-height: 30px; margin-top: 3px; padding: 0 10px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--gl-line-strong); border-radius: 8px; color: var(--accent); background: var(--gl-raised); font-size: 9.5px; font-weight: 660; cursor: pointer; }
+.gitlab-ghost-button:hover { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
 .gitlab-loading { min-height: 150px; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--muted); font-size: 9.5px; }
 .gitlab-loading .mini-spinner { width: 12px; height: 12px; }
-.gitlab-panel-error { padding: 9px; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: start; gap: 6px; border: 1px solid color-mix(in srgb, var(--red) 23%, var(--border)); border-radius: 9px; color: var(--red); background: var(--red-soft); }
+.gitlab-panel-error { padding: 9px; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: start; gap: 6px; border: 1px solid color-mix(in srgb, var(--red) 38%, var(--border)); border-left: 3px solid var(--red); border-radius: 10px; color: var(--red); background: color-mix(in srgb, var(--red-soft) 85%, var(--surface)); }
 .gitlab-panel-error p { margin: 0; display: grid; gap: 3px; }
 .gitlab-panel-error strong { color: var(--text-soft); font-size: 10px; }
 .gitlab-panel-error span { color: var(--muted); font-size: 9px; line-height: 1.45; word-break: break-word; }
 .gitlab-panel-error button { border: 0; color: var(--red); background: transparent; font-size: 8.5px; font-weight: 700; cursor: pointer; }
 
 /* Auswahl offener Merge Requests */
-.gitlab-mr-list { display: grid; gap: 4px; }
+.gitlab-mr-list { display: grid; gap: 6px; }
 .gitlab-section-heading { min-height: 25px; padding: 0 2px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .gitlab-section-heading > div { display: grid; gap: 2px; }
 .gitlab-section-heading span { color: var(--text-soft); font-size: 11px; font-weight: 640; }
 .gitlab-section-heading small { color: var(--muted); font-size: 9px; font-weight: 450; }
 .gitlab-section-heading button { padding: 4px 3px; display: inline-flex; align-items: center; gap: 4px; border: 0; color: var(--accent); background: transparent; font-size: 9.5px; font-weight: 630; cursor: pointer; }
 .gitlab-section-heading button .mini-spinner { width: 11px; height: 11px; }
-.gitlab-mr-row { width: 100%; min-width: 0; min-height: 48px; padding: 7px 9px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; border: 1px solid var(--border-soft); border-radius: 9px; background: var(--surface-soft); text-align: left; cursor: pointer; }
-.gitlab-mr-row:hover { border-color: color-mix(in srgb, var(--accent) 34%, var(--border)); background: var(--accent-soft); }
-.gitlab-mr-iid { padding: 3px 5px; border-radius: 5px; color: var(--accent); background: var(--surface); font-family: var(--font-mono); font-size: 8.7px; font-weight: 750; }
+.gitlab-mr-row { width: 100%; min-width: 0; min-height: 48px; padding: 7px 9px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; border: 1px solid var(--gl-line); border-radius: 10px; background: var(--gl-raised); box-shadow: var(--gl-card-shadow); text-align: left; cursor: pointer; }
+.gitlab-mr-row:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface)); }
+.gitlab-mr-iid { padding: 3px 5px; border-radius: 5px; color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent); font-family: var(--font-mono); font-size: 8.7px; font-weight: 750; }
 .gitlab-mr-main { min-width: 0; display: grid; gap: 3px; }
-.gitlab-mr-title { overflow: hidden; color: var(--text-soft); font-size: 10.5px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
+.gitlab-mr-title { overflow: hidden; color: var(--text); font-size: 10.5px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
 .gitlab-mr-branches { display: flex; align-items: center; gap: 4px; overflow: hidden; color: var(--muted); font-family: var(--font-mono); font-size: 8.2px; text-overflow: ellipsis; white-space: nowrap; }
 .gitlab-mr-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
 .gitlab-mr-time { color: var(--faint); font-size: 8px; white-space: nowrap; }
-.gitlab-tag { padding: 2px 5px; border-radius: 5px; color: var(--muted); background: var(--surface); font-size: 7.5px; font-weight: 740; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
-.gitlab-tag--branch { color: var(--accent); background: var(--accent-soft); }
+.gitlab-tag { padding: 2px 5px; border-radius: 5px; color: var(--muted); background: var(--gl-inset); box-shadow: inset 0 0 0 1px var(--gl-line); font-size: 7.5px; font-weight: 740; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+.gitlab-tag--branch { color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent); }
 
-/* Review-Threads */
-.gitlab-discussions-list { display: grid; gap: 6px; }
-.gitlab-discussion-card { padding: 10px; display: grid; gap: 8px; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--surface); }
-.gitlab-discussion-card:hover { border-color: var(--border); }
-.gitlab-discussion-card--resolved { opacity: .68; }
+/* Review-Threads. Jede Karte ist eine eigene Platte mit farbigem Statusstreifen
+   links, abgesetzter Kopf- und Fusszeile und einer Notizspalte dazwischen. */
+.gitlab-discussions-list { display: grid; gap: 9px; }
+.gitlab-discussion-card {
+  --gl-stripe: color-mix(in srgb, var(--accent) 60%, var(--border));
+  display: grid; gap: 0; overflow: hidden;
+  border: 1px solid var(--gl-line); border-left: 3px solid var(--gl-stripe); border-radius: 11px;
+  background: var(--gl-raised); box-shadow: var(--gl-card-shadow);
+}
+.gitlab-discussion-card:hover { border-color: var(--gl-line-strong); border-left-color: var(--gl-stripe); }
+.gitlab-discussion-card--outdated { --gl-stripe: color-mix(in srgb, var(--amber) 70%, var(--border)); }
+.gitlab-discussion-card--resolved { --gl-stripe: color-mix(in srgb, var(--green) 65%, var(--border)); opacity: .86; }
+.gitlab-discussion-card--resolved:hover { opacity: 1; }
 
-.discussion-card-header { min-width: 0; display: flex; align-items: center; justify-content: space-between; }
+.discussion-card-header { min-width: 0; padding: 7px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--gl-line); background: var(--gl-inset); }
 .discussion-meta-left { min-width: 0; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
-.discussion-file-badge { max-width: 100%; min-width: 0; padding: 3px 6px; display: inline-flex; align-items: center; gap: 5px; overflow: hidden; border-radius: 6px; color: var(--text-soft); background: var(--surface-soft); font-size: 8.5px; }
+.discussion-file-badge { max-width: 100%; min-width: 0; padding: 3px 6px; display: inline-flex; align-items: center; gap: 5px; overflow: hidden; border: 1px solid var(--gl-line); border-radius: 6px; color: var(--text-soft); background: var(--gl-raised); font-size: 8.5px; }
 .discussion-file-badge strong { overflow: hidden; font-family: var(--font-mono); font-size: 8.5px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .discussion-file-badge .line-num { flex: 0 0 auto; color: var(--muted); }
+.discussion-note-count { flex: 0 0 auto; padding: 2px 6px; display: inline-flex; align-items: center; gap: 3px; border-radius: 99px; color: var(--muted); background: color-mix(in srgb, var(--muted) 15%, transparent); font-size: 8px; font-weight: 700; white-space: nowrap; }
 .badge { padding: 3px 6px; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 3px; border-radius: 5px; font-size: 7.5px; font-weight: 740; text-transform: uppercase; letter-spacing: .04em; }
-.badge--warning { color: var(--amber); background: var(--amber-soft); }
-.badge--success { color: var(--green); background: var(--green-soft); }
+.badge--warning { color: var(--amber); background: var(--amber-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--amber) 28%, transparent); }
+.badge--success { color: var(--green); background: var(--green-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--green) 28%, transparent); }
 
-.discussion-notes { display: grid; gap: 8px; }
-.discussion-note { display: grid; gap: 3px; }
+/* Notizen: der Ursprungskommentar steht frei, jede Antwort sitzt eingerueckt
+   in einer eigenen Blase mit Verbindungslinie — so ist auf einen Blick
+   erkennbar, wo ein Kommentar aufhoert und der naechste beginnt. */
+.discussion-notes { padding: 9px 10px; display: grid; gap: 7px; }
+.discussion-note { position: relative; display: grid; gap: 4px; }
+.discussion-note--reply { margin-left: 15px; padding: 7px 9px; border: 1px solid var(--gl-line); border-radius: 9px; background: var(--gl-inset); }
+.discussion-note--reply::before { content: ""; position: absolute; left: -10px; top: -9px; bottom: calc(100% - 18px); width: 9px; border-left: 1.5px solid var(--gl-line-strong); border-bottom: 1.5px solid var(--gl-line-strong); border-bottom-left-radius: 8px; }
+.discussion-note--own { padding: 7px 9px; border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border)); border-radius: 9px; background: color-mix(in srgb, var(--accent-soft) 45%, var(--surface)); }
 .note-author-row { display: flex; align-items: center; gap: 6px; }
-.note-avatar-initials { width: 19px; height: 19px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 99px; color: var(--accent); background: var(--accent-soft); font-size: 7.5px; font-weight: 750; }
-.note-author-name { overflow: hidden; color: var(--text-soft); font-family: var(--font-mono); font-size: 9px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-.note-time { margin-left: auto; flex: 0 0 auto; color: var(--faint); font-size: 8px; }
-.note-body-content { padding-left: 25px; color: var(--text-soft); font-size: 10px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.note-avatar-initials { width: 19px; height: 19px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 99px; color: hsl(var(--author-hue, 250) 48% 32%); background: hsl(var(--author-hue, 250) 72% 92%); box-shadow: inset 0 0 0 1px hsl(var(--author-hue, 250) 45% 78%); font-size: 7.5px; font-weight: 750; }
+[data-theme="dark"] .note-avatar-initials { color: hsl(var(--author-hue, 250) 75% 80%); background: hsl(var(--author-hue, 250) 32% 26%); box-shadow: inset 0 0 0 1px hsl(var(--author-hue, 250) 30% 40%); }
+.note-author-name { overflow: hidden; color: var(--text); font-family: var(--font-mono); font-size: 9px; font-weight: 680; text-overflow: ellipsis; white-space: nowrap; }
+.note-you-tag { flex: 0 0 auto; padding: 1px 5px; border-radius: 99px; color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent); font-size: 7px; font-weight: 760; text-transform: uppercase; letter-spacing: .04em; }
+.note-time { margin-left: auto; flex: 0 0 auto; color: var(--muted); font-size: 8px; white-space: nowrap; }
+.note-body-content { padding-left: 25px; color: var(--text-soft); font-size: 10px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.discussion-note--reply .note-body-content { padding-left: 25px; }
 
-.gitlab-card-error { padding: 7px 9px; display: flex; align-items: center; gap: 6px; border-radius: 7px; color: var(--red); background: var(--red-soft); font-size: 9px; }
+.gitlab-card-error { margin: 0 10px 9px; padding: 7px 9px; display: flex; align-items: center; gap: 6px; border: 1px solid color-mix(in srgb, var(--red) 35%, var(--border)); border-radius: 8px; color: var(--red); background: color-mix(in srgb, var(--red-soft) 85%, var(--surface)); font-size: 9px; }
 
-.discussion-card-footer { padding-top: 8px; display: grid; gap: 6px; border-top: 1px solid var(--border-soft); }
+.discussion-card-footer { padding: 8px 10px; display: grid; gap: 6px; border-top: 1px solid var(--gl-line); background: var(--gl-inset); }
 .prompt-actions-group { display: flex; flex-wrap: wrap; gap: 5px; }
-.prompt-btn { min-height: 28px; padding: 0 8px; flex: 1 1 auto; display: inline-flex; align-items: center; justify-content: center; gap: 5px; border-radius: 7px; font-size: 9px; font-weight: 650; white-space: nowrap; }
+.prompt-btn { min-height: 28px; padding: 0 8px; flex: 1 1 auto; display: inline-flex; align-items: center; justify-content: center; gap: 5px; border: 1px solid var(--gl-line-strong); border-radius: 7px; color: var(--text-soft); background: var(--gl-raised); font-size: 9px; font-weight: 650; white-space: nowrap; }
+.prompt-btn:hover:not(:disabled) { color: var(--accent-strong); border-color: color-mix(in srgb, var(--accent) 42%, var(--border)); background: var(--accent-soft); }
 .prompt-btn .mini-spinner { width: 11px; height: 11px; }
 .discussion-tools-group { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
-.tool-btn { min-height: 26px; padding: 0 8px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border-soft); border-radius: 7px; color: var(--muted); background: var(--surface); font-size: 9px; font-weight: 640; cursor: pointer; }
-.tool-btn:hover:not(:disabled) { color: var(--text-soft); background: var(--surface-soft); }
-.tool-btn--resolve { color: var(--green); border-color: color-mix(in srgb, var(--green) 26%, var(--border)); }
-.tool-btn--resolve:hover:not(:disabled) { color: var(--green); background: var(--green-soft); }
+.tool-btn { min-height: 26px; padding: 0 8px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--gl-line-strong); border-radius: 7px; color: var(--muted); background: var(--gl-raised); font-size: 9px; font-weight: 640; cursor: pointer; }
+.tool-btn:hover:not(:disabled) { color: var(--text); border-color: var(--muted); background: var(--surface-hover); }
+.tool-btn--resolve { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, var(--border)); }
+.tool-btn--resolve:hover:not(:disabled) { color: var(--green); border-color: var(--green); background: var(--green-soft); }
 .tool-btn--reopen { color: var(--muted); }
 
-.discussion-reply-form { display: grid; gap: 6px; }
-.discussion-reply-form textarea { width: 100%; min-height: 58px; padding: 8px 9px; border: 1px solid var(--border); border-radius: 9px; outline: 0; color: var(--text); background: var(--surface); font-family: inherit; font-size: 10px; line-height: 1.5; resize: vertical; }
-.discussion-reply-form textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 9%, transparent); }
+.discussion-reply-form { padding: 9px 10px; display: grid; gap: 6px; border-top: 1px solid var(--gl-line); background: var(--gl-inset); }
+.discussion-reply-form textarea { width: 100%; min-height: 58px; padding: 8px 9px; border: 1px solid var(--gl-line-strong); border-radius: 9px; outline: 0; color: var(--text); background: var(--gl-raised); font-family: inherit; font-size: 10px; line-height: 1.5; resize: vertical; }
+.discussion-reply-form textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
 .discussion-reply-form textarea::placeholder { color: var(--faint); }
 .reply-form-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .char-count { color: var(--faint); font-size: 8px; }
@@ -1713,8 +1791,8 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 
 .gitlab-delivery-switch { display: flex; align-items: center; gap: 4px; }
 .gitlab-delivery-switch > span { flex: 0 0 auto; color: var(--muted); font-size: 9px; font-weight: 620; }
-.gitlab-delivery-switch .filter-tab { flex: 1 1 0; min-width: 0; background: var(--surface-soft); }
-.gitlab-delivery-switch .filter-tab--active { background: var(--surface); }
+.gitlab-delivery-switch .filter-tab { flex: 1 1 0; min-width: 0; border-color: var(--border); background: var(--surface); }
+.gitlab-delivery-switch .filter-tab--active { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); background: var(--accent-soft); }
 
 /* ==========================================================================
    Panel-Leiste und Session-Menü — die Kopfzeile trug zuletzt sechs Panel-
@@ -1726,7 +1804,11 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 /* Pinned to the third column: below 640px the open panel becomes an absolutely
    positioned overlay, and auto-placement would otherwise hand its column to
    the rail. */
-.panel-rail { grid-column: 3; padding: 9px 0; display: flex; flex-direction: column; align-items: center; gap: 3px; overflow-y: auto; overscroll-behavior: contain; border-left: 1px solid var(--border); background: color-mix(in srgb, var(--canvas) 55%, var(--surface)); -webkit-app-region: drag; }
+.panel-rail { grid-column: 3; padding: 9px 0; display: flex; flex-direction: column; align-items: center; justify-content: space-between; gap: 3px; overflow-y: auto; overscroll-behavior: contain; border-left: 1px solid var(--border); background: color-mix(in srgb, var(--canvas) 55%, var(--surface)); -webkit-app-region: drag; }
+.panel-rail-items { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 100%; }
+.panel-rail-bottom { margin-top: auto; padding-top: 6px; border-top: 1px solid var(--border-soft); display: flex; flex-direction: column; align-items: center; width: 100%; }
+.panel-rail-theme-toggle { color: var(--muted); }
+.panel-rail-theme-toggle:hover { color: var(--accent); }
 .panel-rail-button { width: 56px; padding: 6px 0 5px; position: relative; display: grid; justify-items: center; gap: 2px; border: 1px solid transparent; border-radius: 10px; color: var(--muted); background: transparent; cursor: pointer; -webkit-app-region: no-drag; }
 .panel-rail-button:hover { color: var(--text-soft); background: var(--surface-hover); }
 .panel-rail-button--active { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 28%, var(--border)); background: var(--accent-soft); }
@@ -1743,8 +1825,18 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .session-settings-menu > summary > svg { flex: 0 0 auto; }
 .session-settings-menu[open] > summary { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, var(--border)); background: var(--accent-soft); }
 .session-settings-popover { width: min(430px, calc(100vw - 30px)); padding: 13px; position: absolute; top: 39px; right: 0; z-index: 80; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); box-shadow: var(--shadow-lg); }
-.session-settings-row { min-height: 34px; padding: 3px 2px; display: grid; grid-template-columns: 62px minmax(0, 1fr); align-items: center; gap: 9px; }
+.session-settings-row { min-height: 34px; padding: 3px 2px; display: grid; grid-template-columns: 78px minmax(0, 1fr); align-items: center; gap: 9px; }
 .session-settings-label { color: var(--faint); font-size: 8.5px; font-weight: 720; text-transform: uppercase; }
+.session-settings-label-with-info { display: flex; align-items: center; gap: 5px; }
+.mode-info-trigger { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; color: var(--muted); cursor: pointer; position: relative; background: transparent; border: 0; padding: 0; outline: none; }
+.mode-info-trigger:hover, .mode-info-trigger:focus-visible { color: var(--accent); }
+.mode-info-tooltip { display: none; position: absolute; top: calc(100% + 8px); left: -10px; width: 280px; background: rgba(18, 22, 34, 0.98); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 10px; padding: 10px 12px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5); z-index: 200; pointer-events: none; text-align: left; animation: dialog-in 0.12s ease-out; }
+.mode-info-trigger:hover .mode-info-tooltip, .mode-info-trigger:focus-within .mode-info-tooltip { display: flex; flex-direction: column; gap: 8px; }
+.mode-info-tooltip-title { font-size: 11px; font-weight: 700; color: #cbd5e1; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 4px; }
+.mode-info-list { display: flex; flex-direction: column; gap: 6px; }
+.mode-info-item { display: flex; flex-direction: column; gap: 1px; }
+.mode-info-name { color: #38bdf8; font-weight: 650; font-size: 11px; }
+.mode-info-desc { color: #94a3b8; font-size: 10px; line-height: 1.35; margin: 0; font-weight: 400; }
 .session-settings-row .mode-select, .session-settings-row .model-select { width: 100%; }
 .session-settings-row .mode-select select, .session-settings-row .model-select select { width: 100%; max-width: none; }
 .session-settings-row .model-pill { max-width: none; }
@@ -2158,6 +2250,83 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
   border-radius: 5px;
 }
 
+.token-details-by-model {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.token-by-model-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 650;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.token-by-model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.token-by-model-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 5px 7px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.token-by-model-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.token-by-model-name {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: #38bdf8;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.token-by-model-total {
+  font-size: 11px;
+  color: #ffffff;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.token-by-model-metrics {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9.5px;
+  color: #64748b;
+}
+
+.token-by-model-metrics strong {
+  color: #cbd5e1;
+}
+
+.token-by-model-divider {
+  color: #475569;
+}
+
 .token-details-context-box {
   display: flex;
   flex-direction: column;
@@ -2259,4 +2428,292 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 @media (max-width: 640px) {
   .jira-issue-view { inset: 0 var(--panel-rail-width) 0 0; }
   .jira-issue-header-actions .secondary-button span { display: none; }
+}
+
+/* Assistant mark popover with model & token usage */
+.assistant-mark-container {
+  position: relative;
+  display: inline-flex;
+}
+
+.assistant-mark {
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.assistant-mark:hover,
+.assistant-mark:focus-visible {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+  transform: scale(1.05);
+}
+
+.assistant-mark-popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 6px;
+  z-index: 150;
+  width: 250px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(12px);
+  color: var(--text);
+  font-size: 12px;
+  animation: popover-fade-in 0.15s ease;
+}
+
+.assistant-popover-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--accent);
+}
+
+.assistant-popover-model {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-popover-body {
+  padding-top: 8px;
+  display: grid;
+  gap: 7px;
+}
+
+.assistant-popover-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11.5px;
+  color: var(--text-soft);
+}
+
+.assistant-popover-total strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.assistant-popover-stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--surface-soft);
+  font-size: 10.5px;
+  justify-content: space-around;
+}
+
+.assistant-popover-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.assistant-popover-stat-label {
+  font-size: 9.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.assistant-popover-stat-val {
+  font-weight: 650;
+  color: var(--text);
+}
+
+.assistant-popover-pending {
+  padding-top: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* Provider Session History Popover */
+.session-history-container {
+  position: relative;
+  display: inline-flex;
+}
+
+.session-history-trigger {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--muted);
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.session-history-trigger:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.session-history-counter {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
+  display: grid;
+  place-items: center;
+  border-radius: 99px;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 8.5px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.session-history-popover {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  z-index: 160;
+  width: 320px;
+  max-width: 90vw;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(14px);
+  color: var(--text);
+  animation: popover-fade-in 0.15s ease;
+}
+
+.session-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.session-history-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.session-history-count-badge {
+  padding: 2px 7px;
+  border-radius: 99px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.session-history-desc {
+  margin: 6px 0 10px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.session-history-list {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.session-history-item {
+  padding: 8px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  display: grid;
+  gap: 5px;
+  transition: border-color 0.15s ease;
+}
+
+.session-history-item--active {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-soft));
+}
+
+.session-history-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.session-history-item-id {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.session-history-num {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.session-history-item-id code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  color: var(--text-soft);
+  background: transparent;
+  padding: 0;
+}
+
+.session-history-active-pill {
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.session-history-item-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.session-history-time {
+  font-size: 10.5px;
+}
+
+.session-history-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.session-history-badge--context {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
 }

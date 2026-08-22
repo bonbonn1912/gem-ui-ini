@@ -49,11 +49,14 @@ import type {
   Todo as ContractTodo,
   TodoList as ContractTodoList,
   TodoPromptDraft as ContractTodoPromptDraft,
+  ModelTokenUsage as ContractModelTokenUsage,
   TokenCounters as ContractTokenCounters,
   UsageSnapshot as ContractUsageSnapshot,
 } from "../shared/contracts";
 
 export { generateSessionTitleFromPrompt } from "../shared/contracts";
+
+export type ModelTokenUsage = ContractModelTokenUsage;
 
 export type ExternalPromptContextRef = ContractExternalPromptContextRef;
 export type ExternalPromptContextSnapshot = ContractExternalPromptContextSnapshot;

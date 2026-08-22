@@ -308,6 +308,7 @@ export function GitLabPanel({
                     discussion={discussion}
                     mergeRequest={mergeRequest}
                     isReadOnly={isReadOnly}
+                    currentUsername={reviewState.connection.user.username}
                     onSendToGemini={handleSendToGemini}
                     delivery={delivery}
                     onResolve={(id, resolved) =>

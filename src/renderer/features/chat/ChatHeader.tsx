@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Icon } from "../../components/Icon";
 import { useDismissOnOutsideClick } from "../../hooks/useDismissOnOutsideClick";
 import type {
@@ -21,7 +21,35 @@ type ChatHeaderProps = {
 };
 
 function optionLabel(id: string): string {
+  if (id.toLowerCase() === "yolo") return "Developer";
   return id.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatModeName(id: string, name?: string): string {
+  if (id.toLowerCase() === "yolo" || name?.toLowerCase() === "yolo") {
+    return "Developer";
+  }
+  return name || optionLabel(id);
+}
+
+function getModeExplanation(id: string, description?: string): string {
+  if (description) return description;
+  switch (id.toLowerCase()) {
+    case "yolo":
+    case "developer":
+      return "Führt Aktionen und Befehle direkt ohne manuelle Freigabeabfragen aus.";
+    case "plan":
+      return "Erstellt strukturierte Pläne zur Aufgabenanalyse vor der Umsetzung.";
+    case "ask":
+      return "Reiner Frage- und Diskussionsmodus ohne Dateiänderungen oder Werkzeuge.";
+    case "auto_edit":
+      return "Automatisiertes Bearbeiten und Anpassen von Dateien im Workspace.";
+    case "default":
+    case "auto":
+      return "Standardmodus mit Sicherheitsabfragen für sensible Werkzeuge und Dateiänderungen.";
+    default:
+      return "Modus-spezifisches Verhalten für die Interaktion mit Gemini.";
+  }
 }
 
 /**
@@ -245,10 +273,12 @@ function TokenUsageDetails({
   chat,
   working,
   usage,
+  activeModel,
 }: {
   chat: ChatState;
   working: boolean;
   usage: UsagePresentation;
+  activeModel: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const timeoutRef = useRef<number | null>(null);
@@ -276,6 +306,18 @@ function TokenUsageDetails({
   const outTokens = sessionTokens?.output ?? lastTurnTokens?.output ?? null;
   const cachedTokens = sessionTokens?.cachedRead ?? sessionTokens?.cachedWrite ?? lastTurnTokens?.cachedRead ?? null;
   const totalTokens = sessionTokens?.total ?? lastTurnTokens?.total ?? null;
+
+  const byModel = snapshot?.session?.byModel && snapshot.session.byModel.length > 0
+    ? snapshot.session.byModel
+    : snapshot?.lastTurn?.byModel && snapshot.lastTurn.byModel.length > 0
+      ? snapshot.lastTurn.byModel
+      : (activeModel && (inTokens !== null || outTokens !== null)
+          ? [{
+              model: activeModel,
+              input: inTokens ?? 0,
+              output: outTokens ?? 0,
+            }]
+          : []);
 
   return (
     <div
@@ -339,6 +381,32 @@ function TokenUsageDetails({
             <strong>{totalTokens !== null ? `${exactNumber(totalTokens)} Token` : "–"}</strong>
           </div>
 
+          {byModel.length > 0 && (
+            <div className="token-details-by-model">
+              <div className="token-by-model-title">
+                <Icon name="sparkle" size={12} />
+                <span>Nutzung nach Modell</span>
+              </div>
+              <div className="token-by-model-list">
+                {byModel.map((item) => (
+                  <div key={item.model} className="token-by-model-row">
+                    <div className="token-by-model-header">
+                      <span className="token-by-model-name">{item.model}</span>
+                      <strong className="token-by-model-total">
+                        {exactNumber(item.input + item.output)} Token
+                      </strong>
+                    </div>
+                    <div className="token-by-model-metrics">
+                      <span>In: <strong>{exactNumber(item.input)}</strong></span>
+                      <span className="token-by-model-divider">·</span>
+                      <span>Out: <strong>{exactNumber(item.output)}</strong></span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {context && (
             <div className="token-details-context-box">
               <div className="token-details-context-header">
@@ -374,6 +442,137 @@ function TokenUsageDetails({
   );
 }
 
+function ProviderSessionHistoryButton({
+  session,
+  chat,
+}: {
+  session: AppSession;
+  chat: ChatState;
+}) {
+  const [open, setOpen] = useState(false);
+  const timeoutRef = useRef<number | null>(null);
+
+  const handleMouseEnter = () => {
+    if (timeoutRef.current) {
+      window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    setOpen(true);
+  };
+
+  const handleMouseLeave = () => {
+    timeoutRef.current = window.setTimeout(() => {
+      setOpen(false);
+    }, 200);
+  };
+
+  const historyEntries = useMemo(() => {
+    if (chat.providerSessions && chat.providerSessions.length > 0) {
+      return chat.providerSessions;
+    }
+    if (session.providerSessionId) {
+      return [
+        {
+          providerSessionId: session.providerSessionId,
+          startedAt: session.createdAt,
+          transferredContext: false,
+        },
+      ];
+    }
+    return [
+      {
+        providerSessionId: session.id,
+        startedAt: session.createdAt,
+        transferredContext: false,
+      },
+    ];
+  }, [chat.providerSessions, session.providerSessionId, session.createdAt, session.id]);
+
+  return (
+    <div
+      className="session-history-container"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
+      <button
+        type="button"
+        className="icon-button session-history-trigger"
+        title="Gemini-Sitzungsverlauf (Session-IDs & Kontext)"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-label="Gemini-Sitzungsverlauf anzeigen"
+      >
+        <Icon name="clock" size={15} />
+        {historyEntries.length > 1 && (
+          <span className="session-history-counter">{historyEntries.length}</span>
+        )}
+      </button>
+
+      {open && (
+        <div className="session-history-popover" role="dialog" aria-label="Gemini-Sitzungshistorie">
+          <header className="session-history-header">
+            <div className="session-history-title">
+              <Icon name="clock" size={14} />
+              <strong>Gemini-Sitzungsverlauf</strong>
+            </div>
+            <span className="session-history-count-badge">
+              {historyEntries.length} {historyEntries.length === 1 ? "Sitzung" : "Sitzungen"}
+            </span>
+          </header>
+
+          <p className="session-history-desc">
+            Übersicht aller Gemini-Prozessinstanzen dieser GeminUI-Session.
+          </p>
+
+          <div className="session-history-list">
+            {historyEntries.map((entry, index) => {
+              const isLatest = index === historyEntries.length - 1;
+              const dateStr = new Date(entry.startedAt).toLocaleString("de-DE", {
+                day: "2-digit",
+                month: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+              });
+
+              return (
+                <div
+                  key={`${entry.providerSessionId}-${index}`}
+                  className={`session-history-item ${isLatest ? "session-history-item--active" : ""}`}
+                >
+                  <div className="session-history-item-top">
+                    <div className="session-history-item-id">
+                      <span className="session-history-num">#{index + 1}</span>
+                      <code title={entry.providerSessionId}>
+                        {entry.providerSessionId.length > 28
+                          ? `${entry.providerSessionId.slice(0, 12)}…${entry.providerSessionId.slice(-10)}`
+                          : entry.providerSessionId}
+                      </code>
+                    </div>
+                    {isLatest && <span className="session-history-active-pill">Aktiv</span>}
+                  </div>
+
+                  <div className="session-history-item-bottom">
+                    <span className="session-history-time">Gestartet: {dateStr}</span>
+                    {entry.transferredContext && (
+                      <span
+                        className="session-history-badge session-history-badge--context"
+                        title="Mit übergebenem Kontext (komprimiert)"
+                      >
+                        <Icon name="brain" size={13} />
+                        <span>Kontext übergeben</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ChatHeader({
   project,
   session,
@@ -397,9 +596,13 @@ export function ChatHeader({
 
   const working = ["running", "awaiting_permission", "cancelling"].includes(chat.phase);
   const usage = usagePresentation(chat, working);
+  const activeModeObj = modes.find((mode) => mode.id === session.mode);
+  const activeModeName = activeModeObj
+    ? formatModeName(activeModeObj.id, activeModeObj.name)
+    : (session.mode ? formatModeName(session.mode) : null);
   const summaryLabel = [
     models.find((model) => model.id === session.model)?.name ?? session.model,
-    modes.find((mode) => mode.id === session.mode)?.name ?? session.mode,
+    activeModeName,
   ].filter(Boolean).join(" · ") || "Session";
 
   return (
@@ -419,7 +622,16 @@ export function ChatHeader({
       </div>
 
       <div className="header-actions">
-        <TokenUsageDetails chat={chat} working={working} usage={usage} />
+        <ProviderSessionHistoryButton
+          session={session}
+          chat={chat}
+        />
+        <TokenUsageDetails
+          chat={chat}
+          working={working}
+          usage={usage}
+          activeModel={session.model ?? models[0]?.id ?? null}
+        />
 
         {/* Model, mode and the project roots describe how this session runs.
             They are read far more often than they are changed, so the button
@@ -459,7 +671,28 @@ export function ChatHeader({
             </div>
 
             <div className="session-settings-row">
-              <span className="session-settings-label">Modus</span>
+              <div className="session-settings-label-with-info">
+                <span className="session-settings-label">Modus</span>
+                <span
+                  className="mode-info-trigger"
+                  tabIndex={0}
+                  role="button"
+                  aria-label="Informationen zu den verfügbaren Modi"
+                >
+                  <Icon name="info" size={13} />
+                  <span className="mode-info-tooltip" role="tooltip">
+                    <strong className="mode-info-tooltip-title">Gemini-Modi Übersicht</strong>
+                    <span className="mode-info-list">
+                      {modes.map((mode) => (
+                        <span key={mode.id} className="mode-info-item">
+                          <strong className="mode-info-name">{formatModeName(mode.id, mode.name)}</strong>
+                          <span className="mode-info-desc">{getModeExplanation(mode.id, mode.description)}</span>
+                        </span>
+                      ))}
+                    </span>
+                  </span>
+                </span>
+              </div>
               <label className="mode-select">
                 <span className="sr-only">Gemini-Modus</span>
                 <select
@@ -468,7 +701,9 @@ export function ChatHeader({
                   aria-label="Gemini-Modus"
                 >
                   {modes.map((mode) => (
-                    <option key={mode.id} value={mode.id} title={mode.description}>{mode.name}</option>
+                    <option key={mode.id} value={mode.id} title={mode.description}>
+                      {formatModeName(mode.id, mode.name)}
+                    </option>
                   ))}
                 </select>
                 <Icon name="chevron-down" size={13} />

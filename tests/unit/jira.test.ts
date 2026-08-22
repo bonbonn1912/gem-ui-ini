@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
+import type { ContextAttachmentService } from "../../src/main/context-attachments";
 import { JiraService } from "../../src/main/integrations/jira/jira-service";
 import {
   JiraRepository,
@@ -165,7 +166,7 @@ describe("JiraService attachIssue", () => {
 
       const jiraService = new JiraService({
         repository: jiraRepo,
-        contextAttachments: { ingestLink },
+        contextAttachments: { ingestLink } as unknown as ContextAttachmentService,
       });
 
       const projectRepo = new ProjectRepository(database);

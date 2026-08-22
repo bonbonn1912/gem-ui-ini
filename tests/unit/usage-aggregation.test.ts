@@ -250,6 +250,62 @@ describe("usage aggregation and persistence", () => {
       fixture.database.close();
     }
   });
+
+  it("accumulates token usage across multiple models in the same session", async () => {
+    const fixture = await createFixture();
+    try {
+      const turnA = randomUUID();
+      const turnB = randomUUID();
+
+      fixture.usage.recordTokens({
+        sessionId: fixture.sessionId,
+        turnId: turnA,
+        observation: {
+          kind: "tokens",
+          scope: "turn",
+          source: "gemini_meta_quota",
+          tokens: {
+            ...EMPTY_TOKEN_COUNTERS,
+            input: 100,
+            output: 20,
+            total: 120,
+            totalKind: "derived_input_plus_output",
+          },
+          byModel: [{ model: "gemini-2.5-pro", input: 100, output: 20 }],
+        },
+        occurredAt: timestamp,
+      });
+
+      const second = fixture.usage.recordTokens({
+        sessionId: fixture.sessionId,
+        turnId: turnB,
+        observation: {
+          kind: "tokens",
+          scope: "turn",
+          source: "gemini_meta_quota",
+          tokens: {
+            ...EMPTY_TOKEN_COUNTERS,
+            input: 50,
+            output: 10,
+            total: 60,
+            totalKind: "derived_input_plus_output",
+          },
+          byModel: [{ model: "gemini-2.5-flash", input: 50, output: 10 }],
+        },
+        occurredAt: timestamp,
+      });
+
+      expect(second?.session?.byModel).toEqual(
+        expect.arrayContaining([
+          { model: "gemini-2.5-pro", input: 100, output: 20 },
+          { model: "gemini-2.5-flash", input: 50, output: 10 },
+        ]),
+      );
+      expect(second?.session?.tokens.total).toBe(180);
+    } finally {
+      fixture.database.close();
+    }
+  });
 });
 
 interface Fixture {

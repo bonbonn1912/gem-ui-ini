@@ -1,7 +1,9 @@
 import type {
   Attachment,
+  ModelTokenUsage,
   PermissionOption,
   StreamEnvelope,
+  TokenCounters,
   UsageSnapshot,
 } from "../../types";
 
@@ -35,10 +37,21 @@ type TimelineBase = {
   seq?: number;
 };
 
+export type ProviderSessionHistoryEntry = {
+  providerSessionId: string;
+  startedAt: string;
+  transferredContext: boolean;
+};
+
 export type MessageItem = TimelineBase & {
   kind: "message";
   role: "user" | "assistant";
   text: string;
+  model?: string | null;
+  turnUsage?: {
+    tokens: TokenCounters;
+    byModel: ModelTokenUsage[];
+  };
   attachments: Array<{ id: string; name: string; mimeType?: string }>;
   contextAttachments: Array<{ id: string; kind: "file" | "link"; title: string }>;
   projectFiles?: Array<{ rootId: string; relativePath: string; rootLabel?: string; displayName?: string }>;
@@ -105,6 +118,7 @@ export type TimelineItem =
 export interface ChatState {
   sessionId: string | null;
   items: TimelineItem[];
+  providerSessions: ProviderSessionHistoryEntry[];
   lastSeq: number;
   phase: TurnPhase;
   activeTurnId: string | null;
@@ -122,6 +136,7 @@ export interface ChatState {
 export type ChatAction =
   | { type: "reset"; sessionId: string | null }
   | { type: "usage-snapshot"; snapshot: UsageSnapshot | null }
+  | { type: "provider-session-history"; entry: ProviderSessionHistoryEntry }
   | { type: "events"; events: StreamEnvelope[] }
   | {
       type: "optimistic-user";
@@ -142,6 +157,7 @@ export function createChatState(sessionId: string | null = null): ChatState {
   return {
     sessionId,
     items: [],
+    providerSessions: [],
     lastSeq: 0,
     phase: "idle",
     activeTurnId: null,
@@ -227,8 +243,25 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
   };
 
   switch (event.type) {
-    case "session.started":
-      return { ...next, phase: "running", error: null };
+    case "session.started": {
+      const pid = event.providerSessionId;
+      let providerSessions = next.providerSessions;
+      if (pid) {
+        const isFirst = providerSessions.length === 0;
+        const exists = providerSessions.some((s) => s.providerSessionId === pid);
+        if (!exists) {
+          providerSessions = [
+            ...providerSessions,
+            {
+              providerSessionId: pid,
+              startedAt: envelope.timestamp,
+              transferredContext: !isFirst,
+            },
+          ];
+        }
+      }
+      return { ...next, providerSessions, phase: "running", error: null };
+    }
     case "session.ready":
       return {
         ...next,
@@ -415,19 +448,62 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
       });
       return { ...next, items, phase: "running" };
     }
-    case "usage.updated":
-      // A newer snapshot always replaces the previous one atomically.
+    case "usage.updated": {
+      const lastTurn = event.snapshot.lastTurn;
+      let items = next.items;
+      if (lastTurn) {
+        items = next.items.map((item) => {
+          if (
+            item.kind === "message" &&
+            item.role === "assistant" &&
+            (item.turnId === lastTurn.turnId || (!item.turnId && !item.turnUsage))
+          ) {
+            return {
+              ...item,
+              model: lastTurn.byModel[0]?.model ?? item.model,
+              turnUsage: {
+                tokens: lastTurn.tokens,
+                byModel: lastTurn.byModel,
+              },
+            };
+          }
+          return item;
+        });
+      }
       return next.usage && next.usage.revision > event.snapshot.revision
-        ? next
-        : { ...next, usage: event.snapshot };
-    case "turn.completed":
+        ? { ...next, items }
+        : { ...next, items, usage: event.snapshot };
+    }
+    case "turn.completed": {
+      let items = closeStreamingItems(next.items);
+      const lastTurn = next.usage?.lastTurn;
+      if (lastTurn) {
+        const lastIdx = items.findLastIndex(
+          (item) => item.kind === "message" && item.role === "assistant",
+        );
+        if (lastIdx >= 0) {
+          const target = items[lastIdx] as MessageItem;
+          if (!target.turnUsage || target.turnId === lastTurn.turnId) {
+            items = [...items];
+            items[lastIdx] = {
+              ...target,
+              model: lastTurn.byModel[0]?.model ?? target.model,
+              turnUsage: {
+                tokens: lastTurn.tokens,
+                byModel: lastTurn.byModel,
+              },
+            };
+          }
+        }
+      }
       return {
         ...next,
-        items: closeStreamingItems(next.items),
+        items,
         phase: "idle",
         activeTurnId: null,
         error: null,
       };
+    }
     case "turn.cancelled":
       return {
         ...next,
@@ -504,6 +580,16 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return state.usage && state.usage.revision >= action.snapshot.revision
         ? state
         : { ...state, usage: action.snapshot };
+    case "provider-session-history": {
+      const exists = state.providerSessions.some(
+        (s) => s.providerSessionId === action.entry.providerSessionId,
+      );
+      if (exists) return state;
+      return {
+        ...state,
+        providerSessions: [...state.providerSessions, action.entry],
+      };
+    }
     case "events": {
       const events = [...action.events]
         .filter(

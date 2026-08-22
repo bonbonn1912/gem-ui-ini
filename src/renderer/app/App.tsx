@@ -180,9 +180,11 @@ function EmptyWorkspace({ onCreateProject }: { onCreateProject: () => void }) {
 
 function EmptyProject({
   project,
+  creatingSession = false,
   onCreateSession,
 }: {
   project: AppProject;
+  creatingSession?: boolean;
   onCreateSession: () => void;
 }) {
   return (
@@ -199,7 +201,15 @@ function EmptyProject({
       {/* Panels are one click away in the rail on the right, so this screen
           keeps the single action that has to be taken here. */}
       <div className="project-empty-actions">
-        <button className="primary-button" type="button" onClick={onCreateSession}><Icon name="plus" size={17} /> Neue Session</button>
+        <button
+          className="primary-button"
+          type="button"
+          onClick={onCreateSession}
+          disabled={creatingSession}
+          aria-busy={creatingSession}
+        >
+          {creatingSession ? <span className="mini-spinner" /> : <Icon name="plus" size={17} />} Neue Session
+        </button>
       </div>
     </main>
   );
@@ -355,14 +365,32 @@ function supportsGitArea(change: GitFileChange, area: DiffSelection["area"]): bo
     : change.worktreeStatus !== "." || change.untracked || change.conflict;
 }
 
+type AppTheme = "light" | "dark";
+
+function initialTheme(): AppTheme {
+  try {
+    const stored = window.localStorage.getItem("geminui.theme");
+    if (stored === "light" || stored === "dark") return stored;
+    if (typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches) {
+      return "dark";
+    }
+  } catch {
+    // Fall back to default
+  }
+  return "light";
+}
+
 export function App() {
   const [booting, setBooting] = useState(true);
   const [capabilities, setCapabilities] = useState<AppCapabilities | null>(null);
+  const [theme, setTheme] = useState<AppTheme>(initialTheme);
   const [projects, setProjects] = useState<AppProject[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<AppSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [creatingSession, setCreatingSession] = useState(false);
+  const creatingSessionRef = useRef(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -543,6 +571,19 @@ export function App() {
   }, [rightPanelWidth]);
 
   useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    try {
+      window.localStorage.setItem("geminui.theme", theme);
+    } catch {
+      // Preferences remain available in-memory without persistent storage.
+    }
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((current) => (current === "dark" ? "light" : "dark"));
+  };
+
+  useEffect(() => {
     const workspace = workspaceRef.current;
     if (!workspace || typeof ResizeObserver === "undefined") return;
     const fitToWorkspace = () => {
@@ -676,6 +717,7 @@ export function App() {
     const shortcut = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.key.toLocaleLowerCase() !== "n") return;
       event.preventDefault();
+      if (creatingSessionRef.current) return;
       if (activeProjectId) void createSession();
       else setProjectDialogOpen(true);
     };
@@ -700,7 +742,9 @@ export function App() {
   };
 
   const createSession = async () => {
-    if (!activeProjectId) return;
+    if (!activeProjectId || creatingSessionRef.current) return;
+    creatingSessionRef.current = true;
+    setCreatingSession(true);
     try {
       const session = await window.gemUi.sessions.create({ projectId: activeProjectId, clientRequestId: createClientRequestId() });
       setSessions((current) => [session, ...current]);
@@ -709,6 +753,9 @@ export function App() {
     } catch (error) {
       if (isProjectRootAccessError(error)) setProjectSettingsOpen(true);
       showError("Session konnte nicht angelegt werden", error, () => void createSession());
+    } finally {
+      creatingSessionRef.current = false;
+      setCreatingSession(false);
     }
   };
 
@@ -874,7 +921,18 @@ export function App() {
     historyMode?: "compressed" | "fresh",
   ) => {
     if (!activeSession) return;
+    const wasReconnected = Boolean(reconnectedSessions[activeSession.id]);
     setReconnectedSessions((prev) => ({ ...prev, [activeSession.id]: false }));
+    if (wasReconnected) {
+      dispatch({
+        type: "provider-session-history",
+        entry: {
+          providerSessionId: activeSession.providerSessionId || `reconnect-${Date.now()}`,
+          startedAt: new Date().toISOString(),
+          transferredContext: historyMode === "compressed",
+        },
+      });
+    }
     const clientRequestId = createClientRequestId();
     dispatch({
       type: "optimistic-user",
@@ -1199,6 +1257,7 @@ export function App() {
         sessions={sessions}
         activeSessionId={activeSessionId}
         sessionsLoading={sessionsLoading}
+        creatingSession={creatingSession}
         onClose={() => setSidebarOpen(false)}
         onCreateProject={() => setProjectDialogOpen(true)}
         onEditProject={() => setProjectSettingsOpen(true)}
@@ -1222,6 +1281,7 @@ export function App() {
               <button type="button" className="icon-button mobile-empty-menu" onClick={() => setSidebarOpen(true)} aria-label="Seitenleiste öffnen"><Icon name="menu" size={19} /></button>
               <EmptyProject
                 project={activeProject}
+                creatingSession={creatingSession}
                 onCreateSession={() => void createSession()}
               />
             </div>
@@ -1288,7 +1348,13 @@ export function App() {
               />
             ) : null}
             {rightPanelOpen && <RightPanelResizeHandle width={rightPanelWidth} onChange={setRightPanelWidth} />}
-            <PanelRail items={railItems} activeId={rightPanel} onToggle={toggleRightPanel} />
+            <PanelRail
+              items={railItems}
+              activeId={rightPanel}
+              theme={theme}
+              onToggle={toggleRightPanel}
+              onToggleTheme={toggleTheme}
+            />
           </div>
         ) : activeProject && activeSession ? (
           <div
@@ -1419,7 +1485,13 @@ export function App() {
               />
             )}
             {rightPanelOpen && <RightPanelResizeHandle width={rightPanelWidth} onChange={setRightPanelWidth} />}
-            <PanelRail items={railItems} activeId={rightPanel} onToggle={toggleRightPanel} />
+            <PanelRail
+              items={railItems}
+              activeId={rightPanel}
+              theme={theme}
+              onToggle={toggleRightPanel}
+              onToggleTheme={toggleTheme}
+            />
           </div>
         ) : null}
       </section>
