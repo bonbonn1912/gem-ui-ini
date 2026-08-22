@@ -30,7 +30,7 @@ export function selectBestReleaseAsset(
   if (!assets || assets.length === 0) return null;
 
   if (platform === "win32") {
-    // Windows: prefer Setup.exe or any .exe
+    // Windows: prefer Setup.exe or any .exe, followed by .msi or windows zip
     const setupExe = assets.find(
       (a) => a.name.toLowerCase().includes("setup") && a.name.toLowerCase().endsWith(".exe"),
     );
@@ -38,6 +38,14 @@ export function selectBestReleaseAsset(
 
     const anyExe = assets.find((a) => a.name.toLowerCase().endsWith(".exe"));
     if (anyExe) return anyExe.browser_download_url;
+
+    const msi = assets.find((a) => a.name.toLowerCase().endsWith(".msi"));
+    if (msi) return msi.browser_download_url;
+
+    const winZip = assets.find(
+      (a) => (a.name.toLowerCase().includes("win") || a.name.toLowerCase().includes("windows")) && a.name.toLowerCase().endsWith(".zip"),
+    );
+    if (winZip) return winZip.browser_download_url;
   } else if (platform === "darwin") {
     // macOS: prefer .dmg or .zip matching CPU architecture (arm64 for Apple Silicon, x64 for Intel)
     const isArm = arch === "arm64";
@@ -299,16 +307,76 @@ export class AppUpdateService {
     }
 
     if (this.#platform === "win32") {
-      const child = spawn(filePath, ["--updated"], {
-        detached: true,
-        stdio: "ignore",
-      });
-      child.unref();
+      let launched = false;
+      const lower = filePath.toLowerCase();
+
+      // If it's a zip file on Windows, extract it to find the executable
+      if (lower.endsWith(".zip")) {
+        const extractDir = path.join(os.tmpdir(), `geminui-win-update-${Date.now()}`);
+        fs.mkdirSync(extractDir, { recursive: true });
+        try {
+          const { execSync } = await import("node:child_process");
+          execSync(`powershell -command "Expand-Archive -Path '${filePath}' -DestinationPath '${extractDir}' -Force"`);
+          const files = fs.readdirSync(extractDir);
+          const exeFile = files.find((f) => f.toLowerCase().endsWith(".exe"));
+          if (exeFile) {
+            filePath = path.join(extractDir, exeFile);
+          }
+        } catch {
+          // fallback to opening original filePath
+        }
+      }
+
+      // 1. Try launching through electron's native shell.openPath (ShellExecuteExW).
+      // This is the most reliable method on Windows: handles UAC elevation, installers, and avoids EFTYPE/ENOEXEC.
+      try {
+        if (shell?.openPath) {
+          const errMsg = await shell.openPath(filePath);
+          if (!errMsg) {
+            launched = true;
+          }
+        }
+      } catch {
+        // fallback below
+      }
+
+      // 2. Fallback: cmd.exe start
+      if (!launched) {
+        try {
+          const child = spawn("cmd.exe", ["/c", "start", '""', `"${filePath}"`], {
+            detached: true,
+            stdio: "ignore",
+            windowsVerbatimArguments: true,
+          });
+          child.unref();
+          launched = true;
+        } catch {
+          // 3. Fallback: direct spawn with shell: true
+          try {
+            const child = spawn(filePath, ["--updated"], {
+              detached: true,
+              stdio: "ignore",
+              shell: true,
+            });
+            child.unref();
+            launched = true;
+          } catch (err: unknown) {
+            if (shell?.openPath) {
+              await shell.openPath(filePath);
+              launched = true;
+            } else {
+              throw err;
+            }
+          }
+        }
+      }
+
       if (app?.quit) {
         setTimeout(() => {
           app.quit();
-        }, 300);
+        }, 500);
       }
+      return;
     } else if (this.#platform === "darwin") {
       const currentPid = process.pid;
       const lower = filePath.toLowerCase();
