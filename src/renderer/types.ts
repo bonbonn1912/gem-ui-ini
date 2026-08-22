@@ -52,10 +52,28 @@ import type {
   ModelTokenUsage as ContractModelTokenUsage,
   TokenCounters as ContractTokenCounters,
   UsageSnapshot as ContractUsageSnapshot,
+  AppStats as ContractAppStats,
+  GetStatsInput as ContractGetStatsInput,
+  StatsTimeRange as ContractStatsTimeRange,
+  StatsGranularity as ContractStatsGranularity,
+  StatsSummary as ContractStatsSummary,
+  StatsTimeSeriesPoint as ContractStatsTimeSeriesPoint,
+  ModelComparisonItem as ContractModelComparisonItem,
+  ExportSessionInput as ContractExportSessionInput,
+  ExportSessionResult as ContractExportSessionResult,
 } from "../shared/contracts";
 
 export { generateSessionTitleFromPrompt } from "../shared/contracts";
 
+export type ExportSessionInput = ContractExportSessionInput;
+export type ExportSessionResult = ContractExportSessionResult;
+export type AppStats = ContractAppStats;
+export type GetStatsInput = ContractGetStatsInput;
+export type StatsTimeRange = ContractStatsTimeRange;
+export type StatsGranularity = ContractStatsGranularity;
+export type StatsSummary = ContractStatsSummary;
+export type StatsTimeSeriesPoint = ContractStatsTimeSeriesPoint;
+export type ModelComparisonItem = ContractModelComparisonItem;
 export type ModelTokenUsage = ContractModelTokenUsage;
 
 export type ExternalPromptContextRef = ContractExternalPromptContextRef;

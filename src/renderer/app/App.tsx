@@ -27,6 +27,7 @@ import { useGitProjectStatus } from "../features/git/useGitProjectStatus";
 import { ProjectDialog } from "../features/projects/ProjectDialog";
 import { ProjectSettingsDialog } from "../features/projects/ProjectSettingsDialog";
 import { Sidebar } from "../features/sessions/Sidebar";
+import { SessionExportDialog } from "../features/sessions/SessionExportDialog";
 import { TodosPanel } from "../features/todos/TodosPanel";
 import { useTodos } from "../features/todos/useTodos";
 import { GitLabPanel, type ReviewDelivery } from "../features/gitlab/GitLabPanel";
@@ -34,6 +35,7 @@ import { JiraIssueView } from "../features/jira/JiraIssueView";
 import { useJiraIssue } from "../features/jira/useJiraIssue";
 import { McpPanel } from "../features/mcp/McpPanel";
 import { SkillsPanel } from "../features/skills/SkillsPanel";
+import { StatisticsView } from "../features/stats/StatisticsView";
 import {
   generateSessionTitleFromPrompt,
   type AppCapabilities,
@@ -394,8 +396,10 @@ export function App() {
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [exportingSession, setExportingSession] = useState<AppSession | null>(null);
   const [rightPanel, setRightPanel] = useState<RightPanel>(initialRightPanel);
   const [rightPanelWidth, setRightPanelWidth] = useState(initialRightPanelWidth);
+  const [statsOpen, setStatsOpen] = useState(false);
   const [gitSelection, setGitSelection] = useState<DiffSelection | null>(null);
   const [gitRefreshToken, setGitRefreshToken] = useState(0);
   const [gitPreviewTrigger, setGitPreviewTrigger] = useState<GitPreviewTrigger | null>(null);
@@ -412,6 +416,7 @@ export function App() {
     projectFiles: ProjectFileSearchEntry[];
     externalContextRefs: ExternalPromptContextRef[];
   } | null>(null);
+  const [planTurnBySession, setPlanTurnBySession] = useState<Record<string, string>>({});
   const [chat, dispatch] = useReducer(chatReducer, null, () => createChatState());
   const gitStatusRef = useRef<GitProjectStatus | null>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
@@ -677,6 +682,12 @@ export function App() {
         ].includes(event.type))) {
           setGitRefreshToken((currentToken) => currentToken + 1);
         }
+        if (activeSession?.mode === "plan") {
+          const lastTurnId = [...events].reverse().find((e) => e.turnId)?.turnId;
+          if (lastTurnId) {
+            setPlanTurnBySession((prev) => ({ ...prev, [activeSessionId]: lastTurnId }));
+          }
+        }
       },
       (snapshot) => {
         // Restores the last known usage state right after a restart, even when
@@ -762,6 +773,7 @@ export function App() {
   const updateProject = async (input: {
     name: string;
     additionalRootPaths: string[];
+    statsEnabled?: boolean;
   }) => {
     if (!activeProject) return;
     let updated = activeProject;
@@ -769,6 +781,20 @@ export function App() {
       updated = await window.gemUi.projects.rename({
         projectId: updated.id,
         name: input.name,
+        clientRequestId: createClientRequestId(),
+      });
+      setProjects((current) =>
+        current.map((project) => project.id === updated.id ? updated : project),
+      );
+    }
+
+    if (
+      input.statsEnabled !== undefined &&
+      input.statsEnabled !== Boolean(updated.statsEnabled)
+    ) {
+      updated = await window.gemUi.projects.setStatsEnabled({
+        projectId: updated.id,
+        enabled: input.statsEnabled,
         clientRequestId: createClientRequestId(),
       });
       setProjects((current) =>
@@ -797,6 +823,21 @@ export function App() {
       setSessions((current) =>
         current.map((session) => ({ ...session, status: "roots_changed" })),
       );
+    }
+  };
+
+  const toggleProjectStats = async (projectId: string, enabled: boolean) => {
+    try {
+      const updated = await window.gemUi.projects.setStatsEnabled({
+        projectId,
+        enabled,
+        clientRequestId: createClientRequestId(),
+      });
+      setProjects((current) =>
+        current.map((project) => project.id === updated.id ? updated : project),
+      );
+    } catch (err) {
+      showError("Statistikeinstellung konnte nicht geändert werden", err);
     }
   };
 
@@ -832,6 +873,12 @@ export function App() {
         ? await window.gemUi.sessions.setMode({ sessionId, modeId, clientRequestId: createClientRequestId() })
         : await window.gemUi.sessions.update({ sessionId, mode: modeId, clientRequestId: createClientRequestId() });
       setSessions((current) => current.map((session) => session.id === sessionId ? updated : session));
+      // Always clear any pending plan decision when changing mode in the UI
+      setPlanTurnBySession((prev) => {
+        const next = { ...prev };
+        delete next[sessionId];
+        return next;
+      });
     } catch (error) {
       showError("Gemini-Modus konnte nicht geändert werden", error);
     }
@@ -972,6 +1019,18 @@ export function App() {
         ...(historyMode ? { historyMode } : {}),
       });
       dispatch({ type: "turn-started", turnId: result.turnId });
+      if (activeSession.mode === "plan" && result.turnId) {
+        setPlanTurnBySession((prev) => ({
+          ...prev,
+          [activeSession.id]: result.turnId,
+        }));
+      } else {
+        setPlanTurnBySession((prev) => {
+          const next = { ...prev };
+          delete next[activeSession.id];
+          return next;
+        });
+      }
       // The prepared review snapshots are consumed once, so they must not stay
       // attached to the next message.
       if (externalContextRefs.length) setPendingExternalContexts([]);
@@ -1211,22 +1270,22 @@ export function App() {
     if (effectivePhase !== "idle") return false;
     if (chat.items.length === 0) return false;
 
+    const recordedPlanTurnId = planTurnBySession[activeSession.id];
+    if (!recordedPlanTurnId) return false;
+
     for (let i = chat.items.length - 1; i >= 0; i--) {
       const item = chat.items[i]!;
       if (item.kind === "notice") return false;
       if (item.kind === "message" && item.role === "user") {
         return false;
       }
-      if (item.kind === "tool") {
-        return false;
-      }
       if (item.kind === "message" && item.role === "assistant") {
         if (item.streaming) return false;
-        return true;
+        return item.turnId === recordedPlanTurnId;
       }
     }
     return false;
-  }, [activeSession?.mode, effectivePhase, chat.items]);
+  }, [activeSession?.id, activeSession?.mode, effectivePhase, chat.items, planTurnBySession]);
 
   if (booting) return <LoadingScreen />;
   if (fatalError) {
@@ -1274,15 +1333,40 @@ export function App() {
         onClose={() => setSidebarOpen(false)}
         onCreateProject={() => setProjectDialogOpen(true)}
         onEditProject={() => setProjectSettingsOpen(true)}
-        onSelectProject={(projectId) => { setActiveProjectId(projectId); setSidebarOpen(false); }}
-        onCreateSession={() => void createSession()}
-        onSelectSession={(sessionId) => { setActiveSessionId(sessionId); setSidebarOpen(false); }}
+        onSelectProject={(projectId) => { setActiveProjectId(projectId); setStatsOpen(false); setSidebarOpen(false); }}
+        onCreateSession={() => { setStatsOpen(false); void createSession(); }}
+        onSelectSession={(sessionId) => { setActiveSessionId(sessionId); setStatsOpen(false); setSidebarOpen(false); }}
         onUpdateSession={(sessionId, patch) => void updateSession(sessionId, patch)}
         onDeleteSession={(sessionId) => void deleteSession(sessionId)}
+        onExportSession={(session) => setExportingSession(session)}
       />
 
       <section className="main-pane">
-        {!projects.length ? (
+        {statsOpen ? (
+          <div className="chat-workspace stats-workspace">
+            <StatisticsView
+              activeProject={activeProject}
+              onEnableProjectStats={
+                activeProject
+                  ? () => toggleProjectStats(activeProject.id, true)
+                  : undefined
+              }
+              onClose={() => setStatsOpen(false)}
+            />
+            <PanelRail
+              items={railItems}
+              activeId={rightPanel}
+              theme={theme}
+              statsOpen={statsOpen}
+              onToggle={(panel) => {
+                setStatsOpen(false);
+                toggleRightPanel(panel);
+              }}
+              onToggleTheme={toggleTheme}
+              onToggleStats={() => setStatsOpen(false)}
+            />
+          </div>
+        ) : !projects.length ? (
           <EmptyWorkspace onCreateProject={() => setProjectDialogOpen(true)} />
         ) : activeProject && !activeSession ? (
           <div
@@ -1365,8 +1449,10 @@ export function App() {
               items={railItems}
               activeId={rightPanel}
               theme={theme}
+              statsOpen={statsOpen}
               onToggle={toggleRightPanel}
               onToggleTheme={toggleTheme}
+              onToggleStats={() => setStatsOpen(true)}
             />
           </div>
         ) : activeProject && activeSession ? (
@@ -1503,8 +1589,10 @@ export function App() {
               items={railItems}
               activeId={rightPanel}
               theme={theme}
+              statsOpen={statsOpen}
               onToggle={toggleRightPanel}
               onToggleTheme={toggleTheme}
+              onToggleStats={() => setStatsOpen(true)}
             />
           </div>
         ) : null}
@@ -1539,6 +1627,13 @@ export function App() {
         onClose={() => setLivePreviewUrl(null)}
         onOpenExternal={openInExternalBrowser}
       />
+
+      {exportingSession && (
+        <SessionExportDialog
+          session={exportingSession}
+          onClose={() => setExportingSession(null)}
+        />
+      )}
 
       {uiError && (
         <div className="error-toast" role="alert">

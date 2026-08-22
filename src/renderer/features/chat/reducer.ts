@@ -106,6 +106,8 @@ export type NoticeItem = TimelineBase & {
   kind: "notice";
   tone: "neutral" | "warning" | "error";
   text: string;
+  /** Technische Rohdaten zum Aufklappen, etwa der JSON-RPC-Fehlerrumpf. */
+  detail?: string;
 };
 
 export type TimelineItem =
@@ -195,6 +197,22 @@ function payloadError(error: unknown, fallback: string): string {
     if (typeof message === "string") return message;
   }
   return fallback;
+}
+
+/**
+ * Die eigentliche Aussage eines ACP-Fehlers steckt oft nicht in `message`,
+ * sondern in `details` — die Meldung selbst ist dann nur "Internal error".
+ */
+function payloadErrorDetail(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const details = (error as { details?: unknown }).details;
+  if (details === undefined || details === null) return undefined;
+  if (typeof details === "string") return details.trim() || undefined;
+  try {
+    return JSON.stringify(details, null, 2);
+  } catch {
+    return undefined;
+  }
 }
 
 function mergeTool(
@@ -524,6 +542,13 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
       };
     case "turn.failed": {
       const message = payloadError(event.error, "Der Turn ist fehlgeschlagen.");
+      const detail = payloadErrorDetail(event.error);
+      /**
+       * "warning" heißt: Die Antwort steht bereits vollständig darüber, der
+       * Fehler kam erst beim Abschluss des Turns. Dann bleibt die Session
+       * benutzbar, und die Meldung ist ein Hinweis statt eines Fehlschlags.
+       */
+      const afterAnswer = event.severity === "warning";
       return {
         ...next,
         items: [
@@ -531,16 +556,19 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
           {
             id: `failed:${envelope.seq}`,
             kind: "notice",
-            tone: "error",
-            text: message,
+            tone: afterAnswer ? "warning" : "error",
+            text: afterAnswer
+              ? `Gemini hat den Turn mit einer Fehlermeldung abgeschlossen; die Antwort oben ist vollständig angekommen. ${message}`
+              : message,
+            ...(detail ? { detail } : {}),
             turnId: envelope.turnId,
             timestamp: envelope.timestamp,
             seq: envelope.seq,
           },
         ],
-        phase: "error",
+        phase: afterAnswer ? "idle" : "error",
         activeTurnId: null,
-        error: message,
+        error: afterAnswer ? next.error : message,
       };
     }
     case "process.disconnected": {

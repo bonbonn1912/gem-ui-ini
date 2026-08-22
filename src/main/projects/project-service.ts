@@ -76,6 +76,10 @@ export class ProjectService {
     return this.projects.getById(projectId);
   }
 
+  getById(projectId: string): ProjectWithRoots {
+    return this.projects.getById(projectId);
+  }
+
   getRootForReauthorization(projectId: string, rootId: string): ProjectRoot {
     const project = this.projects.getById(projectId);
     const root = project.roots.find((candidate) => candidate.id === rootId);
@@ -171,6 +175,7 @@ export class ProjectService {
       rootFingerprint: resolved.fingerprint,
       approvalModeId: null,
       approvalModeState: "gemini_default",
+      statsEnabled: false,
       archived: false,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -258,6 +263,10 @@ export class ProjectService {
       input.state,
       this.now().toISOString(),
     );
+  }
+
+  setStatsEnabled(projectId: string, enabled: boolean): ProjectWithRoots {
+    return this.projects.setStatsEnabled(projectId, enabled);
   }
 
   async getCurrentAccess(projectId: string): Promise<ProjectAccess> {

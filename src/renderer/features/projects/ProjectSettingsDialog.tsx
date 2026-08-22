@@ -17,6 +17,7 @@ type ProjectSettingsDialogProps = {
   onSave: (input: {
     name: string;
     additionalRootPaths: string[];
+    statsEnabled?: boolean;
   }) => Promise<void>;
   onDelete: () => Promise<void>;
 };
@@ -61,6 +62,7 @@ export function ProjectSettingsDialog({
   const [authorizedRootIds, setAuthorizedRootIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [statsEnabled, setStatsEnabled] = useState(false);
 
   const primary = useMemo(
     () => project?.roots.find((root) => root.kind === "primary") ?? null,
@@ -70,6 +72,7 @@ export function ProjectSettingsDialog({
   useEffect(() => {
     if (!open || !project) return;
     setName(project.name);
+    setStatsEnabled(Boolean(project.statsEnabled));
     setAdditional(
       project.roots
         .filter((root) => root.kind === "additional")
@@ -163,6 +166,7 @@ export function ProjectSettingsDialog({
       await onSave({
         name: name.trim(),
         additionalRootPaths: additional.map((root) => root.path),
+        statsEnabled,
       });
       const nextModeId = selectedModeId || null;
       if (approvalPolicy && nextModeId !== approvalPolicy.modeId) {
@@ -358,6 +362,23 @@ export function ProjectSettingsDialog({
                 </div>
               </div>
             )}
+          </div>
+
+          <div className="approval-policy-field stats-tracking-field">
+            <div className="field-heading">
+              <div>
+                <span>Statistik- & Nutzungsverfolgung</span>
+                <small>Erfasst Tokenverbrauch, Latenzen und Aktivitätsdaten für dieses Projekt</small>
+              </div>
+            </div>
+            <label className="stats-toggle-label">
+              <input
+                type="checkbox"
+                checked={statsEnabled}
+                onChange={(event) => setStatsEnabled(event.target.checked)}
+              />
+              <span>Statistiken für dieses Projekt erfassen (Standard: Aus)</span>
+            </label>
           </div>
 
           <div className="folder-field">

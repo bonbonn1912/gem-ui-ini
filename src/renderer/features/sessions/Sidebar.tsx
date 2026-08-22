@@ -23,6 +23,7 @@ type SidebarProps = {
   onSelectSession: (sessionId: string) => void;
   onUpdateSession: (sessionId: string, patch: Partial<SessionPatch>) => void;
   onDeleteSession: (sessionId: string) => void;
+  onExportSession: (session: AppSession) => void;
 };
 
 function relativeTime(value: string): string {
@@ -83,6 +84,7 @@ function SessionRow({
   onSelect,
   onUpdate,
   onDelete,
+  onExport,
 }: {
   session: AppSession;
   active: boolean;
@@ -91,6 +93,7 @@ function SessionRow({
   onSelect: () => void;
   onUpdate: (patch: Partial<SessionPatch>) => void;
   onDelete: () => void;
+  onExport: () => void;
 }) {
   const menuRef = useDismissOnOutsideClick<HTMLDetailsElement>();
   const [renaming, setRenaming] = useState(false);
@@ -149,6 +152,18 @@ function SessionRow({
         </span>
         {session.pinned && <Icon name="pin" size={12} className="session-pin" />}
       </button>
+      <button
+        type="button"
+        className="session-hover-btn"
+        title="Chat exportieren (PDF / PNG)"
+        aria-label={`Chat exportieren für ${session.title}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          onExport();
+        }}
+      >
+        <Icon name="download" size={14} />
+      </button>
       <details ref={menuRef} className="session-menu">
         <summary aria-label={`Aktionen für ${session.title}`}><Icon name="more" size={17} /></summary>
         <div className="session-menu-popover">
@@ -158,6 +173,9 @@ function SessionRow({
           </button>
           <button type="button" onClick={() => onUpdate({ archived: !session.archived })}>
             <Icon name="archive" size={14} /> {session.archived ? "Wiederherstellen" : "Archivieren"}
+          </button>
+          <button type="button" onClick={onExport}>
+            <Icon name="download" size={14} /> Exportieren…
           </button>
           <button className="danger-menu-item" type="button" onClick={onDelete}>
             <Icon name="trash" size={14} /> Löschen
@@ -177,6 +195,7 @@ function SessionGroup({
   onSelectSession,
   onUpdateSession,
   onDeleteSession,
+  onExportSession,
 }: {
   label: string;
   sessions: AppSession[];
@@ -186,6 +205,7 @@ function SessionGroup({
   onSelectSession: (sessionId: string) => void;
   onUpdateSession: (sessionId: string, patch: Partial<SessionPatch>) => void;
   onDeleteSession: (sessionId: string) => void;
+  onExportSession: (session: AppSession) => void;
 }) {
   if (!sessions.length) return null;
   return (
@@ -202,6 +222,7 @@ function SessionGroup({
             onSelect={() => onSelectSession(session.id)}
             onUpdate={(patch) => onUpdateSession(session.id, patch)}
             onDelete={() => onDeleteSession(session.id)}
+            onExport={() => onExportSession(session)}
           />
         ))}
       </div>
@@ -226,6 +247,7 @@ export function Sidebar({
   onSelectSession,
   onUpdateSession,
   onDeleteSession,
+  onExportSession,
 }: SidebarProps) {
   const [query, setQuery] = useState("");
   const [searchContent, setSearchContent] = useState(false);
@@ -379,6 +401,7 @@ export function Sidebar({
                 onSelectSession={onSelectSession}
                 onUpdateSession={onUpdateSession}
                 onDeleteSession={onDeleteSession}
+                onExportSession={onExportSession}
               />
               <SessionGroup
                 label={pinned.length ? "Zuletzt" : "Sessions"}
@@ -389,6 +412,7 @@ export function Sidebar({
                 onSelectSession={onSelectSession}
                 onUpdateSession={onUpdateSession}
                 onDeleteSession={onDeleteSession}
+                onExportSession={onExportSession}
               />
               {archived.length > 0 && (
                 <details className="archived-sessions">
@@ -402,6 +426,7 @@ export function Sidebar({
                     onSelectSession={onSelectSession}
                     onUpdateSession={onUpdateSession}
                     onDeleteSession={onDeleteSession}
+                    onExportSession={onExportSession}
                   />
                 </details>
               )}

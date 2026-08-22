@@ -12,6 +12,7 @@ export type IconName =
   | "chat"
   | "changes"
   | "checklist"
+  | "chart"
   | "clock"
   | "copy"
   | "download"
@@ -43,8 +44,10 @@ export type IconName =
   | "sun"
   | "tool"
   | "trash"
+  | "trending-up"
   | "warning"
-  | "x";
+  | "x"
+  | "zap";
 
 export interface IconProps extends SVGProps<SVGSVGElement> {
   name: IconName;
@@ -362,6 +365,28 @@ export function Icon({ name, size = 18, ...props }: IconProps) {
       return (
         <svg {...common}>
           <path d="m6 6 12 12M18 6 6 18" />
+        </svg>
+      );
+    case "chart":
+      return (
+        <svg {...common}>
+          <path d="M3 3v18h18" />
+          <path d="M18 17V9" />
+          <path d="M13 17V5" />
+          <path d="M8 17v-3" />
+        </svg>
+      );
+    case "trending-up":
+      return (
+        <svg {...common}>
+          <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+          <polyline points="17 6 23 6 23 12" />
+        </svg>
+      );
+    case "zap":
+      return (
+        <svg {...common}>
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
         </svg>
       );
   }

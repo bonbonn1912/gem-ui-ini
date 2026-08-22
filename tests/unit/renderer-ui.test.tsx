@@ -46,6 +46,7 @@ const project: AppProject = {
   rootFingerprint: "0".repeat(64),
   approvalModeId: null,
   approvalModeState: "gemini_default",
+  statsEnabled: false,
   archived: false,
   roots: [
     { id: "root-1", projectId: "project-1", kind: "primary", path: "/work/portal", realPath: "/work/portal", label: "portal", sortOrder: 0, createdAt: "2026-08-20T10:00:00.000Z", updatedAt: "2026-08-20T10:00:00.000Z" },
@@ -152,6 +153,10 @@ function createApi(options: {
         availableModes: [],
         message: null,
       }),
+      setStatsEnabled: vi.fn().mockImplementation(async (input) => ({
+        ...project,
+        statsEnabled: input.enabled,
+      })),
       delete: vi.fn().mockResolvedValue(undefined),
     },
     sessions: {
@@ -174,6 +179,7 @@ function createApi(options: {
         query: "",
         results: [],
       }),
+      export: vi.fn().mockResolvedValue({ canceled: false, filePath: "/tmp/chat.pdf" }),
     },
     attachments: {
       pickImages: vi.fn().mockResolvedValue([]),
@@ -257,6 +263,45 @@ function createApi(options: {
     },
     integrations: {
       listProject: vi.fn().mockResolvedValue([]),
+    },
+    stats: {
+      get: vi.fn().mockResolvedValue({
+        summary: {
+          totalTokens: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          thoughtTokens: 0,
+          avgDurationMs: 0,
+          totalDurationMs: 0,
+          totalTurns: 0,
+          totalLinesAdded: 0,
+          totalLinesDeleted: 0,
+          planAccepted: 0,
+          planRejected: 0,
+          planTotal: 0,
+          planAcceptanceRate: 0,
+          cachedTokens: 0,
+          cacheHitRate: 0,
+          inputPercentage: 0,
+          outputPercentage: 0,
+          filesCreated: 0,
+          filesModified: 0,
+          filesDeleted: 0,
+          skillsUsedTotal: 0,
+          mcpUsedTotal: 0,
+          gitActionsTotal: 0,
+          shellCommandsTotal: 0,
+          topSkills: [],
+          topMcpTools: [],
+          topGitActions: [],
+          topShellCommands: [],
+          activeProjectsCount: 0,
+          activeSessionsCount: 0,
+        },
+        timeSeries: [],
+        modelComparison: [],
+        availableModels: [],
+      }),
     },
     agentExtensions: {
       listSkills: vi.fn().mockResolvedValue({ projectId: project.id, skills: [] }),
@@ -1427,6 +1472,59 @@ describe("Renderer UI", () => {
     );
   });
 
+  it("zeigt beim Wechseln von Developer zu Plan Modus nicht direkt die Plan-Entscheidungs-Buttons an", async () => {
+    const user = userEvent.setup();
+    const { api, emit } = createApi();
+    const devSession = {
+      ...session,
+      id: "session-dev",
+      title: "Feature bauen",
+      mode: "developer",
+      status: "idle" as const,
+      availableModes: [
+        { id: "developer", name: "developer", description: "Developer mode" },
+        { id: "plan", name: "plan", description: "Planning mode" },
+      ],
+    };
+    vi.mocked(api.sessions.list).mockResolvedValue([devSession]);
+    vi.mocked(api.sessions.update).mockResolvedValue({
+      ...devSession,
+      mode: "plan",
+    });
+    window.gemUi = api;
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Feature bauen" });
+
+    // Assistant answers in developer mode
+    await emit([
+      {
+        seq: 1,
+        sessionId: "session-dev",
+        turnId: "turn-dev-1",
+        timestamp: "2026-08-20T12:00:01.000Z",
+        event: { type: "message.assistant.delta", messageId: "assistant-1", delta: "Code wurde geändert." },
+      },
+      {
+        seq: 2,
+        sessionId: "session-dev",
+        turnId: "turn-dev-1",
+        timestamp: "2026-08-20T12:00:02.000Z",
+        event: { type: "turn.completed", stopReason: "completed" },
+      },
+    ]);
+
+    expect(screen.queryByRole("button", { name: "Plan akzeptieren" })).toBeNull();
+
+    // Switch mode from developer to plan
+    const modeSelect = await screen.findByRole("combobox", { name: "Gemini-Modus" });
+    await user.selectOptions(modeSelect, "plan");
+
+    // Plan decision buttons must NOT appear
+    expect(screen.queryByRole("button", { name: "Plan akzeptieren" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Plan ablehnen" })).toBeNull();
+  });
+
   it("rendert Markdown-Dateien wie plan.md formatiert und bietet einen Toggle für Raw Markdown", async () => {
     const user = userEvent.setup();
     const { api } = createApi({ contextList: populatedContextList() });
@@ -1814,10 +1912,89 @@ describe("Renderer UI", () => {
     window.gemUi = api;
     render(<App />);
 
-    await screen.findByRole("heading", { name: "Login reparieren" });
-
     const infoButton = await screen.findByRole("button", { name: /Update verfügbar/i });
     expect(infoButton).toHaveClass("app-info-trigger-button--update-available");
     expect(infoButton.querySelector(".app-info-trigger-icon--pulse")).toBeInTheDocument();
+  });
+
+  it("öffnet Statistiken und zeigt Aktivierungs-Aufforderung wenn Tracking deaktiviert ist und keine Daten vorliegen", async () => {
+    const user = userEvent.setup();
+    const { api } = createApi();
+    window.gemUi = api;
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Login reparieren" });
+
+    // Open statistics via bottom rail button
+    const statsBtn = screen.getByRole("button", { name: "Statistiken öffnen" });
+    await user.click(statsBtn);
+
+    expect(await screen.findByRole("main", { name: "App-Statistiken" })).toBeInTheDocument();
+    expect(screen.getByText("Statistiken sind aktuell nicht aktiviert")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Statistiken jetzt aktivieren/i })).toBeInTheDocument();
+
+    // Click activation button
+    await user.click(screen.getByRole("button", { name: /Statistiken jetzt aktivieren/i }));
+    expect(api.projects.setStatsEnabled).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: project.id,
+        enabled: true,
+      }),
+    );
+  });
+
+  it("zeigt Warnbalken wenn Statistik-Tracking deaktiviert ist aber historische Daten vorliegen", async () => {
+    const user = userEvent.setup();
+    const { api } = createApi();
+    api.stats.get = vi.fn().mockResolvedValue({
+      summary: {
+        totalTokens: 12500,
+        inputTokens: 10000,
+        outputTokens: 2500,
+        thoughtTokens: 0,
+        cachedTokens: 2500,
+        cacheHitRate: 20,
+        inputPercentage: 80,
+        outputPercentage: 20,
+        avgDurationMs: 850,
+        totalDurationMs: 4250,
+        totalTurns: 5,
+        totalLinesAdded: 45,
+        totalLinesDeleted: 10,
+        planAccepted: 2,
+        planRejected: 0,
+        planTotal: 2,
+        planAcceptanceRate: 100,
+        filesCreated: 3,
+        filesModified: 5,
+        filesDeleted: 1,
+        skillsUsedTotal: 2,
+        mcpUsedTotal: 1,
+        gitActionsTotal: 4,
+        shellCommandsTotal: 6,
+        topSkills: [{ name: "agy-customizations", count: 2 }],
+        topMcpTools: [{ name: "github:create_issue", count: 1 }],
+        topGitActions: [{ name: "commit", count: 2 }, { name: "diff", count: 2 }],
+        topShellCommands: [{ name: "npm test", count: 4 }, { name: "git commit", count: 2 }],
+        activeProjectsCount: 1,
+        activeSessionsCount: 1,
+      },
+      timeSeries: [],
+      modelComparison: [],
+      availableModels: ["gemini-2.5-pro", "gemini-2.5-flash"],
+    });
+    window.gemUi = api;
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Login reparieren" });
+
+    const statsBtn = screen.getByRole("button", { name: "Statistiken öffnen" });
+    await user.click(statsBtn);
+
+    expect(await screen.findByRole("main", { name: "App-Statistiken" })).toBeInTheDocument();
+    expect(screen.getByText(/Statistik-Erfassung ist für dieses Projekt aktuell deaktiviert/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Jetzt wieder aktivieren/i })).toBeInTheDocument();
+    expect(screen.getByText("12.5k")).toBeInTheDocument(); // total tokens rendered in KPI (12500 -> 12.5k)
+    expect(screen.getByText(/⚡ Cache:/i)).toBeInTheDocument();
   });
 });

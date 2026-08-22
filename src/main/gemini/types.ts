@@ -1,3 +1,4 @@
+import type { JsonValue } from "../../shared/contracts";
 import type {
   UsageContextObservation,
   UsageTokenObservation,
@@ -230,7 +231,13 @@ export type NormalizedAgentEvent =
         readonly models?: SessionModelSnapshot;
       }
     >
-  | Event<"session.failed", { readonly message: string }>
+  | Event<
+      "session.failed",
+      {
+        readonly message: string;
+        readonly details?: Record<string, JsonValue>;
+      }
+    >
   | Event<"message.user", { readonly content: NormalizedContent; readonly messageId?: string }>
   | Event<
       "message.assistant.delta",
@@ -268,7 +275,13 @@ export type NormalizedAgentEvent =
       }
     >
   | Event<"turn.cancelled", Record<string, never>>
-  | Event<"turn.failed", { readonly message: string }>
+  | Event<
+      "turn.failed",
+      {
+        readonly message: string;
+        readonly details?: Record<string, JsonValue>;
+      }
+    >
   | Event<
       "process.disconnected",
       {

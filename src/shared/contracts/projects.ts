@@ -69,6 +69,7 @@ export const AppProjectSchema = z
     rootFingerprint: RootFingerprintSchema,
     approvalModeId: z.string().trim().min(1).max(100).nullable(),
     approvalModeState: ProjectApprovalModeStateSchema,
+    statsEnabled: z.boolean().default(false),
     archived: z.boolean(),
     createdAt: IsoTimestampSchema,
     updatedAt: IsoTimestampSchema,
@@ -217,6 +218,14 @@ export const SetProjectApprovalPolicyInputSchema = z
   })
   .strict();
 
+export const SetProjectStatsEnabledInputSchema = z
+  .object({
+    clientRequestId: ClientRequestIdSchema,
+    projectId: EntityIdSchema,
+    enabled: z.boolean(),
+  })
+  .strict();
+
 export const ProjectApprovalPolicySchema = z
   .object({
     projectId: EntityIdSchema,
@@ -288,6 +297,9 @@ export type GetProjectApprovalPolicyInput = z.input<
 >;
 export type SetProjectApprovalPolicyInput = z.input<
   typeof SetProjectApprovalPolicyInputSchema
+>;
+export type SetProjectStatsEnabledInput = z.input<
+  typeof SetProjectStatsEnabledInputSchema
 >;
 export type ProjectApprovalModeState = z.infer<
   typeof ProjectApprovalModeStateSchema

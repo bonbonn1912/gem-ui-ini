@@ -21,7 +21,11 @@ import {
   normalizeModes,
   normalizeModels,
 } from "./capabilities.js";
-import { GeminiIntegrationError, toErrorMessage } from "./errors.js";
+import {
+  GeminiIntegrationError,
+  describeGeminiError,
+  toErrorMessage,
+} from "./errors.js";
 import { normalizeSessionNotification } from "./event-normalizer.js";
 import { PermissionBroker } from "./permission-broker.js";
 import { parsePromptUsage } from "./usage.js";
@@ -473,7 +477,11 @@ export class GeminiAcpSession {
       return result;
     } catch (error) {
       if (!this.disposing) {
-        this.emit("turn.failed", { message: toErrorMessage(error) });
+        const described = describeGeminiError(error);
+        this.emit("turn.failed", {
+          message: described.message,
+          ...(described.details ? { details: described.details } : {}),
+        });
       }
       throw error;
     }

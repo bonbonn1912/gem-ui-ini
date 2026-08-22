@@ -27,8 +27,10 @@ type PanelRailProps = {
   items: PanelRailItem[];
   activeId: string;
   theme?: "light" | "dark";
+  statsOpen?: boolean;
   onToggle: (id: string) => void;
   onToggleTheme?: () => void;
+  onToggleStats?: () => void;
 };
 
 function cap(value: number, limit: number): string {
@@ -39,14 +41,16 @@ export function PanelRail({
   items,
   activeId,
   theme = "light",
+  statsOpen = false,
   onToggle,
   onToggleTheme,
+  onToggleStats,
 }: PanelRailProps) {
   return (
     <nav className="panel-rail" aria-label="Panels">
       <div className="panel-rail-items">
         {items.map((item) => {
-          const open = activeId === item.id;
+          const open = !statsOpen && activeId === item.id;
           const name = item.name ?? item.label;
           return (
             <button
@@ -67,8 +71,24 @@ export function PanelRail({
         })}
       </div>
 
-      {onToggleTheme && (
-        <div className="panel-rail-bottom">
+      <div className="panel-rail-bottom">
+        {onToggleStats && (
+          <button
+            className={`panel-rail-button panel-rail-stats-toggle ${statsOpen ? "panel-rail-button--active" : ""}`}
+            type="button"
+            aria-pressed={statsOpen}
+            aria-label={statsOpen ? "Statistiken schließen" : "Statistiken öffnen"}
+            title="App-Statistiken"
+            onClick={onToggleStats}
+          >
+            <Icon name="chart" size={18} />
+            <span className="panel-rail-label" aria-hidden="true">
+              Stats
+            </span>
+          </button>
+        )}
+
+        {onToggleTheme && (
           <button
             className="panel-rail-button panel-rail-theme-toggle"
             type="button"
@@ -81,8 +101,8 @@ export function PanelRail({
               {theme === "dark" ? "Hell" : "Dunkel"}
             </span>
           </button>
-        </div>
-      )}
+        )}
+      </div>
     </nav>
   );
 }

@@ -437,6 +437,114 @@ const migrations: readonly Migration[] = [
         ON jira_project_integrations(config_id);
     `,
   },
+  {
+    version: 12,
+    name: "012_statistics_tracking",
+    sql: `
+      CREATE TABLE turn_metrics (
+        turn_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        model TEXT NOT NULL,
+        mode TEXT,
+        duration_ms INTEGER NOT NULL CHECK(duration_ms >= 0),
+        input_tokens INTEGER NOT NULL DEFAULT 0 CHECK(input_tokens >= 0),
+        output_tokens INTEGER NOT NULL DEFAULT 0 CHECK(output_tokens >= 0),
+        total_tokens INTEGER NOT NULL DEFAULT 0 CHECK(total_tokens >= 0),
+        thought_tokens INTEGER NOT NULL DEFAULT 0 CHECK(thought_tokens >= 0),
+        lines_added INTEGER NOT NULL DEFAULT 0 CHECK(lines_added >= 0),
+        lines_deleted INTEGER NOT NULL DEFAULT 0 CHECK(lines_deleted >= 0),
+        plan_decision TEXT CHECK(plan_decision IS NULL OR plan_decision IN ('accepted', 'rejected')),
+        status TEXT NOT NULL DEFAULT 'completed' CHECK(status IN ('completed', 'cancelled', 'failed')),
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (session_id, turn_id),
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      ) STRICT;
+
+      CREATE INDEX turn_metrics_created_at ON turn_metrics(created_at);
+      CREATE INDEX turn_metrics_model ON turn_metrics(model);
+      CREATE INDEX turn_metrics_project ON turn_metrics(project_id);
+      CREATE INDEX turn_metrics_plan ON turn_metrics(plan_decision) WHERE plan_decision IS NOT NULL;
+    `,
+  },
+  {
+    version: 13,
+    name: "013_project_stats_and_cached_tokens",
+    sql: `
+      ALTER TABLE projects ADD COLUMN stats_enabled INTEGER NOT NULL DEFAULT 0 CHECK(stats_enabled IN (0, 1));
+      ALTER TABLE turn_metrics ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0 CHECK(cached_tokens >= 0);
+    `,
+  },
+  {
+    version: 14,
+    name: "014_extended_activity_metrics",
+    sql: `
+      ALTER TABLE turn_metrics ADD COLUMN files_created INTEGER NOT NULL DEFAULT 0 CHECK(files_created >= 0);
+      ALTER TABLE turn_metrics ADD COLUMN files_modified INTEGER NOT NULL DEFAULT 0 CHECK(files_modified >= 0);
+      ALTER TABLE turn_metrics ADD COLUMN files_deleted INTEGER NOT NULL DEFAULT 0 CHECK(files_deleted >= 0);
+      ALTER TABLE turn_metrics ADD COLUMN skills_used_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(skills_used_json));
+      ALTER TABLE turn_metrics ADD COLUMN mcp_used_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(mcp_used_json));
+      ALTER TABLE turn_metrics ADD COLUMN git_actions_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(git_actions_json));
+      ALTER TABLE turn_metrics ADD COLUMN shell_commands_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(shell_commands_json));
+    `,
+  },
+  {
+    version: 15,
+    name: "015_decouple_turn_metrics_from_session_lifecycle",
+    sql: `
+      CREATE TABLE turn_metrics_new (
+        turn_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        model TEXT NOT NULL,
+        mode TEXT,
+        duration_ms INTEGER NOT NULL CHECK(duration_ms >= 0),
+        input_tokens INTEGER NOT NULL DEFAULT 0 CHECK(input_tokens >= 0),
+        output_tokens INTEGER NOT NULL DEFAULT 0 CHECK(output_tokens >= 0),
+        total_tokens INTEGER NOT NULL DEFAULT 0 CHECK(total_tokens >= 0),
+        thought_tokens INTEGER NOT NULL DEFAULT 0 CHECK(thought_tokens >= 0),
+        cached_tokens INTEGER NOT NULL DEFAULT 0 CHECK(cached_tokens >= 0),
+        lines_added INTEGER NOT NULL DEFAULT 0 CHECK(lines_added >= 0),
+        lines_deleted INTEGER NOT NULL DEFAULT 0 CHECK(lines_deleted >= 0),
+        files_created INTEGER NOT NULL DEFAULT 0 CHECK(files_created >= 0),
+        files_modified INTEGER NOT NULL DEFAULT 0 CHECK(files_modified >= 0),
+        files_deleted INTEGER NOT NULL DEFAULT 0 CHECK(files_deleted >= 0),
+        skills_used_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(skills_used_json)),
+        mcp_used_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(mcp_used_json)),
+        git_actions_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(git_actions_json)),
+        shell_commands_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(shell_commands_json)),
+        plan_decision TEXT CHECK(plan_decision IS NULL OR plan_decision IN ('accepted', 'rejected')),
+        status TEXT NOT NULL DEFAULT 'completed' CHECK(status IN ('completed', 'cancelled', 'failed')),
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (session_id, turn_id)
+      ) STRICT;
+
+      INSERT INTO turn_metrics_new (
+        turn_id, session_id, project_id, model, mode, duration_ms,
+        input_tokens, output_tokens, total_tokens, thought_tokens, cached_tokens,
+        lines_added, lines_deleted, files_created, files_modified, files_deleted,
+        skills_used_json, mcp_used_json, git_actions_json, shell_commands_json,
+        plan_decision, status, created_at
+      )
+      SELECT
+        turn_id, session_id, project_id, model, mode, duration_ms,
+        input_tokens, output_tokens, total_tokens, thought_tokens, cached_tokens,
+        lines_added, lines_deleted, files_created, files_modified, files_deleted,
+        skills_used_json, mcp_used_json, git_actions_json, shell_commands_json,
+        plan_decision, status, created_at
+      FROM turn_metrics;
+
+      DROP TABLE turn_metrics;
+
+      ALTER TABLE turn_metrics_new RENAME TO turn_metrics;
+
+      CREATE INDEX turn_metrics_created_at ON turn_metrics(created_at);
+      CREATE INDEX turn_metrics_model ON turn_metrics(model);
+      CREATE INDEX turn_metrics_project ON turn_metrics(project_id);
+      CREATE INDEX turn_metrics_plan ON turn_metrics(plan_decision) WHERE plan_decision IS NOT NULL;
+    `,
+  },
 ];
 
 export function runMigrations(database: SqliteDatabase): void {

@@ -9,3 +9,4 @@ export * from "./session-repository";
 export * from "./settings-repository";
 export * from "./todo-repository";
 export * from "./usage-repository";
+export * from "./stats-repository";

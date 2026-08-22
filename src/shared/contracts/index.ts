@@ -11,4 +11,5 @@ export * from "./projects";
 export * from "./project-files";
 export * from "./settings";
 export * from "./sessions";
+export * from "./stats";
 export * from "./todos";

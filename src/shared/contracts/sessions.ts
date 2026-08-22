@@ -206,6 +206,25 @@ export const SessionSearchResultSchema = z
   })
   .strict();
 
+export const ExportSessionInputSchema = z
+  .object({
+    sessionId: EntityIdSchema,
+    format: z.enum(["pdf", "png"]),
+    mode: z.enum(["rendered", "raw"]),
+    theme: z.enum(["light", "dark"]).default("light"),
+    includeMetadata: z.boolean().default(true),
+    rating: z.number().int().min(1).max(5).nullable().optional(),
+    feedbackNote: z.string().max(2000).optional(),
+  })
+  .strict();
+
+export const ExportSessionResultSchema = z
+  .object({
+    canceled: z.boolean(),
+    filePath: z.string().optional(),
+  })
+  .strict();
+
 export type SessionStatus = z.infer<typeof SessionStatusSchema>;
 export type SessionOption = z.infer<typeof SessionOptionSchema>;
 export type AppSession = z.infer<typeof AppSessionSchema>;
@@ -222,6 +241,8 @@ export type SetSessionModelInput = z.input<typeof SetSessionModelInputSchema>;
 export type SearchSessionsInput = z.input<typeof SearchSessionsInputSchema>;
 export type SessionSearchResultItem = z.infer<typeof SessionSearchResultItemSchema>;
 export type SessionSearchResult = z.infer<typeof SessionSearchResultSchema>;
+export type ExportSessionInput = z.input<typeof ExportSessionInputSchema>;
+export type ExportSessionResult = z.infer<typeof ExportSessionResultSchema>;
 
 export function generateSessionTitleFromPrompt(prompt: string): string {
   let clean = prompt

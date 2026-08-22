@@ -583,8 +583,16 @@ function TimelineEntry({
 
   return (
     <div className={`timeline-notice timeline-notice--${item.tone}`}>
-      <Icon name={item.tone === "error" ? "warning" : "clock"} size={14} />
-      <span>{item.text}</span>
+      <Icon name={item.tone === "neutral" ? "clock" : "warning"} size={14} />
+      <div className="timeline-notice-body">
+        <span>{item.text}</span>
+        {item.detail && (
+          <details className="timeline-notice-detail">
+            <summary>Technische Details</summary>
+            <pre>{item.detail}</pre>
+          </details>
+        )}
+      </div>
     </div>
   );
 }

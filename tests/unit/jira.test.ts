@@ -183,6 +183,7 @@ describe("JiraService attachIssue", () => {
           rootFingerprint: "a".repeat(64),
           approvalModeId: null,
           approvalModeState: "gemini_default",
+          statsEnabled: false,
           archived: false,
           createdAt: "2026-08-22T10:00:00.000Z",
           updatedAt: "2026-08-22T10:00:00.000Z",

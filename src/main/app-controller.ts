@@ -27,11 +27,14 @@ import {
   type StreamEnvelope,
   type UpdateSessionInput,
   type UsageSnapshot,
+  type AppStats,
+  type GetStatsInput,
 } from "../shared/contracts";
 import type { AttachmentService } from "./attachments/attachment-service";
 import type { ContextAttachmentService } from "./context-attachments";
 import type { GeminiCapabilityService } from "./capability-service";
 import {
+  describeGeminiError,
   type NormalizedAgentEvent,
   type NormalizedContent,
   type NormalizedToolCall,
@@ -51,12 +54,37 @@ import {
   type EventRepository,
   type SessionUpdate,
   type SessionRepository,
+  type StatsRepository,
 } from "./storage";
 
 type ActiveTurn = {
   turnId: string;
   assistantMessageId: string;
   thoughtMessageId: string;
+  startTime: number;
+  projectId: string;
+  model: string;
+  mode: string | null;
+  planDecision?: "accepted" | "rejected" | null;
+  linesAdded: number;
+  linesDeleted: number;
+  filesCreated: number;
+  filesModified: number;
+  filesDeleted: number;
+  toolActivity: Map<string, ToolActivityAnalysis>;
+  tokens?: {
+    input: number;
+    output: number;
+    total: number;
+    thought: number;
+    cached: number;
+  };
+  /**
+   * Der Turn hat bereits sichtbare Ausgabe geliefert. Meldet Gemini danach
+   * noch einen Fehler, ist das ein Nachklapp am Turn-Ende und keine
+   * gescheiterte Anfrage.
+   */
+  producedOutput?: boolean;
 };
 
 type PendingEventBuffer = {
@@ -81,6 +109,7 @@ export type AppControllerOptions = {
   projectFiles: ProjectFileService;
   capabilities: GeminiCapabilityService;
   usage: UsageService;
+  stats?: StatsRepository;
   publishEvents: (events: StreamEnvelope[]) => void | Promise<void>;
   externalContextRegistry?: ExternalPromptContextRegistry;
 };
@@ -95,6 +124,7 @@ export class AppController implements ProjectRuntimeCoordinator {
   readonly #projectFiles: ProjectFileService;
   readonly #capabilities: GeminiCapabilityService;
   readonly #usage: UsageService;
+  readonly #stats?: StatsRepository;
   readonly #publishEvents: AppControllerOptions["publishEvents"];
   readonly #externalContextRegistry?: ExternalPromptContextRegistry;
   readonly #activeTurns = new Map<string, ActiveTurn>();
@@ -114,6 +144,7 @@ export class AppController implements ProjectRuntimeCoordinator {
     this.#projectFiles = options.projectFiles;
     this.#capabilities = options.capabilities;
     this.#usage = options.usage;
+    this.#stats = options.stats;
     this.#publishEvents = options.publishEvents;
     this.#externalContextRegistry = options.externalContextRegistry;
   }
@@ -329,10 +360,29 @@ export class AppController implements ProjectRuntimeCoordinator {
     if (input.text.trim()) parts.push({ type: "text", text: input.text });
 
     const turnId = randomUUID();
+    const lowerText = input.text.trim().toLowerCase();
+    let planDecision: "accepted" | "rejected" | null = null;
+    if (lowerText.startsWith("plan akzeptiert") || lowerText.startsWith("plan accepted")) {
+      planDecision = "accepted";
+    } else if (lowerText.startsWith("plan abgelehnt") || lowerText.startsWith("plan rejected")) {
+      planDecision = "rejected";
+    }
+
     const activeTurn: ActiveTurn = {
       turnId,
       assistantMessageId: randomUUID(),
       thoughtMessageId: randomUUID(),
+      startTime: Date.now(),
+      projectId: session.projectId,
+      model: session.model || "gemini",
+      mode: session.mode,
+      planDecision,
+      linesAdded: 0,
+      linesDeleted: 0,
+      filesCreated: 0,
+      filesModified: 0,
+      filesDeleted: 0,
+      toolActivity: new Map(),
     };
     this.#activeTurns.set(session.id, activeTurn);
 
@@ -415,6 +465,13 @@ export class AppController implements ProjectRuntimeCoordinator {
       reconnected,
       hasHistory,
     };
+  }
+
+  getStats(input?: GetStatsInput): AppStats {
+    if (!this.#stats) {
+      throw new Error("StatsRepository ist nicht initialisiert.");
+    }
+    return this.#stats.getAggregatedStats(input);
   }
 
   async getProjectApprovalPolicy(
@@ -765,6 +822,14 @@ export class AppController implements ProjectRuntimeCoordinator {
 
   #handleNormalizedEvent(event: NormalizedAgentEvent): void {
     const active = this.#activeTurns.get(event.appSessionId);
+    if (
+      active &&
+      (event.type === "message.assistant.delta" ||
+        event.type === "tool.started" ||
+        event.type === "tool.completed")
+    ) {
+      active.producedOutput = true;
+    }
     const sharedEvent = toSharedEvent(event, active);
 
     switch (event.type) {
@@ -781,8 +846,12 @@ export class AppController implements ProjectRuntimeCoordinator {
         });
         break;
       case "session.failed":
-      case "turn.failed":
         this.#safeSessionUpdate(event.appSessionId, { status: "error" });
+        break;
+      case "turn.failed":
+        this.#safeSessionUpdate(event.appSessionId, {
+          status: active?.producedOutput ? "idle" : "error",
+        });
         break;
       case "permission.requested":
         this.#safeSessionUpdate(event.appSessionId, {
@@ -808,12 +877,40 @@ export class AppController implements ProjectRuntimeCoordinator {
           mode: event.payload.currentModeId,
         });
         break;
-      case "usage.tokens.observed":
+      case "tool.started":
+      case "tool.updated":
+      case "tool.completed": {
+        if (active) {
+          const toolCallId = event.payload.toolCall.toolCallId;
+          active.toolActivity.set(
+            toolCallId,
+            mergeToolActivity(
+              active.toolActivity.get(toolCallId),
+              analyzeToolActivity(event.payload.toolCall),
+            ),
+          );
+        }
+        break;
+      }
+      case "usage.tokens.observed": {
+        if (active) {
+          active.tokens = {
+            input: event.payload.tokens.input ?? 0,
+            output: event.payload.tokens.output ?? 0,
+            total: event.payload.tokens.total ?? ((event.payload.tokens.input ?? 0) + (event.payload.tokens.output ?? 0)),
+            thought: event.payload.tokens.thought ?? 0,
+            cached: event.payload.tokens.cachedRead ?? 0,
+          };
+          if (event.payload.byModel && event.payload.byModel.length > 0) {
+            active.model = event.payload.byModel[0].model;
+          }
+        }
         this.#recordTokenUsage(event.appSessionId, active?.turnId ?? null, {
           observation: event.payload,
           occurredAt: event.occurredAt,
         });
         break;
+      }
       case "usage.context.observed":
         this.#recordContextUsage(event.appSessionId, active?.turnId ?? null, {
           observation: event.payload,
@@ -836,10 +933,85 @@ export class AppController implements ProjectRuntimeCoordinator {
       event.type === "turn.cancelled" ||
       event.type === "turn.failed"
     ) {
+      if (active && this.#stats) {
+        try {
+          const project = this.#projects.getById(active.projectId);
+          if (project.statsEnabled) {
+            const durationMs = Math.max(0, Date.now() - active.startTime);
+            const status =
+              event.type === "turn.completed"
+                ? "completed"
+                : event.type === "turn.cancelled"
+                  ? "cancelled"
+                  : "failed";
+
+            let linesAdded = active.linesAdded;
+            let linesDeleted = active.linesDeleted;
+            let filesCreated = active.filesCreated;
+            let filesModified = active.filesModified;
+            let filesDeleted = active.filesDeleted;
+            const skillsUsedMap: Record<string, number> = {};
+            const mcpUsedMap: Record<string, number> = {};
+            const gitActionsMap: Record<string, number> = {};
+            const shellCommandsMap: Record<string, number> = {};
+
+            for (const act of active.toolActivity.values()) {
+              linesAdded += act.diff.added;
+              linesDeleted += act.diff.deleted;
+              filesCreated += act.filesCreated;
+              filesModified += act.filesModified;
+              filesDeleted += act.filesDeleted;
+              for (const s of act.skills) {
+                skillsUsedMap[s] = (skillsUsedMap[s] || 0) + 1;
+              }
+              for (const m of act.mcpTools) {
+                mcpUsedMap[m] = (mcpUsedMap[m] || 0) + 1;
+              }
+              for (const g of act.gitActions) {
+                gitActionsMap[g] = (gitActionsMap[g] || 0) + 1;
+              }
+              for (const cmd of act.shellCommands) {
+                shellCommandsMap[cmd] = (shellCommandsMap[cmd] || 0) + 1;
+              }
+            }
+
+            this.#stats.recordTurnMetric({
+              turnId: active.turnId,
+              sessionId: event.appSessionId,
+              projectId: active.projectId,
+              model: active.model,
+              mode: active.mode,
+              durationMs,
+              inputTokens: active.tokens?.input ?? 0,
+              outputTokens: active.tokens?.output ?? 0,
+              totalTokens: active.tokens?.total ?? 0,
+              thoughtTokens: active.tokens?.thought ?? 0,
+              cachedTokens: active.tokens?.cached ?? 0,
+              linesAdded,
+              linesDeleted,
+              filesCreated,
+              filesModified,
+              filesDeleted,
+              skillsUsedJson: JSON.stringify(skillsUsedMap),
+              mcpUsedJson: JSON.stringify(mcpUsedMap),
+              gitActionsJson: JSON.stringify(gitActionsMap),
+              shellCommandsJson: JSON.stringify(shellCommandsMap),
+              planDecision: active.planDecision,
+              status,
+              createdAt: event.occurredAt,
+            });
+          }
+        } catch {
+          // ignore if project was deleted
+        }
+      }
+
+      const brokenSession =
+        event.type === "turn.failed" && !active?.producedOutput;
       this.#activeTurns.delete(event.appSessionId);
       try {
         this.#sessions.update(event.appSessionId, {
-          status: event.type === "turn.failed" ? "error" : "idle",
+          status: brokenSession ? "error" : "idle",
           updatedAt: event.occurredAt,
         });
       } catch {
@@ -915,16 +1087,19 @@ export class AppController implements ProjectRuntimeCoordinator {
       turnId: active.turnId,
       event: {
         type: "turn.failed",
+        severity: active.producedOutput ? "warning" : "error",
         error: {
           code: "prompt_failed",
-          message: error instanceof Error ? error.message : "Prompt fehlgeschlagen",
+          ...describeGeminiError(error),
           retryable: true,
         },
       },
       timestamp: new Date().toISOString(),
     });
     this.#activeTurns.delete(sessionId);
-    this.#safeSessionUpdate(sessionId, { status: "error" });
+    this.#safeSessionUpdate(sessionId, {
+      status: active.producedOutput ? "idle" : "error",
+    });
   }
 
   #buildCompressedHistory(sessionId: string): string | null {
@@ -1110,10 +1285,12 @@ function toSharedEvent(
     case "session.failed":
       return {
         type: "turn.failed",
+        severity: "error",
         error: {
           code: "session_failed",
           message: event.payload.message,
           retryable: true,
+          ...(event.payload.details ? { details: event.payload.details } : {}),
         },
       };
     case "message.user":
@@ -1231,10 +1408,15 @@ function toSharedEvent(
     case "turn.failed":
       return {
         type: "turn.failed",
+        // Kam die Antwort schon an, meldet die Oberfläche einen Hinweis statt
+        // eines Fehlschlags — sonst steht eine rote Fehlermeldung unter einer
+        // vollständigen Antwort.
+        severity: active?.producedOutput ? "warning" : "error",
         error: {
           code: "turn_failed",
           message: event.payload.message,
           retryable: true,
+          ...(event.payload.details ? { details: event.payload.details } : {}),
         },
       };
     case "process.disconnected":
@@ -1359,4 +1541,432 @@ function isUnrestrictedMode(mode: SessionMode): boolean {
   // Gemini defines `yolo` as its allow-all mode. It is exposed only when that
   // exact id was advertised by the current ACP session.
   return mode.id === "yolo";
+}
+
+export function extractLineDiffCounts(toolCall: NormalizedToolCall): { added: number; deleted: number } {
+  let added = 0;
+  let deleted = 0;
+
+  const countLines = (str: string): number => {
+    if (!str || typeof str !== "string") return 0;
+    const lines = str.split(/\r?\n/);
+    return lines.length > 1 && lines[lines.length - 1] === ""
+      ? lines.length - 1
+      : lines.length;
+  };
+
+  const processDiffString = (str: string) => {
+    if (!str || typeof str !== "string") return;
+    if (str.includes("@@") || str.startsWith("---") || str.startsWith("diff --git") || str.startsWith("+++")) {
+      const lines = str.split(/\r?\n/);
+      for (const line of lines) {
+        if (line.startsWith("+") && !line.startsWith("+++")) added++;
+        else if (line.startsWith("-") && !line.startsWith("---")) deleted++;
+      }
+    }
+  };
+
+  const inspect = (data: unknown, depth = 0) => {
+    if (!data || depth > 5) return;
+
+    if (typeof data === "string") {
+      const trimmed = data.trim();
+      if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+        try {
+          const parsed = JSON.parse(trimmed) as unknown;
+          inspect(parsed, depth + 1);
+          return;
+        } catch {
+          // not JSON, continue
+        }
+      }
+      processDiffString(data);
+      return;
+    }
+
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        inspect(item, depth + 1);
+      }
+      return;
+    }
+
+    if (typeof data === "object") {
+      const obj = data as Record<string, unknown>;
+
+      // 1. Direct diff / patch strings
+      if (typeof obj.diff === "string") processDiffString(obj.diff);
+      if (typeof obj.patch === "string") processDiffString(obj.patch);
+      if (typeof obj.unified_diff === "string") processDiffString(obj.unified_diff);
+      if (typeof obj.delta === "string") processDiffString(obj.delta);
+
+      // 2. Specific tool replacement fields (Antigravity, Gemini tools, Claude tools, etc.)
+      if (typeof obj.ReplacementContent === "string") {
+        added += countLines(obj.ReplacementContent);
+      }
+      if (typeof obj.TargetContent === "string") {
+        deleted += countLines(obj.TargetContent);
+      }
+      if (typeof obj.CodeContent === "string") {
+        added += countLines(obj.CodeContent);
+      }
+
+      // 3. Snake_case & camelCase variations
+      if (typeof obj.new_str === "string") added += countLines(obj.new_str);
+      if (typeof obj.old_str === "string") deleted += countLines(obj.old_str);
+      if (typeof obj.newStr === "string") added += countLines(obj.newStr);
+      if (typeof obj.oldStr === "string") deleted += countLines(obj.oldStr);
+      if (typeof obj.new_string === "string") added += countLines(obj.new_string);
+      if (typeof obj.old_string === "string") deleted += countLines(obj.old_string);
+      if (typeof obj.new_text === "string") added += countLines(obj.new_text);
+      if (typeof obj.old_text === "string") deleted += countLines(obj.old_text);
+      if (typeof obj.newText === "string") added += countLines(obj.newText);
+      if (typeof obj.oldText === "string") deleted += countLines(obj.oldText);
+      if (typeof obj.new_content === "string") added += countLines(obj.new_content);
+      if (typeof obj.old_content === "string") deleted += countLines(obj.old_content);
+      if (typeof obj.newContent === "string") added += countLines(obj.newContent);
+      if (typeof obj.oldContent === "string") deleted += countLines(obj.oldContent);
+
+      if (typeof obj.replacement === "string") added += countLines(obj.replacement);
+      if (typeof obj.target === "string" && typeof obj.replacement === "string") deleted += countLines(obj.target);
+      if (typeof obj.replace === "string") added += countLines(obj.replace);
+      if (typeof obj.find === "string" && typeof obj.replace === "string") deleted += countLines(obj.find);
+
+      // 4. File creation / overwrite (content, contents, file_content, file_text, code)
+      const isReplacement =
+        obj.ReplacementContent !== undefined ||
+        obj.new_str !== undefined ||
+        obj.newStr !== undefined ||
+        obj.new_string !== undefined ||
+        obj.new_text !== undefined ||
+        obj.newText !== undefined ||
+        obj.new_content !== undefined ||
+        obj.newContent !== undefined ||
+        obj.replacement !== undefined ||
+        obj.replace !== undefined ||
+        obj.TargetContent !== undefined ||
+        obj.old_str !== undefined ||
+        obj.oldStr !== undefined ||
+        obj.old_string !== undefined ||
+        obj.old_text !== undefined ||
+        obj.oldText !== undefined ||
+        obj.old_content !== undefined ||
+        obj.oldContent !== undefined;
+
+      if (!isReplacement) {
+        if (typeof obj.content === "string" && (toolCall.kind === "write" || toolCall.kind === "edit" || !obj.type)) {
+          added += countLines(obj.content);
+        } else if (typeof obj.contents === "string") {
+          added += countLines(obj.contents);
+        } else if (typeof obj.file_content === "string") {
+          added += countLines(obj.file_content);
+        } else if (typeof obj.file_text === "string") {
+          added += countLines(obj.file_text);
+        } else if (typeof obj.code === "string" && (toolCall.kind === "write" || toolCall.kind === "edit")) {
+          added += countLines(obj.code);
+        }
+      }
+
+      // 5. Nested arrays like `edits`, `replacements`, `changes`, `hunks`, `files`
+      if (Array.isArray(obj.edits)) inspect(obj.edits, depth + 1);
+      if (Array.isArray(obj.replacements)) inspect(obj.replacements, depth + 1);
+      if (Array.isArray(obj.changes)) inspect(obj.changes, depth + 1);
+      if (Array.isArray(obj.hunks)) inspect(obj.hunks, depth + 1);
+      if (Array.isArray(obj.files)) inspect(obj.files, depth + 1);
+    }
+  };
+
+  if (toolCall.rawInput) inspect(toolCall.rawInput);
+  if (toolCall.rawOutput) inspect(toolCall.rawOutput);
+  if (toolCall.content) inspect(toolCall.content);
+
+  return { added, deleted };
+}
+
+export type ToolActivityAnalysis = {
+  diff: { added: number; deleted: number };
+  filesCreated: number;
+  filesModified: number;
+  filesDeleted: number;
+  skills: string[];
+  mcpTools: string[];
+  gitActions: string[];
+  shellCommands: string[];
+};
+
+/**
+ * ACP meldet einen Werkzeugaufruf in mehreren Nachrichten: `tool_call` trägt
+ * Titel und Art, die folgenden `tool_call_update` nur noch Status und Inhalt.
+ * Würde jede Nachricht die vorherige Auswertung ersetzen, bliebe am Ende die
+ * leere Auswertung des letzten Updates stehen — genau deshalb blieben Skills,
+ * MCP-, Git- und Shell-Zähler dauerhaft null.
+ */
+export function mergeToolActivity(
+  previous: ToolActivityAnalysis | undefined,
+  next: ToolActivityAnalysis,
+): ToolActivityAnalysis {
+  if (!previous) return next;
+
+  // Innerhalb *eines* Aufrufs leitet jede Nachricht dieselben Bezeichner
+  // erneut ab; die Vereinigung verhindert Doppelzählung, behält aber, was nur
+  // die erste Nachricht wusste.
+  const union = (before: string[], after: string[]): string[] =>
+    after.length > 0 ? [...new Set([...before, ...after])] : before;
+
+  // Bei den Dateizählern gewinnt die vollständigere Auswertung als Ganzes,
+  // sonst summierten sich "angelegt" der einen und "geändert" der anderen
+  // Nachricht zu zwei Dateien.
+  const previousFiles =
+    previous.filesCreated + previous.filesModified + previous.filesDeleted;
+  const nextFiles = next.filesCreated + next.filesModified + next.filesDeleted;
+  const files = nextFiles >= previousFiles ? next : previous;
+
+  return {
+    diff: {
+      added: Math.max(previous.diff.added, next.diff.added),
+      deleted: Math.max(previous.diff.deleted, next.diff.deleted),
+    },
+    filesCreated: files.filesCreated,
+    filesModified: files.filesModified,
+    filesDeleted: files.filesDeleted,
+    skills: union(previous.skills, next.skills),
+    mcpTools: union(previous.mcpTools, next.mcpTools),
+    gitActions: union(previous.gitActions, next.gitActions),
+    shellCommands: union(previous.shellCommands, next.shellCommands),
+  };
+}
+
+export function analyzeToolActivity(toolCall: NormalizedToolCall): ToolActivityAnalysis {
+  const diff = extractLineDiffCounts(toolCall);
+  let filesCreated = 0;
+  let filesModified = 0;
+  let filesDeleted = 0;
+  const skills: string[] = [];
+  const mcpTools: string[] = [];
+  const gitActions: string[] = [];
+  const shellCommands: string[] = [];
+
+  const rawName = (toolCall.name || toolCall.title || "").trim();
+  const nameLower = rawName.toLowerCase();
+  const kindLower = (toolCall.kind || "").toLowerCase();
+
+  const getRawInputObject = (): Record<string, unknown> | null => {
+    if (!toolCall.rawInput) return null;
+    if (typeof toolCall.rawInput === "object" && toolCall.rawInput !== null) {
+      return toolCall.rawInput as Record<string, unknown>;
+    }
+    if (typeof toolCall.rawInput === "string") {
+      try {
+        const parsed = JSON.parse(toolCall.rawInput);
+        if (typeof parsed === "object" && parsed !== null) return parsed as Record<string, unknown>;
+      } catch {}
+    }
+    return null;
+  };
+
+  const inputObj = getRawInputObject();
+
+  /**
+   * Gemini CLI setzt in seinen ACP-Nachrichten weder `name` (im Protokoll als
+   * experimentell markiert) noch `rawInput`. Verlässlich sind nur `kind` und
+   * `title` — und der Titel eines Shell-Aufrufs *ist* der Befehl. Deshalb
+   * dienen beide hier als gleichwertige Quellen neben `rawInput`.
+   */
+  const isExecuteKind = kindLower === "execute";
+  const titleText = (toolCall.title ?? "").trim();
+
+  // 1. File operations classification
+  if (
+    nameLower.includes("create_file") ||
+    nameLower.includes("write_to_file") ||
+    nameLower.includes("write_file") ||
+    nameLower.includes("new_file") ||
+    kindLower === "write"
+  ) {
+    if (inputObj?.Overwrite === true) {
+      filesModified++;
+    } else {
+      filesCreated++;
+    }
+  } else if (
+    nameLower.includes("replace_file_content") ||
+    nameLower.includes("edit_file") ||
+    nameLower.includes("edit") ||
+    nameLower.includes("patch") ||
+    nameLower.includes("apply_diff") ||
+    nameLower.includes("insert_content") ||
+    nameLower.includes("str_replace") ||
+    kindLower === "edit"
+  ) {
+    filesModified++;
+  } else if (
+    nameLower.includes("delete_file") ||
+    nameLower.includes("remove_file") ||
+    nameLower.includes("unlink") ||
+    nameLower === "rm"
+  ) {
+    filesDeleted++;
+  }
+
+  // 2. Skill usage classification
+  if (
+    nameLower === "skill" ||
+    nameLower === "run_skill" ||
+    nameLower === "use_skill" ||
+    nameLower === "execute_skill" ||
+    nameLower === "activate_skill" ||
+    nameLower.startsWith("activate_skill") ||
+    nameLower.startsWith("skill_") ||
+    nameLower.startsWith("skill:")
+  ) {
+    let skillName = "";
+    if (inputObj?.skillName && typeof inputObj.skillName === "string") {
+      skillName = inputObj.skillName;
+    } else if (inputObj?.skill_name && typeof inputObj.skill_name === "string") {
+      skillName = inputObj.skill_name;
+    } else if (inputObj?.skill && typeof inputObj.skill === "string") {
+      skillName = inputObj.skill;
+    } else if (inputObj?.name && typeof inputObj.name === "string") {
+      skillName = inputObj.name;
+    } else if (titleText) {
+      // Ohne rawInput bleibt der Titel, etwa: Activate skill "pdf"
+      const fromTitle = titleText.match(/skill[\s:"'\u201c\u201e]*([a-zA-Z0-9_@./-]+)/i);
+      skillName = fromTitle?.[1] ?? "";
+    } else if (nameLower.startsWith("skill_")) {
+      skillName = rawName.slice(6);
+    } else if (nameLower.startsWith("skill:")) {
+      skillName = rawName.slice(6);
+    }
+    skills.push((skillName.trim() || "Allgemein").slice(0, 100));
+  } else {
+    /**
+     * Ohne `name` bleibt nur der Titel. Er wird bewusst nur am Anfang geprüft:
+     * "Activate skill \"pdf\"" ist eine Skill-Aktivierung, ein Shell-Befehl,
+     * der irgendwo das Wort skill enthält, dagegen nicht.
+     */
+    const fromTitle = titleText.match(
+      /^\s*(?:activate|activating|use|run|execute|aktiviere)?\s*skill[\s:"'\u201c\u201e]+([a-zA-Z0-9_@./-]+)/i,
+    );
+    if (fromTitle?.[1]) {
+      skills.push(fromTitle[1].slice(0, 100));
+    }
+  }
+
+  // 3. MCP (Model Context Protocol) usage classification
+  if (
+    kindLower === "mcp" ||
+    nameLower.startsWith("mcp__") ||
+    nameLower.startsWith("mcp_") ||
+    nameLower.startsWith("mcp:") ||
+    nameLower.includes("__mcp__") ||
+    /\(\s*[^)]+\s+mcp\s+server\s*\)/i.test(rawName)
+  ) {
+    let mcpName = rawName;
+    // Gemini beschriftet MCP-Werkzeuge als "toolName (serverName MCP Server)".
+    const labelled = rawName.match(/^(.*?)\s*\(\s*([^)]+?)\s+MCP\s+Server\s*\)\s*$/i);
+    if (labelled?.[1] && labelled?.[2]) {
+      mcpName = `${labelled[2].trim()}:${labelled[1].trim()}`;
+    }
+    if (nameLower.startsWith("mcp__")) {
+      mcpName = rawName.slice(5).replace("__", ":");
+    } else if (nameLower.startsWith("mcp_")) {
+      mcpName = rawName.slice(4).replace("_", ":");
+    } else if (nameLower.startsWith("mcp:")) {
+      mcpName = rawName.slice(4);
+    }
+    mcpTools.push((mcpName || "MCP-Tool").slice(0, 100));
+  }
+
+  // 4. Shell commands & Git actions classification
+  if (
+    nameLower.includes("command") ||
+    nameLower.includes("terminal") ||
+    nameLower.includes("bash") ||
+    nameLower.includes("exec") ||
+    nameLower.includes("shell") ||
+    nameLower === "sh" ||
+    nameLower === "zsh" ||
+    isExecuteKind
+  ) {
+    const cmdStr =
+      (typeof inputObj?.command === "string" ? inputObj.command : "") ||
+      (typeof inputObj?.CommandLine === "string" ? inputObj.CommandLine : "") ||
+      (typeof inputObj?.cmd === "string" ? inputObj.cmd : "") ||
+      (typeof inputObj?.script === "string" ? inputObj.script : "") ||
+      // Ohne rawInput steht der Befehl im Titel; Gemini hängt eine optionale
+      // Beschreibung in Klammern an, die nicht Teil der Kommandozeile ist.
+      (isExecuteKind ? titleText.replace(/\s*\([^()]*\)\s*$/, "").trim() : "");
+
+    if (cmdStr.trim()) {
+      const subCommands = cmdStr.split(/&&|;|\|\||\|/).map((c) => c.trim()).filter(Boolean);
+
+      for (const sub of subCommands) {
+        const tokens = sub.split(/\s+/).filter(Boolean);
+        if (tokens.length === 0) continue;
+        const first = tokens[0].replace(/^(?:sudo|env|nohup)\s+/, "");
+        const binary = first.split("/").pop() || first;
+
+        if (binary === "git" && tokens.length > 1) {
+          const gitSub = tokens[1].toLowerCase().replace(/^--?[a-z-]+$/, "");
+          if (gitSub) {
+            gitActions.push(gitSub.slice(0, 50));
+          } else {
+            gitActions.push("other");
+          }
+          if (gitSub === "rm") filesDeleted++;
+        } else if (binary === "rm" || binary === "unlink") {
+          filesDeleted++;
+        } else if (binary === "touch" || binary === "mkdir") {
+          filesCreated++;
+        }
+
+        let signature = binary;
+        if (["npm", "yarn", "pnpm", "bun", "cargo", "go", "pytest", "python", "node", "docker", "git"].includes(binary) && tokens.length > 1) {
+          if (tokens[1] === "run" && tokens.length > 2) {
+            signature = `${binary} run ${tokens[2]}`;
+          } else {
+            signature = `${binary} ${tokens[1]}`;
+          }
+        }
+        shellCommands.push(signature.slice(0, 50));
+      }
+    }
+  } else if (nameLower.startsWith("git_")) {
+    const action = nameLower.slice(4);
+    gitActions.push(action.slice(0, 50));
+  }
+
+  // 5. Angelegt oder geändert? ACP liefert die Änderung als Diff-Block, und
+  // ein fehlender alter Text ist die einzige verlässliche Unterscheidung —
+  // Gemini meldet für beides dieselbe Art "edit". Der Inhalt schlägt deshalb
+  // die namensbasierte Einordnung oben.
+  if (Array.isArray(toolCall.content)) {
+    let created = 0;
+    let modified = 0;
+    for (const entry of toolCall.content) {
+      if (!entry || typeof entry !== "object") continue;
+      const block = entry as { type?: unknown; oldText?: unknown };
+      if (block.type !== "diff") continue;
+      if (block.oldText === null || block.oldText === undefined || block.oldText === "") {
+        created += 1;
+      } else {
+        modified += 1;
+      }
+    }
+    if (created > 0 || modified > 0) {
+      filesCreated = created;
+      filesModified = modified;
+    }
+  }
+
+  return {
+    diff,
+    filesCreated,
+    filesModified,
+    filesDeleted,
+    skills,
+    mcpTools,
+    gitActions,
+    shellCommands,
+  };
 }

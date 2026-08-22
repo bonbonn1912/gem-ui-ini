@@ -1,7 +1,7 @@
 import {
   GeminiAcpSession,
   GeminiIntegrationError,
-  toErrorMessage,
+  describeGeminiError,
   type AgentEventListener,
   type GeminiAcpSessionInput,
   type GeminiProcessSpawner,
@@ -167,7 +167,7 @@ export class GeminiSessionManager {
         appSessionId,
         providerSessionId: null,
         occurredAt: new Date().toISOString(),
-        payload: { message: toErrorMessage(error) },
+        payload: describeGeminiError(error),
       });
       throw error;
     } finally {

@@ -329,6 +329,13 @@ const TurnFailedEventSchema = z
   .object({
     type: z.literal("turn.failed"),
     error: AppErrorSchema,
+    /**
+     * "warning", wenn der Turn seine Antwort bereits vollständig geliefert hat
+     * und der Fehler erst danach kam — dann ist die Antwort oben gültig und die
+     * Session nicht defekt. Der Vorgabewert hält bereits gespeicherte Events
+     * lesbar.
+     */
+    severity: z.enum(["error", "warning"]).default("error"),
   })
   .strict();
 

@@ -103,6 +103,7 @@ import {
   RenameProjectInputSchema,
   SetProjectRootsInputSchema,
   SetProjectApprovalPolicyInputSchema,
+  SetProjectStatsEnabledInputSchema,
   type ArchiveProjectInput,
   type CreateProjectInput,
   type DeleteProjectInput,
@@ -117,6 +118,7 @@ import {
   type RenameProjectInput,
   type SetProjectRootsInput,
   type SetProjectApprovalPolicyInput,
+  type SetProjectStatsEnabledInput,
 } from "./projects";
 import {
   ProjectFileSearchResultSchema,
@@ -165,6 +167,8 @@ import {
   SetSessionModeInputSchema,
   SetSessionModelInputSchema,
   UpdateSessionInputSchema,
+  ExportSessionInputSchema,
+  ExportSessionResultSchema,
   type AppSession,
   type CancelTurnInput,
   type CreateSessionInput,
@@ -177,7 +181,15 @@ import {
   type SetSessionModeInput,
   type SetSessionModelInput,
   type UpdateSessionInput,
+  type ExportSessionInput,
+  type ExportSessionResult,
 } from "./sessions";
+import {
+  AppStatsSchema,
+  GetStatsInputSchema,
+  type AppStats,
+  type GetStatsInput,
+} from "./stats";
 
 export const AppCapabilitiesSchema = z
   .object({
@@ -411,6 +423,7 @@ export const IPC_CHANNELS = {
   archiveProject: "projects:set-archived",
   setProjectRoots: "projects:set-additional-roots",
   setProjectApprovalPolicy: "projects:set-approval-policy",
+  setProjectStatsEnabled: "projects:set-stats-enabled",
   deleteProject: "projects:delete",
   listSessions: "sessions:list",
   createSession: "sessions:create",
@@ -501,6 +514,8 @@ export const IPC_CHANNELS = {
   downloadUpdate: "app:download-update",
   installUpdate: "app:install-update",
   appUpdateDownloadProgress: "app:update-download-progress",
+  getStats: "stats:get",
+  exportSession: "session:export",
 } as const;
 
 export const IpcRequestSchemas = {
@@ -519,11 +534,13 @@ export const IpcRequestSchemas = {
   [IPC_CHANNELS.archiveProject]: ArchiveProjectInputSchema,
   [IPC_CHANNELS.setProjectRoots]: SetProjectRootsInputSchema,
   [IPC_CHANNELS.setProjectApprovalPolicy]: SetProjectApprovalPolicyInputSchema,
+  [IPC_CHANNELS.setProjectStatsEnabled]: SetProjectStatsEnabledInputSchema,
   [IPC_CHANNELS.deleteProject]: DeleteProjectInputSchema,
   [IPC_CHANNELS.listSessions]: ListSessionsInputSchema,
   [IPC_CHANNELS.createSession]: CreateSessionInputSchema,
   [IPC_CHANNELS.updateSession]: UpdateSessionInputSchema,
   [IPC_CHANNELS.deleteSession]: DeleteSessionInputSchema,
+  [IPC_CHANNELS.exportSession]: ExportSessionInputSchema,
   [IPC_CHANNELS.sendPrompt]: SendPromptInputSchema,
   [IPC_CHANNELS.cancelTurn]: CancelTurnInputSchema,
   [IPC_CHANNELS.respondToPermission]: PermissionResponseSchema,
@@ -600,6 +617,7 @@ export const IpcRequestSchemas = {
   [IPC_CHANNELS.listGeminiSkills]: ListAgentExtensionsInputSchema,
   [IPC_CHANNELS.listMcpServers]: ListAgentExtensionsInputSchema,
   [IPC_CHANNELS.openExternalHttpsUrl]: OpenExternalHttpsUrlInputSchema,
+  [IPC_CHANNELS.getStats]: GetStatsInputSchema,
 } as const;
 
 export const IpcResponseSchemas = {
@@ -615,11 +633,13 @@ export const IpcResponseSchemas = {
   [IPC_CHANNELS.archiveProject]: ProjectWithRootsSchema,
   [IPC_CHANNELS.setProjectRoots]: ProjectWithRootsSchema,
   [IPC_CHANNELS.setProjectApprovalPolicy]: ProjectApprovalPolicySchema,
+  [IPC_CHANNELS.setProjectStatsEnabled]: ProjectWithRootsSchema,
   [IPC_CHANNELS.deleteProject]: VoidResultSchema,
   [IPC_CHANNELS.listSessions]: z.array(AppSessionSchema),
   [IPC_CHANNELS.createSession]: AppSessionSchema,
   [IPC_CHANNELS.updateSession]: AppSessionSchema,
   [IPC_CHANNELS.deleteSession]: VoidResultSchema,
+  [IPC_CHANNELS.exportSession]: ExportSessionResultSchema,
   [IPC_CHANNELS.sendPrompt]: SendPromptResultSchema,
   [IPC_CHANNELS.cancelTurn]: VoidResultSchema,
   [IPC_CHANNELS.respondToPermission]: VoidResultSchema,
@@ -699,6 +719,7 @@ export const IpcResponseSchemas = {
   [IPC_CHANNELS.checkForUpdates]: AppUpdateInfoSchema,
   [IPC_CHANNELS.downloadUpdate]: DownloadUpdateResultSchema,
   [IPC_CHANNELS.installUpdate]: VoidResultSchema,
+  [IPC_CHANNELS.getStats]: AppStatsSchema,
 } as const;
 
 export type IpcRequestChannel = keyof typeof IpcRequestSchemas;
@@ -738,6 +759,9 @@ export interface GemUiDesktopApi {
     setApprovalPolicy(
       input: SetProjectApprovalPolicyInput,
     ): Promise<ProjectApprovalPolicy>;
+    setStatsEnabled(
+      input: SetProjectStatsEnabledInput,
+    ): Promise<ProjectWithRoots>;
     delete(input: DeleteProjectInput): Promise<VoidResult>;
   };
   projectFiles: {
@@ -757,6 +781,7 @@ export interface GemUiDesktopApi {
       input: GetSessionReconnectStateInput,
     ): Promise<SessionReconnectState>;
     search(input: SearchSessionsInput): Promise<SessionSearchResult>;
+    export(input: ExportSessionInput): Promise<ExportSessionResult>;
   };
   settings: {
     chooseGeminiBinary(): Promise<AppCapabilities>;
@@ -890,6 +915,9 @@ export interface GemUiDesktopApi {
   agentExtensions: {
     listSkills(input: ListAgentExtensionsInput): Promise<GeminiSkillList>;
     listMcpServers(input: ListAgentExtensionsInput): Promise<McpServerList>;
+  };
+  stats: {
+    get(input?: GetStatsInput): Promise<AppStats>;
   };
   subscribeSessionEvents(
     input: SubscribeSessionEventsInput,

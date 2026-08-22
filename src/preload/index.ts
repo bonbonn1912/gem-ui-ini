@@ -168,6 +168,8 @@ const desktopApi: GemUiDesktopApi = {
       ipcRenderer.invoke(IPC_CHANNELS.setProjectRoots, input),
     setApprovalPolicy: (input) =>
       ipcRenderer.invoke(IPC_CHANNELS.setProjectApprovalPolicy, input),
+    setStatsEnabled: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.setProjectStatsEnabled, input),
     delete: (input) => ipcRenderer.invoke(IPC_CHANNELS.deleteProject, input),
   },
 
@@ -189,6 +191,7 @@ const desktopApi: GemUiDesktopApi = {
     getReconnectState: (input) =>
       ipcRenderer.invoke(IPC_CHANNELS.getSessionReconnectState, input),
     search: (input) => ipcRenderer.invoke(IPC_CHANNELS.searchSessions, input),
+    export: (input) => ipcRenderer.invoke(IPC_CHANNELS.exportSession, input),
   },
 
   attachments: {
@@ -357,6 +360,10 @@ const desktopApi: GemUiDesktopApi = {
       ipcRenderer.invoke(IPC_CHANNELS.listMcpServers, input),
   },
 
+  stats: {
+    get: (input) => ipcRenderer.invoke(IPC_CHANNELS.getStats, input),
+  },
+
   integrations: {
     listProject: (input) =>
       ipcRenderer.invoke(IPC_CHANNELS.listProjectIntegrations, input),
@@ -453,6 +460,7 @@ Object.freeze(desktopApi.git);
 Object.freeze(desktopApi.linkPreview);
 Object.freeze(desktopApi.settings);
 Object.freeze(desktopApi.agentExtensions);
+Object.freeze(desktopApi.stats);
 Object.freeze(desktopApi.integrations);
 Object.freeze(desktopApi.gitlab);
 Object.freeze(desktopApi.jira);

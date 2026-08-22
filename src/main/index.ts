@@ -33,6 +33,7 @@ import {
   ProjectRepository,
   SessionRepository,
   SettingsRepository,
+  StatsRepository,
   TodoRepository,
   UsageRepository,
   openAppDatabase,
@@ -43,6 +44,7 @@ import { GitLabService, GitLabSubscriptionHub, GitLabTokenVault } from "./integr
 import { IntegrationRegistry } from "./integrations/integration-registry";
 import { JiraService } from "./integrations/jira";
 import { ExternalPromptContextRegistry } from "./integrations/external-prompt-context-registry";
+import { SessionExportService } from "./sessions/session-export-service";
 import { IPC_CHANNELS } from "../shared/contracts";
 
 app.setName("GeminUI");
@@ -118,6 +120,7 @@ async function bootstrap(): Promise<void> {
   const clientRequestRepository = new ClientRequestRepository(database);
   const usageRepository = new UsageRepository(database);
   const usageService = new UsageService(usageRepository);
+  const statsRepository = new StatsRepository(database);
   clientRequestRepository.clearPending();
 
   const projectService = new ProjectService(projectRepository);
@@ -207,10 +210,18 @@ async function bootstrap(): Promise<void> {
     projectFiles: projectFileService,
     capabilities: capabilityService,
     usage: usageService,
+    stats: statsRepository,
     publishEvents: (events) => eventHub?.publish(events),
     externalContextRegistry: externalPromptContextRegistry,
   });
   projectService.setRuntimeCoordinator(controller);
+
+  const sessionExportService = new SessionExportService({
+    sessions: sessionRepository,
+    projects: projectRepository,
+    events: eventRepository,
+    database,
+  });
 
   runtimeServices = {
     projects: projectService,
@@ -232,6 +243,8 @@ async function bootstrap(): Promise<void> {
     gitlab: gitlabService,
     gitlabSubscriptionHub,
     jira: jiraService,
+    stats: statsRepository,
+    sessionExport: sessionExportService,
   };
   await openApplicationWindow();
 }

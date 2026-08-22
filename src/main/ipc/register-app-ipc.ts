@@ -49,6 +49,7 @@ import {
   type SendPromptInput,
   type SetProjectRootsInput,
   type SetProjectApprovalPolicyInput,
+  type SetProjectStatsEnabledInput,
   type SearchProjectFilesInput,
   type SearchSessionsInput,
   type SetSessionModeInput,
@@ -58,6 +59,8 @@ import {
   type StageDroppedPathInput,
   type SubscribeSessionEventsInput,
   type SubscribeGitProjectStatusInput,
+  type GetStatsInput,
+  type ExportSessionInput,
   type UpdateSessionInput,
   type UpdateContextAttachmentInput,
   type UpdateTodoInput,
@@ -107,6 +110,8 @@ export type RegisterAppIpcOptions = {
   gitlabSubscriptionHub?: GitLabSubscriptionHub;
   jira?: JiraService;
   updateService?: AppUpdateService;
+  stats?: import("../storage").StatsRepository;
+  sessionExport?: import("../sessions/session-export-service").SessionExportService;
 };
 
 export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
@@ -261,6 +266,17 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
         ),
     ),
   );
+  register(IPC_CHANNELS.setProjectStatsEnabled, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as SetProjectStatsEnabledInput,
+      "projects.set-stats-enabled",
+      () => {
+        const value = input as SetProjectStatsEnabledInput;
+        return options.projects.setStatsEnabled(value.projectId, value.enabled);
+      },
+    ),
+  );
   register(IPC_CHANNELS.deleteProject, (input) =>
     idempotent(
       options.clientRequests,
@@ -305,6 +321,12 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
       },
     ),
   );
+  if (options.sessionExport) {
+    const sessionExport = options.sessionExport;
+    register(IPC_CHANNELS.exportSession, (input) =>
+      sessionExport.exportSession(input as ExportSessionInput, options.mainWindow),
+    );
+  }
   register(IPC_CHANNELS.sendPrompt, (input) =>
     idempotent(
       options.clientRequests,
@@ -740,6 +762,10 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
     await updateService.installUpdate((input as { filePath: string }).filePath);
     return { ok: true as const };
   });
+
+  register(IPC_CHANNELS.getStats, (input) =>
+    options.controller.getStats(input as GetStatsInput),
+  );
 
   if (options.integrations) {
     register(IPC_CHANNELS.listProjectIntegrations, (input) =>
