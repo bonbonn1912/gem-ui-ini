@@ -53,10 +53,11 @@ impl Serialize for AppError {
             Self::Validation(_) | Self::NotFound(_) | Self::Conflict(_) | Self::Upstream(_) => {
                 self.to_string()
             }
-            Self::Io(_) => "I/O operation failed".to_owned(),
-            Self::Database(_) => "Database operation failed".to_owned(),
-            Self::Serialization(_) => "Serialization failed".to_owned(),
-            Self::StatePoisoned | Self::Internal(_) => "Internal error".to_owned(),
+            Self::Io(err) => format!("I/O-Fehler: {err}"),
+            Self::Database(err) => format!("Datenbankfehler: {err}"),
+            Self::Serialization(err) => format!("Serialisierungsfehler: {err}"),
+            Self::StatePoisoned => "Interner Sperrzustand ist beschädigt (StatePoisoned)".to_owned(),
+            Self::Internal(err) => format!("Interner Fehler: {err}"),
         };
         PublicError {
             code: self.code(),

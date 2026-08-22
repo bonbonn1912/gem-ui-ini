@@ -3,7 +3,7 @@ import {
   createMemo,
   createSignal,
   onCleanup,
-
+  For,
 } from "solid-js";
 import { Icon } from "../../components/Icon";
 import type {
@@ -258,8 +258,22 @@ export function Composer(props: ComposerProps) {
   });
 
   createEffect(() => {
+    // Pre-warm project file index in memory as soon as @ menu opens
+    if (fileMenuOpen() && props.projectId && props.rootRevision > 0) {
+      void window.gemUi.projectFiles.search({
+        projectId: props.projectId,
+        expectedRootRevision: props.rootRevision,
+        query: "a",
+        limit: 1,
+      }).catch(() => {
+        // Pre-warm error ignored
+      });
+    }
+  });
+
+  createEffect(() => {
     const sequence = ++fileSearchSequence;
-    if (!mention() || !fileMenuOpen() || mention()!.query.length === 0) {
+    if (!mention() || !fileMenuOpen() || mention()!.query.length === 0 || !props.projectId || props.rootRevision === 0) {
       setFileSuggestions([]);
       setFileSearchLoading(false);
       setFileSearchError(null);
@@ -287,7 +301,7 @@ export function Composer(props: ComposerProps) {
       }).finally(() => {
         if (fileSearchSequence === sequence) setFileSearchLoading(false);
       });
-    }, 120);
+    }, 25);
 
     onCleanup(() => window.clearTimeout(timer));
   });
@@ -485,32 +499,33 @@ export function Composer(props: ComposerProps) {
                     {mention()?.query ? "Keine passende Projektdatei gefunden." : "Tippe den ersten Buchstaben des Dateinamens oder Pfads."}
                   </div>
                 )}
-                {fileSuggestions().map((entry, index) => (
-                  <button
-                    class={`project-file-option ${index === activeSuggestion() ? "project-file-option--active" : ""}`}
-                    id={`${PROJECT_FILE_MENU_ID}-${index}`}
-
-                    type="button"
-                    role="option"
-                    aria-selected={index === activeSuggestion()}
-                    aria-disabled={!entry.contextEligible}
-                    title={entry.contextUnavailableReason ?? `${entry.rootLabel}/${entry.relativePath}`}
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      selectProjectFile(entry);
-                    }}
-                    onMouseEnter={() => {
-                      if (entry.contextEligible) setActiveSuggestion(index);
-                    }}
-                  >
-                    <span class="project-file-option-icon"><Icon name="file-text" size={14} /></span>
-                    <span class="project-file-option-copy">
-                      <strong>{entry.displayName}</strong>
-                      <small><span>{entry.rootLabel}</span>{entry.relativePath}</small>
-                    </span>
-                    <span class="project-file-option-size">{entry.contextEligible ? readableSize(entry.size) : "Nicht lesbar"}</span>
-                  </button>
-                ))}
+                <For each={fileSuggestions()}>
+                  {(entry, index) => (
+                    <button
+                      class={`project-file-option ${index() === activeSuggestion() ? "project-file-option--active" : ""}`}
+                      id={`${PROJECT_FILE_MENU_ID}-${index()}`}
+                      type="button"
+                      role="option"
+                      aria-selected={index() === activeSuggestion()}
+                      aria-disabled={!entry.contextEligible}
+                      title={entry.contextUnavailableReason ?? `${entry.rootLabel}/${entry.relativePath}`}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        selectProjectFile(entry);
+                      }}
+                      onMouseEnter={() => {
+                        if (entry.contextEligible) setActiveSuggestion(index());
+                      }}
+                    >
+                      <span class="project-file-option-icon"><Icon name="file-text" size={14} /></span>
+                      <span class="project-file-option-copy">
+                        <strong>{entry.displayName}</strong>
+                        <small><span>{entry.rootLabel}</span>{entry.relativePath}</small>
+                      </span>
+                      <span class="project-file-option-size">{entry.contextEligible ? readableSize(entry.size) : "Nicht lesbar"}</span>
+                    </button>
+                  )}
+                </For>
               </div>
             </div>
           )}
@@ -609,11 +624,11 @@ export function Composer(props: ComposerProps) {
             value={text()}
             onInput={(event) => {
               setText(event.currentTarget.value);
-              setCaretPosition(event.currentTarget.value.length);
+              setCaretPosition(event.currentTarget.selectionStart ?? event.currentTarget.value.length);
             }}
             onChange={(event) => {
               setText(event.target.value);
-              setCaretPosition(event.currentTarget.value.length);
+              setCaretPosition(event.target.selectionStart ?? event.target.value.length);
               setDismissedMention(null);
             }}
             onClick={(event) => setCaretPosition(event.currentTarget.selectionStart ?? text().length)}

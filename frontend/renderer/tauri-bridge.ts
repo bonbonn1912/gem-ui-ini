@@ -156,10 +156,27 @@ async function invokeChannel<C extends IpcChannel>(
   if (!PORTED_COMMANDS.has(command)) {
     throw new TauriCommandUnavailableError(command);
   }
-  const result = await invoke<unknown>(command, commandArgs(channel, input));
-  return responseFor(channel as keyof typeof IpcResponseSchemas, result) as C extends keyof typeof IpcResponseSchemas
-    ? ResponseFor<C>
-    : never;
+  try {
+    const result = await invoke<unknown>(command, commandArgs(channel, input));
+    return responseFor(channel as keyof typeof IpcResponseSchemas, result) as C extends keyof typeof IpcResponseSchemas
+      ? ResponseFor<C>
+      : never;
+  } catch (error) {
+    if (error instanceof Error) throw error;
+    if (error && typeof error === "object") {
+      const errObj = error as Record<string, unknown>;
+      const message = typeof errObj.message === "string" ? errObj.message : JSON.stringify(error);
+      const customErr = new Error(message);
+      if (typeof errObj.code === "string") {
+        (customErr as Error & { code?: string }).code = errObj.code;
+      }
+      throw customErr;
+    }
+    if (typeof error === "string") {
+      throw new Error(error);
+    }
+    throw new Error(String(error));
+  }
 }
 
 function clientRequestId(): string {

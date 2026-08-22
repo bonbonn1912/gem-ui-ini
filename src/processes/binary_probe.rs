@@ -500,27 +500,78 @@ fn default_executable_directories(
     platform: ProbePlatform,
 ) -> Vec<PathBuf> {
     match platform {
-        ProbePlatform::Macos => vec![
-            PathBuf::from("/opt/homebrew/bin"),
-            PathBuf::from("/usr/local/bin"),
-        ],
-        ProbePlatform::Linux => {
-            let mut paths = vec![PathBuf::from("/usr/local/bin")];
+        ProbePlatform::Macos => {
+            let mut paths = vec![
+                PathBuf::from("/opt/homebrew/bin"),
+                PathBuf::from("/opt/homebrew/sbin"),
+                PathBuf::from("/usr/local/bin"),
+                PathBuf::from("/usr/bin"),
+                PathBuf::from("/bin"),
+            ];
             if let Some(home) = environment.get("HOME") {
-                paths.push(PathBuf::from(home).join(".local/bin"));
+                let home_path = PathBuf::from(home);
+                paths.push(home_path.join(".cargo/bin"));
+                paths.push(home_path.join(".local/bin"));
+                paths.push(home_path.join(".npm-global/bin"));
+                paths.push(home_path.join("bin"));
+                paths.push(home_path.join(".gemini/bin"));
+                paths.push(home_path.join(".bun/bin"));
+                paths.push(home_path.join(".deno/bin"));
+                paths.push(home_path.join(".local/share/pnpm"));
+                paths.push(home_path.join("Library/Application Support/fnm/current/bin"));
+                if let Ok(entries) = std::fs::read_dir(home_path.join(".nvm/versions/node")) {
+                    for entry in entries.flatten() {
+                        paths.push(entry.path().join("bin"));
+                    }
+                }
+            }
+            paths
+        }
+        ProbePlatform::Linux => {
+            let mut paths = vec![
+                PathBuf::from("/usr/local/bin"),
+                PathBuf::from("/usr/bin"),
+                PathBuf::from("/bin"),
+                PathBuf::from("/snap/bin"),
+            ];
+            if let Some(home) = environment.get("HOME") {
+                let home_path = PathBuf::from(home);
+                paths.push(home_path.join(".local/bin"));
+                paths.push(home_path.join(".cargo/bin"));
+                paths.push(home_path.join(".npm-global/bin"));
+                paths.push(home_path.join("bin"));
+                paths.push(home_path.join(".gemini/bin"));
+                paths.push(home_path.join(".bun/bin"));
+                paths.push(home_path.join(".deno/bin"));
+                paths.push(home_path.join(".local/share/pnpm"));
+                if let Ok(entries) = std::fs::read_dir(home_path.join(".nvm/versions/node")) {
+                    for entry in entries.flatten() {
+                        paths.push(entry.path().join("bin"));
+                    }
+                }
             }
             paths
         }
         ProbePlatform::Windows => {
             let mut paths = Vec::new();
+            if let Some(userprofile) = environment.get("USERPROFILE") {
+                let user_path = PathBuf::from(userprofile);
+                paths.push(user_path.join(".cargo\\bin"));
+                paths.push(user_path.join(".local\\bin"));
+                paths.push(user_path.join(".bun\\bin"));
+                paths.push(user_path.join(".deno\\bin"));
+            }
             if let Some(appdata) = environment.get("APPDATA") {
-                paths.push(PathBuf::from(appdata).join("npm"));
+                let appdata_path = PathBuf::from(appdata);
+                paths.push(appdata_path.join("npm"));
+                paths.push(appdata_path.join("fnm\\current"));
+                paths.push(appdata_path.join("pnpm"));
             }
             if let Some(program_files) = environment.get("ProgramFiles") {
                 paths.push(PathBuf::from(program_files).join("nodejs"));
             }
             if let Some(local) = environment.get("LOCALAPPDATA") {
-                paths.push(PathBuf::from(local).join("Programs/nodejs"));
+                paths.push(PathBuf::from(local).join("Programs\\nodejs"));
             }
             paths
         }

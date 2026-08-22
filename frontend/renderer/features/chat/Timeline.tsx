@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
-import type { MessageItem, PermissionItem, TimelineItem, ToolItem } from "./reducer";
+import { isInternalControlMessage, stripSessionContext, type MessageItem, type PermissionItem, type TimelineItem, type ToolItem } from "./reducer";
 import { MarkdownContent } from "../../components/MarkdownContent";
 import { Icon } from "../../components/Icon";
 import type { DiffSelection } from "../git/DiffViewer";
@@ -272,9 +272,9 @@ function AssistantMessage(props: {
           </button>
         )}
         {!showRaw() ? (
-          <MarkdownContent onOpenExternal={props.onOpenExternal}>{props.item.text}</MarkdownContent>
+          <MarkdownContent onOpenExternal={props.onOpenExternal}>{stripSessionContext(props.item.text)}</MarkdownContent>
         ) : (
-          <pre class="message-raw-content">{props.item.text}</pre>
+          <pre class="message-raw-content">{stripSessionContext(props.item.text)}</pre>
         )}
         {props.item.streaming && <span class="stream-cursor" aria-label="Gemini schreibt" />}
       </div>
@@ -419,7 +419,7 @@ function TimelineEntry(props: {
             ))}
           </div>
         )}
-        {props.item.text && <p>{props.item.text}</p>}
+        {stripSessionContext(props.item.text) && <p>{stripSessionContext(props.item.text)}</p>}
         {props.item.failed && <span class="message-error-label">Nicht gesendet</span>}
       </article>
     );
@@ -468,7 +468,7 @@ function TimelineEntry(props: {
 export function Timeline(props: TimelineProps) {
   let scrollRef!: HTMLDivElement;
   let anchorRef!: HTMLDivElement;
-  let stickToBottom: unknown = true;
+  const [stickToBottom, setStickToBottom] = createSignal(true);
 
   // Aufeinanderfolgende Tool-Schritte werden zu einer Gruppe zusammengefasst.
   // Ein einzelner Schritt bleibt eine schlichte Karte — eine Box mit Kopfzeile
@@ -479,6 +479,9 @@ export function Timeline(props: TimelineProps) {
     > = [];
 
     for (const item of props.items) {
+      if (item.kind === "message" && isInternalControlMessage(item.text)) {
+        continue;
+      }
       const last = result.at(-1);
       if (item.kind === "tool" && last?.kind === "group") {
         last.items.push(item);
@@ -494,22 +497,26 @@ export function Timeline(props: TimelineProps) {
     return result;
   });
 
-  const contentSignature = props.items
-    .map((item) =>
-      item.kind === "message" || item.kind === "thought"
-        ? item.text.length
-        : item.kind === "tool"
-          ? `${item.seq ?? 0}${item.status}`
-          : item.seq ?? 0,
-    )
-    .join(":");
-  const previewSignature = [...props.gitPreviewGroups.values()]
-    .map((group) => `${group.toolCallId}:${group.loading}:${group.totalFiles}:${group.previews.length}`)
-    .join(":");
+  const contentSignature = createMemo(() =>
+    props.items
+      .map((item) =>
+        item.kind === "message" || item.kind === "thought"
+          ? `${item.id}:${item.text.length}:${item.streaming ? 1 : 0}`
+          : item.kind === "tool"
+            ? `${item.id}:${item.seq ?? 0}:${item.status}`
+            : `${item.id}:${item.seq ?? 0}`,
+      )
+      .join(";"),
+  );
 
   createEffect(() => {
-    if (stickToBottom) {
-      anchorRef?.scrollIntoView?.({ block: "end" });
+    contentSignature();
+    if (stickToBottom() && scrollRef) {
+      requestAnimationFrame(() => {
+        if (scrollRef && stickToBottom()) {
+          scrollRef.scrollTop = scrollRef.scrollHeight;
+        }
+      });
     }
   });
 
@@ -538,8 +545,9 @@ export function Timeline(props: TimelineProps) {
         aria-label={`Verlauf von ${props.sessionTitle}`}
         onScroll={(event) => {
           const element = event.currentTarget;
-          stickToBottom =
-            element.scrollHeight - element.scrollTop - element.clientHeight < 140;
+          setStickToBottom(
+            element.scrollHeight - element.scrollTop - element.clientHeight < 120,
+          );
         }}
       >
         <div class="timeline">

@@ -295,6 +295,10 @@ impl SessionCommandService {
                 .ok_or_else(|| {
                     AppError::Upstream("ACP session/new response omitted sessionId".to_owned())
                 })?;
+            self.service
+                .manager
+                .set_provider_session_id(&session.id, provider_id.clone())
+                .await;
             current = self.service.sessions.update(
                 &session.id,
                 super::contracts::SessionUpdate {
@@ -626,12 +630,51 @@ impl SessionCommandService {
         }
 
         let service = self.service.clone();
+        let projects = self.projects.clone();
         let active_turns = Arc::clone(&self.active_turns);
         let session_id = session.id.clone();
         tokio::spawn(async move {
-            let result = service
-                .prompt_with_turn(&session_id, turn_id.clone(), prepared.acp)
+            let mut result = service
+                .prompt_with_turn(&session_id, turn_id.clone(), prepared.acp.clone())
                 .await;
+            if let Err(ref error) = result {
+                let err_msg = error.to_string();
+                if err_msg.contains("Session not found") || err_msg.contains("-32602") {
+                    if let Ok(sess) = service.sessions.get_by_id(&session_id) {
+                        if let Ok(project) = projects.get_by_id(&sess.project_id) {
+                            if let Some(primary) = project
+                                .roots
+                                .iter()
+                                .find(|root| matches!(root.kind, crate::projects::ProjectRootKind::Primary))
+                            {
+                                if let Ok(response) = service
+                                    .manager
+                                    .session_new(&session_id, &primary.real_path)
+                                    .await
+                                {
+                                    if let Some(new_provider_id) =
+                                        response.get("sessionId").and_then(|v| v.as_str())
+                                    {
+                                        let _ = service.sessions.update(
+                                            &session_id,
+                                            super::contracts::SessionUpdate {
+                                                provider_session_id: Some(Some(
+                                                    new_provider_id.to_owned(),
+                                                )),
+                                                updated_at: super::event_pipeline::now_iso(),
+                                                ..Default::default()
+                                            },
+                                        );
+                                    }
+                                    result = service
+                                        .prompt_with_turn(&session_id, turn_id.clone(), prepared.acp)
+                                        .await;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             let current = service.sessions.get_by_id(&session_id).ok();
             let status = match current.as_ref().map(|value| &value.status) {
                 Some(SessionStatus::Disconnected) => None,
@@ -854,12 +897,26 @@ pub async fn sessions_cancel_turn(
             let active = state.active_turn(&input.session_id).await;
             if let Some(expected) = input.turn_id.as_deref() {
                 if active.as_deref() != Some(expected) {
-                    return Err(AppError::Conflict(
-                        "the requested turn is not active".to_owned(),
-                    ));
+                    let _ = state.service.sessions.update(
+                        &input.session_id,
+                        super::contracts::SessionUpdate {
+                            status: Some(SessionStatus::Idle),
+                            updated_at: super::event_pipeline::now_iso(),
+                            ..Default::default()
+                        },
+                    );
+                    return Ok(VoidResult { ok: true });
                 }
             } else if active.is_none() {
-                return Err(AppError::Conflict("session has no active turn".to_owned()));
+                let _ = state.service.sessions.update(
+                    &input.session_id,
+                    super::contracts::SessionUpdate {
+                        status: Some(SessionStatus::Idle),
+                        updated_at: super::event_pipeline::now_iso(),
+                        ..Default::default()
+                    },
+                );
+                return Ok(VoidResult { ok: true });
             }
             state
                 .stop_active_turn(&input.session_id)

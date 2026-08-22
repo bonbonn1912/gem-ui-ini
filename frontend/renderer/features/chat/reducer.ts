@@ -135,6 +135,8 @@ export type ChatAction =
   | { type: "prompt-failed"; clientRequestId: string; message: string }
   | { type: "turn-started"; turnId: string }
   | { type: "cancelling" }
+  | { type: "cancel-failed" }
+  | { type: "turn-cancelled" }
   | { type: "permission-submitting"; requestId: string; optionId: string }
   | { type: "permission-failed"; requestId: string };
 
@@ -150,6 +152,26 @@ export function createChatState(sessionId: string | null = null): ChatState {
     models: [],
     error: null,
   };
+}
+
+export function isInternalControlMessage(text: string): boolean {
+  const trimmed = text.trim();
+  return (
+    trimmed.startsWith("[MODE_UPDATE]") ||
+    trimmed.startsWith("[MODE_CHANGE]") ||
+    trimmed.startsWith("[SET_MODE]") ||
+    trimmed.startsWith("[MODEL_UPDATE]") ||
+    trimmed.startsWith("[MODEL_CHANGE]") ||
+    trimmed.startsWith("[SET_MODEL]") ||
+    trimmed.startsWith("[CONFIG_UPDATE]")
+  );
+}
+
+export function stripSessionContext(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/<session_context>[\s\S]*?(?:<\/session_context>|$)/gi, "")
+    .trim();
 }
 
 function eventText(event: { delta?: string; text?: string; content?: string }): string {
@@ -238,12 +260,20 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
         error: null,
       };
     case "message.user": {
+      const rawText = eventText(event);
+      if (isInternalControlMessage(rawText)) {
+        return next;
+      }
+      const cleanText = stripSessionContext(rawText);
+      if (isInternalControlMessage(cleanText)) {
+        return next;
+      }
       const optimisticIndex = next.items.findLastIndex(
         (item) =>
           item.kind === "message" &&
           item.role === "user" &&
           item.seq === undefined &&
-          item.text === eventText(event),
+          (item.text === rawText || item.text === cleanText || stripSessionContext(item.text) === cleanText),
       );
       const optimistic = optimisticIndex >= 0
         ? (next.items[optimisticIndex] as MessageItem)
@@ -257,7 +287,7 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
         id: itemId("user", envelope, event.messageId),
         kind: "message",
         role: "user",
-        text: eventText(event),
+        text: cleanText || rawText,
         attachments: eventAttachments,
         contextAttachments: event.contextAttachments,
         projectFiles: event.projectFiles,
@@ -303,6 +333,10 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
       };
     }
     case "message.assistant.delta": {
+      const delta = eventText(event);
+      if (isInternalControlMessage(delta)) {
+        return next;
+      }
       const id = itemId("assistant", envelope, event.messageId);
       const fallbackIndex = next.items.findLastIndex(
         (item) =>
@@ -313,7 +347,6 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
       );
       const exactIndex = next.items.findIndex((item) => item.id === id);
       const index = exactIndex >= 0 ? exactIndex : fallbackIndex;
-      const delta = eventText(event);
       if (index >= 0) {
         const items = [...next.items];
         const existing = items[index] as MessageItem;
@@ -554,6 +587,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, activeTurnId: action.turnId, phase: "running" };
     case "cancelling":
       return { ...state, phase: "cancelling" };
+    case "cancel-failed":
+    case "turn-cancelled":
+      return { ...state, phase: "idle", activeTurnId: null };
     case "permission-submitting":
       return {
         ...state,

@@ -320,9 +320,11 @@ export function AttachmentsPanel(props: AttachmentsPanelProps) {
       <div
         class={`attachments-panel-body ${selected() ? "attachments-panel-body--detail" : ""} ${isLive() ? "attachments-panel-body--live" : ""}`}
         style={
-          selected() && !isLive()
-            ? { "grid-template-rows": `minmax(120px, 1fr) auto minmax(0, ${detailHeight()}px)` }
-            : undefined
+          isLive()
+            ? { "grid-template-rows": `auto auto minmax(0, ${previewHeight()}px)` }
+            : selected()
+              ? { "grid-template-rows": `minmax(120px, 1fr) auto minmax(0, ${detailHeight()}px)` }
+              : undefined
         }
       >
         {isLive() && selected()?.link ? (
@@ -428,6 +430,7 @@ export function AttachmentsPanel(props: AttachmentsPanelProps) {
               onOpenFile={(attachmentId) => window.gemUi.contextAttachments.openFile({ attachmentId }).then(() => undefined)}
               live={isLive()}
               onLiveToggle={(live) => setIsLive(live)}
+              previewHeight={previewHeight()}
             />
           )}
         </div>

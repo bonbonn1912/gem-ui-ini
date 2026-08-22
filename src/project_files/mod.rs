@@ -73,8 +73,17 @@ pub struct ProjectFilePromptContext {
 }
 
 #[derive(Clone)]
+struct CachedProjectIndex {
+    root_revision: u64,
+    indexed_at: std::time::Instant,
+    files: std::sync::Arc<Vec<Indexed>>,
+    truncated: bool,
+}
+
+#[derive(Clone)]
 pub struct ProjectFileService {
     db: DbPool,
+    cache: std::sync::Arc<std::sync::Mutex<HashMap<String, CachedProjectIndex>>>,
 }
 #[derive(Clone)]
 struct Root {
@@ -87,12 +96,21 @@ struct Indexed {
     root_id: String,
     root_label: String,
     relative: String,
+    relative_lower: String,
     display: String,
-    absolute: PathBuf,
+    display_lower: String,
+    stem_lower: String,
+    depth: usize,
+    size: u64,
+    context_eligible: bool,
+    context_unavailable_reason: Option<String>,
 }
 impl ProjectFileService {
     pub fn new(db: DbPool) -> Self {
-        Self { db }
+        Self {
+            db,
+            cache: std::sync::Arc::new(std::sync::Mutex::new(HashMap::new())),
+        }
     }
     fn roots(&self, project: &str, expected: u64) -> Result<Vec<Root>, AppError> {
         let c = self.db.connection()?;
@@ -146,25 +164,74 @@ impl ProjectFileService {
             ));
         }
         let limit = input.limit.unwrap_or(MAX_PROJECT_FILE_SEARCH_RESULTS);
-        let roots = self.roots(&input.project_id, input.expected_root_revision)?;
-        let mut files = Vec::new();
-        let mut truncated = false;
-        for root in &roots {
-            index_root(root, &mut files, &mut truncated);
-            if truncated {
-                break;
+
+        let (files, truncated) = {
+            let cache_ttl = std::time::Duration::from_secs(300);
+            let mut cache = self
+                .cache
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Some(cached) = cache.get(&input.project_id) {
+                if cached.root_revision == input.expected_root_revision
+                    && cached.indexed_at.elapsed() < cache_ttl
+                {
+                    (std::sync::Arc::clone(&cached.files), cached.truncated)
+                } else {
+                    let roots = self.roots(&input.project_id, input.expected_root_revision)?;
+                    let mut fresh_files = Vec::new();
+                    let mut truncated = false;
+                    for root in &roots {
+                        index_root(root, &mut fresh_files, &mut truncated);
+                        if truncated {
+                            break;
+                        }
+                    }
+                    let files_arc = std::sync::Arc::new(fresh_files);
+                    cache.insert(
+                        input.project_id.clone(),
+                        CachedProjectIndex {
+                            root_revision: input.expected_root_revision,
+                            indexed_at: std::time::Instant::now(),
+                            files: std::sync::Arc::clone(&files_arc),
+                            truncated,
+                        },
+                    );
+                    (files_arc, truncated)
+                }
+            } else {
+                let roots = self.roots(&input.project_id, input.expected_root_revision)?;
+                let mut fresh_files = Vec::new();
+                let mut truncated = false;
+                for root in &roots {
+                    index_root(root, &mut fresh_files, &mut truncated);
+                    if truncated {
+                        break;
+                    }
+                }
+                let files_arc = std::sync::Arc::new(fresh_files);
+                cache.insert(
+                    input.project_id.clone(),
+                    CachedProjectIndex {
+                        root_revision: input.expected_root_revision,
+                        indexed_at: std::time::Instant::now(),
+                        files: std::sync::Arc::clone(&files_arc),
+                        truncated,
+                    },
+                );
+                (files_arc, truncated)
             }
-        }
-        let query = query.to_ascii_lowercase();
-        let mut ranked: Vec<(i32, Indexed)> = files
-            .into_iter()
-            .filter_map(|f| score(&f.relative, &query).map(|s| (s, f)))
+        };
+
+        let query_lower = query.to_ascii_lowercase();
+        let mut ranked: Vec<(i32, &Indexed)> = files
+            .iter()
+            .filter_map(|f| score(f, &query_lower).map(|s| (s, f)))
             .collect();
         ranked.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.relative.cmp(&b.1.relative)));
         let entries = ranked
             .into_iter()
             .take(limit)
-            .filter_map(|(_, f)| inspect(&f).ok())
+            .filter_map(|(_, f)| inspect(f).ok())
             .collect::<Vec<_>>();
         Ok(ProjectFileSearchResult {
             project_id: input.project_id,
@@ -281,51 +348,112 @@ fn index_root(root: &Root, files: &mut Vec<Indexed>, truncated: &mut bool) {
             if name.contains('\0') {
                 continue;
             }
-            let rel = if relative.is_empty() {
-                name.clone()
-            } else {
-                format!("{relative}/{name}")
+            let file_type = match item.file_type() {
+                Ok(ft) => ft,
+                Err(_) => continue,
             };
-            if rel.chars().count() > 32_768 {
+            if file_type.is_symlink() {
                 continue;
             }
             let path = item.path();
-            let meta = match fs::symlink_metadata(&path) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            if meta.file_type().is_symlink() {
-                continue;
-            }
-            if meta.is_dir() {
-                if depth < MAX_DIRECTORY_DEPTH && !excluded(&name) {
+            if file_type.is_dir() {
+                if is_excluded_dir(&name) {
+                    continue;
+                }
+                let rel = if relative.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{relative}/{name}")
+                };
+                if rel.chars().count() > 32_768 {
+                    continue;
+                }
+                if depth < MAX_DIRECTORY_DEPTH {
                     stack.push((path, rel, depth + 1));
                 }
-            } else if meta.is_file() {
+            } else if file_type.is_file() {
+                if is_excluded_file(&name) {
+                    continue;
+                }
+                let rel = if relative.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{relative}/{name}")
+                };
+                if rel.chars().count() > 32_768 {
+                    continue;
+                }
+
+                let meta = match item.metadata() {
+                    Ok(m) => m,
+                    Err(_) => continue,
+                };
+                let size = meta.len();
+                let (context_eligible, context_unavailable_reason) = if size > MAX_PROJECT_FILE_BYTES {
+                    (
+                        false,
+                        Some(format!(
+                            "Datei ist größer als {} MiB.",
+                            MAX_PROJECT_FILE_BYTES / 1024 / 1024
+                        )),
+                    )
+                } else if is_known_text_extension(&name) {
+                    (true, None)
+                } else {
+                    match fs::File::open(&path) {
+                        Ok(mut file) => {
+                            use std::io::Read;
+                            let mut buffer = [0u8; 512];
+                            let bytes_read = file.read(&mut buffer).unwrap_or(0);
+                            let mime = sniff_mime(&buffer[..bytes_read], &name);
+                            if !is_textual_mime(&mime) {
+                                (false, Some("Datei ist kein lesbarer UTF-8-Text.".to_owned()))
+                            } else if let Err(e) = std::str::from_utf8(&buffer[..bytes_read]) {
+                                if e.error_len().is_some() {
+                                    (false, Some("Datei ist kein gültiger UTF-8-Text.".to_owned()))
+                                } else {
+                                    (true, None)
+                                }
+                            } else {
+                                (true, None)
+                            }
+                        }
+                        Err(_) => (false, Some("Datei konnte nicht gelesen werden.".to_owned())),
+                    }
+                };
+
+                let display = safe_display_name(&name);
+                let relative_lower = rel.to_ascii_lowercase();
+                let display_lower = display.to_ascii_lowercase();
+                let stem_lower = display_lower
+                    .rsplit_once('.')
+                    .map(|(stem, _)| stem.to_owned())
+                    .unwrap_or_else(|| display_lower.clone());
+                let depth = rel.matches('/').count();
                 files.push(Indexed {
                     root_id: root.id.clone(),
                     root_label: root.label.clone(),
                     relative: rel,
-                    display: safe_display_name(&name),
-                    absolute: path,
+                    relative_lower,
+                    display,
+                    display_lower,
+                    stem_lower,
+                    depth,
+                    size,
+                    context_eligible,
+                    context_unavailable_reason,
                 });
             }
         }
     }
 }
-fn excluded(name: &str) -> bool {
+fn is_excluded_dir(name: &str) -> bool {
+    if name.starts_with('.') && name != ".github" {
+        return true;
+    }
     matches!(
         name,
-        ".git"
-            | ".hg"
-            | ".svn"
-            | ".cache"
-            | ".next"
-            | ".nuxt"
-            | ".turbo"
-            | ".venv"
-            | "__pycache__"
-            | "bower_components"
+        "bower_components"
             | "build"
             | "coverage"
             | "dist"
@@ -333,46 +461,138 @@ fn excluded(name: &str) -> bool {
             | "out"
             | "target"
             | "venv"
+            | "env"
+            | "vendor"
+            | "Pods"
+            | "DerivedData"
+            | "tmp"
+            | "temp"
+            | "logs"
+            | "__pycache__"
     )
 }
-fn score(path: &str, q: &str) -> Option<i32> {
-    let query = normalize_search(q);
+fn is_excluded_file(name: &str) -> bool {
+    matches!(
+        name,
+        ".DS_Store" | "Thumbs.db" | ".gitkeep"
+    ) || name.ends_with(".swp")
+        || name.ends_with(".tmp")
+        || name.ends_with(".pyc")
+        || name.ends_with(".pyo")
+}
+fn is_known_text_extension(name: &str) -> bool {
+    let ext = match name.rsplit_once('.') {
+        Some((_, ext)) => ext,
+        None => {
+            return matches!(
+                name,
+                "Dockerfile"
+                    | "Makefile"
+                    | "LICENSE"
+                    | "README"
+                    | "Procfile"
+                    | "Gemfile"
+                    | "Rakefile"
+                    | "Vagrantfile"
+            )
+        }
+    };
+    matches!(
+        ext.to_ascii_lowercase().as_str(),
+        "ts" | "tsx"
+            | "js"
+            | "jsx"
+            | "mjs"
+            | "cjs"
+            | "rs"
+            | "go"
+            | "py"
+            | "rb"
+            | "java"
+            | "kt"
+            | "kts"
+            | "scala"
+            | "c"
+            | "cpp"
+            | "cc"
+            | "cxx"
+            | "h"
+            | "hpp"
+            | "hxx"
+            | "cs"
+            | "html"
+            | "htm"
+            | "css"
+            | "scss"
+            | "sass"
+            | "less"
+            | "json"
+            | "json5"
+            | "jsonc"
+            | "yaml"
+            | "yml"
+            | "toml"
+            | "xml"
+            | "svg"
+            | "csv"
+            | "tsv"
+            | "md"
+            | "mdx"
+            | "markdown"
+            | "txt"
+            | "log"
+            | "env"
+            | "conf"
+            | "config"
+            | "ini"
+            | "cfg"
+            | "sh"
+            | "bash"
+            | "zsh"
+            | "fish"
+            | "bat"
+            | "cmd"
+            | "ps1"
+            | "sql"
+            | "graphql"
+            | "gql"
+            | "prisma"
+            | "proto"
+            | "vue"
+            | "svelte"
+            | "astro"
+            | "php"
+            | "swift"
+            | "dart"
+            | "r"
+            | "lua"
+            | "zig"
+            | "nim"
+    )
+}
+fn score(f: &Indexed, query: &str) -> Option<i32> {
     if query.is_empty() {
         return None;
     }
-    let relative = normalize_search(path);
-    let display = Path::new(path)
-        .file_name()
-        .and_then(|v| v.to_str())
-        .map(normalize_search)
-        .unwrap_or_default();
-    let stem = display
-        .rsplit_once('.')
-        .map(|(stem, _)| stem)
-        .unwrap_or(display.as_str());
-    let mut score = if display == query {
+    let mut score = if f.display_lower == query {
         10_000
-    } else if stem == query {
+    } else if f.stem_lower == query {
         9_800
-    } else if display.starts_with(&query) || stem.starts_with(&query) {
+    } else if f.display_lower.starts_with(query) || f.stem_lower.starts_with(query) {
         8_000
-    } else if let Some(index) = display.find(&query) {
+    } else if let Some(index) = f.display_lower.find(query) {
         6_500 - index as i32 * 8
-    } else if relative.starts_with(&query) {
+    } else if f.relative_lower.starts_with(query) {
         5_800
-    } else if let Some(index) = relative.find(&query) {
+    } else if let Some(index) = f.relative_lower.find(query) {
         4_800 - index as i32 * 3
     } else {
-        let (first, gaps) = subsequence_score(&relative, &query)?;
+        let (first, gaps) = subsequence_score(&f.relative_lower, query)?;
         2_500 + 500 - first as i32 * 4 - gaps as i32 * 5
     };
-    let depth = path.matches('/').count();
-    score -= depth as i32 * 20;
-    score -= path.chars().count().min(300) as i32 / 7;
+    score -= f.depth as i32 * 20;
+    score -= f.relative.chars().count().min(300) as i32 / 7;
     Some(score)
-}
-fn normalize_search(value: &str) -> String {
-    value.to_ascii_lowercase()
 }
 fn subsequence_score(candidate: &str, query: &str) -> Option<(usize, usize)> {
     let mut candidate_index = 0;
@@ -402,33 +622,14 @@ fn safe_display_name(value: &str) -> String {
     }
 }
 fn inspect(f: &Indexed) -> Result<ProjectFileSearchEntry, AppError> {
-    let meta = fs::symlink_metadata(&f.absolute)?;
-    let size = meta.len();
-    let mut reason = None;
-    let mut eligible = size <= MAX_PROJECT_FILE_BYTES;
-    if !eligible {
-        reason = Some(format!(
-            "Datei ist größer als {} MiB.",
-            MAX_PROJECT_FILE_BYTES / 1024 / 1024
-        ));
-    } else if let Ok(bytes) = fs::read(&f.absolute) {
-        let mime = sniff_mime(&bytes[..bytes.len().min(8192)], &f.display);
-        if !is_textual_mime(&mime) {
-            eligible = false;
-            reason = Some("Datei ist kein lesbarer UTF-8-Text.".to_owned());
-        } else if std::str::from_utf8(&bytes).is_err() {
-            eligible = false;
-            reason = Some("Datei ist kein gültiger UTF-8-Text.".to_owned());
-        }
-    }
     Ok(ProjectFileSearchEntry {
         root_id: f.root_id.clone(),
         relative_path: f.relative.clone(),
         root_label: f.root_label.clone(),
         display_name: f.display.clone(),
-        size,
-        context_eligible: eligible,
-        context_unavailable_reason: reason,
+        size: f.size,
+        context_eligible: f.context_eligible,
+        context_unavailable_reason: f.context_unavailable_reason.clone(),
     })
 }
 fn read_authorized(root: &Path, relative: &str) -> Result<ReadFile, AppError> {
@@ -505,8 +706,36 @@ mod tests {
 
     #[test]
     fn file_search_scores_exact_filename_above_path_match() {
-        assert!(score("src/main.rs", "main.rs").unwrap() > score("src/main.rs", "main").unwrap());
-        assert!(score("src/main.rs", "does-not-exist").is_none());
+        let make_indexed = |rel: &str| {
+            let display = std::path::Path::new(rel)
+                .file_name()
+                .and_then(|v| v.to_str())
+                .unwrap_or(rel)
+                .to_owned();
+            let relative_lower = rel.to_ascii_lowercase();
+            let display_lower = display.to_ascii_lowercase();
+            let stem_lower = display_lower
+                .rsplit_once('.')
+                .map(|(stem, _)| stem.to_owned())
+                .unwrap_or_else(|| display_lower.clone());
+            let depth = rel.matches('/').count();
+            super::Indexed {
+                root_id: "root".to_owned(),
+                root_label: "root".to_owned(),
+                relative: rel.to_owned(),
+                relative_lower,
+                display,
+                display_lower,
+                stem_lower,
+                depth,
+                size: 100,
+                context_eligible: true,
+                context_unavailable_reason: None,
+            }
+        };
+        let main = make_indexed("src/main.rs");
+        assert!(score(&main, "main.rs").unwrap() > score(&main, "main").unwrap());
+        assert!(score(&main, "does-not-exist").is_none());
     }
 
     #[test]
@@ -529,5 +758,53 @@ mod tests {
                 limit: None,
             })
             .is_err());
+    }
+
+    #[test]
+    fn file_search_indexes_and_uses_cache() {
+        let temp_dir = std::env::temp_dir().join(format!("geminui_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(temp_dir.join("src")).unwrap();
+        std::fs::write(temp_dir.join("src/lib.rs"), "pub fn test() {}").unwrap();
+        std::fs::write(temp_dir.join("README.md"), "# Hello").unwrap();
+
+        let db = crate::db::DbPool::open_in_memory().unwrap();
+        {
+            let connection = db.connection().unwrap();
+            let tx = connection.unchecked_transaction().unwrap();
+            tx.execute(
+                "INSERT INTO project_roots (id, project_id, kind, path, real_path, label, sort_order, created_at, updated_at) VALUES ('r1', 'p1', 'primary', ?1, ?1, 'root', 0, 'now', 'now')",
+                [temp_dir.to_str().unwrap()],
+            ).unwrap();
+            tx.execute(
+                "INSERT INTO projects (id, name, primary_root_id, root_revision, root_fingerprint, archived, created_at, updated_at) VALUES ('p1', 'Project 1', 'r1', 1, ?1, 0, 'now', 'now')",
+                ["a".repeat(64)],
+            ).unwrap();
+            tx.commit().unwrap();
+        }
+
+        let service = super::ProjectFileService::new(db);
+        let result = service.search(super::SearchProjectFilesInput {
+            project_id: "p1".to_owned(),
+            expected_root_revision: 1,
+            query: "lib".to_owned(),
+            limit: Some(10),
+        }).unwrap();
+
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.entries[0].relative_path, "src/lib.rs");
+        assert!(result.entries[0].context_eligible);
+
+        // Subsequent search uses in-memory cache
+        let result2 = service.search(super::SearchProjectFilesInput {
+            project_id: "p1".to_owned(),
+            expected_root_revision: 1,
+            query: "read".to_owned(),
+            limit: Some(10),
+        }).unwrap();
+
+        assert_eq!(result2.entries.len(), 1);
+        assert_eq!(result2.entries[0].relative_path, "README.md");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

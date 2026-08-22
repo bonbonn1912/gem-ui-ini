@@ -52,8 +52,53 @@ import {
 } from "../types";
 import { createClientRequestId } from "../utils/client-request-id";
 
+function extractErrorDetails(error: unknown): { message: string; technicalDetails?: string } {
+  if (!error) return { message: "Unbekannter Fehler" };
+  let message = "";
+  let technicalDetails: string | undefined;
+
+  if (error instanceof Error) {
+    message = error.message || error.name || "Fehler";
+    if ("code" in error && (error as { code?: string }).code) {
+      message = `[${(error as { code?: string }).code}] ${message}`;
+    }
+    const stack = error.stack;
+    if (stack && stack !== error.message) {
+      technicalDetails = stack;
+    }
+    if ("cause" in error && error.cause) {
+      const causeStr = typeof error.cause === "object" ? JSON.stringify(error.cause, null, 2) : String(error.cause);
+      technicalDetails = technicalDetails ? `${technicalDetails}\n\nUrsache:\n${causeStr}` : `Ursache:\n${causeStr}`;
+    }
+  } else if (typeof error === "string") {
+    message = error;
+  } else if (typeof error === "object") {
+    const errObj = error as Record<string, unknown>;
+    const msg = typeof errObj.message === "string" ? errObj.message : "";
+    const code = typeof errObj.code === "string" ? errObj.code : "";
+    if (msg && code) {
+      message = `[${code}] ${msg}`;
+    } else if (msg) {
+      message = msg;
+    } else if (code) {
+      message = `Fehlercode: ${code}`;
+    } else {
+      message = "Ein technischer Fehler ist aufgetreten.";
+    }
+    try {
+      technicalDetails = JSON.stringify(error, null, 2);
+    } catch {
+      technicalDetails = String(error);
+    }
+  } else {
+    message = String(error);
+  }
+
+  return { message: message || "Ein unerwarteter Fehler ist aufgetreten.", technicalDetails };
+}
+
 function messageFrom(error: unknown): string {
-  return error instanceof Error ? error.message : "Eine unerwartete Aktion ist fehlgeschlagen.";
+  return extractErrorDetails(error).message;
 }
 
 function isProjectRootAccessError(error: unknown): boolean {
@@ -494,7 +539,8 @@ export function App() {
   });
 
   const showError = (title: string, error: unknown, retry?: () => void) => {
-    setUiError({ title, message: messageFrom(error), retry });
+    const { message, technicalDetails } = extractErrorDetails(error);
+    setUiError({ title, message, technicalDetails, retry });
   };
   const closeProjectDialog = () => setProjectDialogOpen(false);
 
@@ -994,9 +1040,10 @@ export function App() {
         turnId,
         clientRequestId: createClientRequestId(),
       });
+      dispatch({ type: "turn-cancelled" });
     } catch (error) {
+      dispatch({ type: "cancel-failed" });
       showError("Antwort konnte nicht gestoppt werden", error);
-      throw error;
     }
   };
 
@@ -1449,8 +1496,37 @@ export function App() {
       {uiError() && (
         <div class="error-toast" role="alert">
           <span><Icon name="warning" size={17} /></span>
-          <div><strong>{uiError().title}</strong><p class="error-details" tabIndex={0}>{uiError().message}</p></div>
-          {uiError().retry && <button type="button" onClick={() => { setUiError(null); uiError().retry?.(); }}>Erneut</button>}
+          <div>
+            <strong>{uiError().title}</strong>
+            <p class="error-details" tabIndex={0}>{uiError().message}</p>
+            {uiError().technicalDetails && (
+              <details class="error-technical-details">
+                <summary>Technische Details / Stacktrace anzeigen</summary>
+                <pre tabIndex={0}>{uiError().technicalDetails}</pre>
+              </details>
+            )}
+          </div>
+          <div class="error-toast-actions">
+            {uiError().retry && (
+              <button type="button" onClick={() => { const r = uiError().retry; setUiError(null); r?.(); }}>
+                Erneut
+              </button>
+            )}
+            <button
+              type="button"
+              class="error-copy-button"
+              onClick={(event) => {
+                const text = `${uiError().title}\n${uiError().message}${uiError().technicalDetails ? `\n\n${uiError().technicalDetails}` : ""}`;
+                void navigator.clipboard?.writeText(text);
+                const btn = event.currentTarget;
+                btn.textContent = "Kopiert!";
+                setTimeout(() => { btn.textContent = "Kopieren"; }, 1500);
+              }}
+              title="Fehler & technische Details kopieren"
+            >
+              Kopieren
+            </button>
+          </div>
           <button class="toast-close" type="button" onClick={() => setUiError(null)} aria-label="Fehler schließen"><Icon name="x" size={15} /></button>
         </div>
       )}

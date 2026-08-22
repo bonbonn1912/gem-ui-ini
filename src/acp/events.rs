@@ -94,6 +94,32 @@ impl AcpEvent {
     }
 }
 
+pub fn is_internal_control_message(text: &str) -> bool {
+    let trimmed = text.trim();
+    trimmed.starts_with("[MODE_UPDATE]")
+        || trimmed.starts_with("[MODE_CHANGE]")
+        || trimmed.starts_with("[SET_MODE]")
+        || trimmed.starts_with("[MODEL_UPDATE]")
+        || trimmed.starts_with("[MODEL_CHANGE]")
+        || trimmed.starts_with("[SET_MODEL]")
+        || trimmed.starts_with("[CONFIG_UPDATE]")
+}
+
+pub fn strip_session_context(text: &str) -> String {
+    let cleaned = text;
+    while let Some(start) = cleaned.find("<session_context>") {
+        if let Some(end) = cleaned[start..].find("</session_context>") {
+            let before = &cleaned[..start];
+            let after = &cleaned[start + end + "</session_context>".len()..];
+            let combined = format!("{}{}", before.trim_end(), after.trim_start());
+            return strip_session_context(&combined);
+        } else {
+            return cleaned[..start].trim().to_owned();
+        }
+    }
+    cleaned.trim().to_owned()
+}
+
 /// Converts ACP `session/update` notifications into the strict renderer event
 /// payloads persisted by the sessions timeline. Unsupported provider updates
 /// are deliberately ignored: forwarding an arbitrary provider object would
@@ -124,17 +150,45 @@ pub fn normalize_notification(notification: &RpcNotification) -> Vec<Value> {
             .to_owned()
     };
     match kind {
-        "user_message_chunk" => Some(serde_json::json!({
-            "type": "message.user",
-            "messageId": message_id(),
-            "text": content_text(),
-            "attachmentIds": []
-        })),
-        "agent_message_chunk" => Some(serde_json::json!({
-            "type": "message.assistant.delta",
-            "messageId": message_id(),
-            "delta": content_text()
-        })),
+        "user_message_chunk" => {
+            let raw = content_text();
+            if is_internal_control_message(&raw) {
+                None
+            } else {
+                let text = strip_session_context(&raw);
+                if is_internal_control_message(&text)
+                    || (text.trim().is_empty() && raw.contains("<session_context>"))
+                {
+                    None
+                } else {
+                    Some(serde_json::json!({
+                        "type": "message.user",
+                        "messageId": message_id(),
+                        "text": text,
+                        "attachmentIds": []
+                    }))
+                }
+            }
+        }
+        "agent_message_chunk" => {
+            let raw = content_text();
+            if is_internal_control_message(&raw) {
+                None
+            } else {
+                let text = strip_session_context(&raw);
+                if is_internal_control_message(&text)
+                    || (text.trim().is_empty() && raw.contains("<session_context>"))
+                {
+                    None
+                } else {
+                    Some(serde_json::json!({
+                        "type": "message.assistant.delta",
+                        "messageId": message_id(),
+                        "delta": text
+                    }))
+                }
+            }
+        }
         "agent_thought_chunk" => Some(serde_json::json!({
             "type": "message.thought.delta",
             "messageId": message_id(),

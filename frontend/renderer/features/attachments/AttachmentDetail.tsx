@@ -12,6 +12,7 @@ type AttachmentDetailProps = {
   onOpenFile: (attachmentId: string) => Promise<void>;
   live?: boolean;
   onLiveToggle?: (live: boolean) => void;
+  previewHeight?: number;
 };
 
 function readableSize(bytes: number): string {
@@ -169,6 +170,7 @@ export function AttachmentDetail(props: AttachmentDetailProps) {
               attachmentId={props.attachment.id}
               host={link.host}
               url={link.url}
+              height={props.previewHeight}
               onOpenExternal={props.onOpenExternal}
               onClose={() => props.onLiveToggle?.(false)}
             />

@@ -538,6 +538,36 @@ describe("Renderer UI", () => {
     expect(screen.getByText("auth.ts", { selector: ".sent-project-file > span" })).toBeVisible();
   });
 
+  it("benennt eine Session über das Kontextmenü und Enter erfolgreich um", async () => {
+    const user = userEvent.setup();
+    const { api } = createApi();
+    const renamedSession = { ...session, title: "Neuer Session Titel" };
+    vi.mocked(api.sessions.update).mockResolvedValue(renamedSession);
+    window.gemUi = api;
+
+    render(() => <App />);
+    const menuButton = await screen.findByLabelText("Aktionen für Login reparieren");
+    await user.click(menuButton);
+
+    const renameButton = await screen.findByRole("button", { name: "Umbenennen" });
+    await user.click(renameButton);
+
+    const renameInput = await screen.findByRole("textbox", { name: "Session umbenennen" });
+    expect(renameInput).toBeVisible();
+    expect(renameInput).toHaveValue("Login reparieren");
+
+    await user.clear(renameInput);
+    await user.type(renameInput, "Neuer Session Titel{Enter}");
+
+    await waitFor(() => expect(api.sessions.update).toHaveBeenCalledTimes(1));
+    expect(api.sessions.update).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: session.id,
+      title: "Neuer Session Titel",
+    }));
+    const elements = await screen.findAllByText("Neuer Session Titel");
+    expect(elements.length).toBeGreaterThan(0);
+  });
+
   it("erlaubt Copy-Paste im Eingabefeld des 'Link hinzufügen'-Dialogs", async () => {
     const user = userEvent.setup();
     const contextList = populatedContextList();

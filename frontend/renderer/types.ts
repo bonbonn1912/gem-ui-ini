@@ -142,5 +142,6 @@ export type GemUiDesktopApi = ContractGemUiDesktopApi & {
 export type UiError = {
   title: string;
   message: string;
+  technicalDetails?: string;
   retry?: () => void;
 };

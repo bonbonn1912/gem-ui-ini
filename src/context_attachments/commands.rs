@@ -66,10 +66,36 @@ pub async fn context_attachments_add_files(
 pub async fn context_attachments_add_link(
     state: State<'_, ContextAttachmentService>,
     hub: State<'_, ContextAttachmentSubscriptionHub>,
+    fetcher: State<'_, LinkMetadataFetcherService>,
     input: AddContextLinkInput,
 ) -> Result<ContextAttachmentList, AppError> {
     let result = state.add_link_request(input).await?;
     hub.notify(&state, &result.project_id);
+
+    let pending_attachments: Vec<_> = result
+        .project_attachments
+        .iter()
+        .chain(result.session_attachments.iter())
+        .filter(|a| {
+            a.link
+                .as_ref()
+                .map(|l| l.preview_state == LinkPreviewState::Pending)
+                .unwrap_or(false)
+        })
+        .map(|a| a.id.clone())
+        .collect();
+
+    for attachment_id in pending_attachments {
+        let service = (*state).clone();
+        let fetcher_inner = Arc::clone(&fetcher.inner);
+        let project_id = result.project_id.clone();
+        let hub_clone = (*hub).clone();
+        tokio::task::spawn_blocking(move || {
+            let _ = service.refresh_link_preview(&attachment_id, fetcher_inner.as_ref());
+            hub_clone.notify(&service, &project_id);
+        });
+    }
+
     Ok(result)
 }
 

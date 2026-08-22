@@ -128,6 +128,9 @@ export function LinkPreviewSurface(props: LinkPreviewSurfaceProps) {
         await window.gemUi.linkPreview.open({ url: props.url });
       }
       scheduleBounds();
+      window.setTimeout(scheduleBounds, 50);
+      window.setTimeout(scheduleBounds, 150);
+      window.setTimeout(scheduleBounds, 300);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Die Live-Ansicht konnte nicht geladen werden.");
     } finally {
@@ -136,13 +139,35 @@ export function LinkPreviewSurface(props: LinkPreviewSurfaceProps) {
   };
 
   createRenderEffect(() => {
+    // Re-schedule bounds when props change
+    props.height;
+    props.isExpanded;
+    scheduleBounds();
+  });
+
+  createRenderEffect(() => {
     void open();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleBounds);
-    if (surfaceRef) observer?.observe(surfaceRef);
+    if (surfaceRef) {
+      observer?.observe(surfaceRef);
+      if (surfaceRef.parentElement) observer?.observe(surfaceRef.parentElement);
+      const container = surfaceRef.closest(".attachments-panel, .attachments-panel-body, .live-view-dialog, .chat-workspace");
+      if (container) observer?.observe(container);
+    }
+    const mutationObserver = typeof MutationObserver === "undefined" ? null : new MutationObserver(scheduleBounds);
+    const workspace = surfaceRef?.closest(".chat-workspace, .app-shell");
+    if (workspace && mutationObserver) {
+      mutationObserver.observe(workspace, { attributes: true, attributeFilter: ["style", "class"] });
+    }
+
     window.addEventListener("resize", scheduleBounds);
     window.addEventListener("scroll", scheduleBounds, true);
+    const interval = window.setInterval(scheduleBounds, 200);
+
     onCleanup(() => {
+      window.clearInterval(interval);
       observer?.disconnect();
+      mutationObserver?.disconnect();
       window.removeEventListener("resize", scheduleBounds);
       window.removeEventListener("scroll", scheduleBounds, true);
       if (frameRef !== null) window.cancelAnimationFrame(frameRef);

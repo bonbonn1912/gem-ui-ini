@@ -376,6 +376,7 @@ struct ManagedSession {
     status: SessionStatus,
     process: Option<Arc<dyn ProcessHandle>>,
     initialize_response: Option<Value>,
+    provider_session_id: Option<String>,
     opened_sequence: u64,
 }
 
@@ -401,6 +402,7 @@ impl Default for SessionManager {
 
 impl SessionManager {
     pub const DEFAULT_CANCEL_GRACE_PERIOD: Duration = Duration::from_secs(1);
+    pub const DEFAULT_INITIALIZE_TIMEOUT: Duration = Duration::from_secs(30);
 
     pub fn new() -> Self {
         Self::with_factory(Arc::new(AcpProcessFactory))
@@ -415,7 +417,7 @@ impl SessionManager {
                 next_sequence: 0,
             }),
             cancel_grace_period: Self::DEFAULT_CANCEL_GRACE_PERIOD,
-            initialize_timeout: Duration::from_secs(2),
+            initialize_timeout: Self::DEFAULT_INITIALIZE_TIMEOUT,
         }
     }
 
@@ -459,6 +461,7 @@ impl SessionManager {
                     status: SessionStatus::Starting,
                     process: None,
                     initialize_response: None,
+                    provider_session_id: None,
                     opened_sequence,
                 },
             );
@@ -479,14 +482,26 @@ impl SessionManager {
         // handshake must never leave a half-live process in the manager.
         let initialize = match timeout(self.initialize_timeout, process.initialize()).await {
             Ok(result) => result,
-            Err(_) => Err(ProcessError::Io("ACP initialize timed out".to_owned())),
+            Err(_) => {
+                let stderr = process.stderr_snippet().await;
+                let msg = if stderr.trim().is_empty() {
+                    format!("ACP initialize timed out after {}s", self.initialize_timeout.as_secs())
+                } else {
+                    format!(
+                        "ACP initialize timed out after {}s (stderr: {})",
+                        self.initialize_timeout.as_secs(),
+                        stderr.trim()
+                    )
+                };
+                Err(ProcessError::Io(msg))
+            }
         };
         let initialize_response = match initialize {
             Ok(response) => response,
             Err(mut error) => {
                 let stderr = process.stderr_snippet().await;
-                if !stderr.trim().is_empty() {
-                    error = ProcessError::Io(stderr);
+                if !stderr.trim().is_empty() && !error.to_string().contains(stderr.trim()) {
+                    error = ProcessError::Io(format!("{error} (stderr: {})", stderr.trim()));
                 }
                 process.permissions().close();
                 let _ = process.terminate().await;
@@ -658,16 +673,33 @@ impl SessionManager {
         Ok(())
     }
 
+    pub async fn provider_session_id(&self, session_id: &str) -> String {
+        let state = self.state.lock().await;
+        state
+            .sessions
+            .get(session_id)
+            .and_then(|s| s.provider_session_id.clone())
+            .unwrap_or_else(|| session_id.to_owned())
+    }
+
+    pub async fn set_provider_session_id(&self, session_id: &str, provider_session_id: String) {
+        let mut state = self.state.lock().await;
+        if let Some(session) = state.sessions.get_mut(session_id) {
+            session.provider_session_id = Some(provider_session_id);
+        }
+    }
+
     /// Sends `session/prompt` and exposes the raw, provider-neutral response.
     /// Usage parsing belongs to `acp::usage`; this method deliberately does
     /// not discard `_meta.quota` before the parser sees it.
     pub async fn prompt(&self, session_id: &str, prompt: Value) -> Result<Value, SessionError> {
         let process = self.process(session_id).await?;
+        let provider_id = self.provider_session_id(session_id).await;
         self.set_status(session_id, SessionStatus::Running).await?;
         let result = process
             .request(
                 "session/prompt",
-                serde_json::json!({ "sessionId": session_id, "prompt": prompt }),
+                serde_json::json!({ "sessionId": provider_id, "prompt": prompt }),
             )
             .await;
         match result {
@@ -686,12 +718,20 @@ impl SessionManager {
     /// process spawn and provider-session creation separate allows the caller
     /// to persist the app session before the provider assigns its ID.
     pub async fn session_new(&self, session_id: &str, cwd: &str) -> Result<Value, SessionError> {
-        self.request_provider_session(
-            session_id,
-            "session/new",
-            serde_json::json!({ "cwd": cwd, "mcpServers": [] }),
-        )
-        .await
+        let response = self
+            .request_provider_session(
+                session_id,
+                "session/new",
+                serde_json::json!({ "cwd": cwd, "mcpServers": [] }),
+            )
+            .await?;
+        if let Some(provider_id) = response.get("sessionId").and_then(Value::as_str) {
+            let mut state = self.state.lock().await;
+            if let Some(session) = state.sessions.get_mut(session_id) {
+                session.provider_session_id = Some(provider_id.to_owned());
+            }
+        }
+        Ok(response)
     }
 
     /// Performs ACP `session/load` for provider history recovery.
@@ -701,12 +741,22 @@ impl SessionManager {
         provider_session_id: &str,
         cwd: &str,
     ) -> Result<Value, SessionError> {
-        self.request_provider_session(
-            session_id,
-            "session/load",
-            serde_json::json!({ "cwd": cwd, "mcpServers": [], "sessionId": provider_session_id }),
-        )
-        .await
+        let response = self
+            .request_provider_session(
+                session_id,
+                "session/load",
+                serde_json::json!({ "cwd": cwd, "mcpServers": [], "sessionId": provider_session_id }),
+            )
+            .await?;
+        let effective_id = response
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .unwrap_or(provider_session_id);
+        let mut state = self.state.lock().await;
+        if let Some(session) = state.sessions.get_mut(session_id) {
+            session.provider_session_id = Some(effective_id.to_owned());
+        }
+        Ok(response)
     }
 
     async fn request_provider_session(
@@ -761,9 +811,10 @@ impl SessionManager {
         option: Value,
     ) -> Result<Value, SessionError> {
         let process = self.process(session_id).await?;
+        let provider_id = self.provider_session_id(session_id).await;
         let mut params = option;
         if let Some(object) = params.as_object_mut() {
-            object.insert("sessionId".to_owned(), Value::String(session_id.to_owned()));
+            object.insert("sessionId".to_owned(), Value::String(provider_id));
         }
         process
             .request(method, params)

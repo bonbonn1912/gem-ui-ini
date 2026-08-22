@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, For, Show } from "solid-js";
 import { Icon } from "../../components/Icon";
 import { useDismissOnOutsideClick } from "../../hooks/useDismissOnOutsideClick";
 import type { AppCapabilities, AppProject, AppSession } from "../../types";
@@ -52,28 +52,18 @@ function statusLabel(status: AppSession["status"]): string {
 }
 
 function HighlightText(props: { text: string; query: string | (() => string) }) {
-  const parts = createMemo(() => {
-    const trimmed = (typeof props.query === "function" ? props.query() : props.query).trim();
-    if (!trimmed) return [props.text];
-    const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return props.text.split(new RegExp(`(${escaped})`, "gi"));
-  });
+  const queryStr = createMemo(() => (typeof props.query === "function" ? props.query() : props.query ?? "").trim());
 
   return (
     <>
-      {parts().map((part) =>
-        (() => {
-          const trimmed = (typeof props.query === "function" ? props.query() : props.query).trim();
-          const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-          return trimmed && new RegExp(`^${escaped}$`, "i").test(part);
-        })() ? (
-          <mark  class="search-highlight">
-            {part}
-          </mark>
-        ) : (
-            part
-        ),
-      )}
+      {(() => {
+        const q = queryStr();
+        if (!q) return props.text;
+        const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const parts = props.text.split(new RegExp(`(${escaped})`, "gi"));
+        const regex = new RegExp(`^${escaped}$`, "i");
+        return parts.map((part) => (regex.test(part) ? <mark class="search-highlight">{part}</mark> : part));
+      })()}
     </>
   );
 }
@@ -91,16 +81,37 @@ function SessionRow(props: {
   const [renaming, setRenaming] = createSignal(false);
   const [title, setTitle] = createSignal(props.session.title);
 
-  const commitTitle = () => {
-    const trimmed = title().trim();
+  createEffect(() => {
+    if (!renaming()) {
+      setTitle(props.session.title);
+    }
+  });
+
+  const startRenaming = (event?: MouseEvent) => {
+    event?.stopPropagation();
+    if (menuRef.current) menuRef.current.open = false;
+    setTitle(props.session.title);
+    setRenaming(true);
+  };
+
+  const commitTitle = (directValue?: string) => {
+    const raw = typeof directValue === "string" ? directValue : title();
+    const trimmed = raw.trim();
     setRenaming(false);
-    if (trimmed && trimmed !== props.session.title) props.onUpdate({ title: trimmed });
-    else setTitle(props.session.title);
+    if (trimmed && trimmed !== props.session.title) {
+      props.onUpdate({ title: trimmed });
+    } else {
+      setTitle(props.session.title);
+    }
   };
 
   const onRenameKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "Enter") commitTitle();
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commitTitle((event.currentTarget as HTMLInputElement).value);
+    }
     if (event.key === "Escape") {
+      event.preventDefault();
       setTitle(props.session.title);
       setRenaming(false);
     }
@@ -112,7 +123,8 @@ function SessionRow(props: {
         class="session-main"
         type="button"
         onClick={props.onSelect}
-        onDblClick={() => setRenaming(true)}
+        onDblClick={startRenaming}
+        ondblclick={startRenaming}
         aria-current={props.active ? "page" : undefined}
       >
         <span class={`session-status session-status--${props.session.status}`} title={statusLabel(props.session.status)} />
@@ -121,11 +133,16 @@ function SessionRow(props: {
             <input
               class="session-rename"
               value={title()}
-              onChange={(event) => setTitle(event.target.value)}
-              onBlur={commitTitle}
+              ref={(el) => {
+                el.focus();
+                el.select();
+              }}
+              onInput={(event) => setTitle(event.currentTarget.value)}
+              onChange={(event) => setTitle(event.currentTarget.value)}
+              onBlur={(event) => commitTitle(event.currentTarget.value)}
               onKeyDown={onRenameKeyDown}
               onClick={(event) => event.stopPropagation()}
-              autofocus
+              onDblClick={(event) => event.stopPropagation()}
               aria-label="Session umbenennen"
             />
           ) : (
@@ -147,7 +164,7 @@ function SessionRow(props: {
       <details ref={menuRef} class="session-menu">
         <summary aria-label={`Aktionen für ${props.session.title}`}><Icon name="more" size={17} /></summary>
         <div class="session-menu-popover">
-          <button type="button" onClick={() => setRenaming(true)}>Umbenennen</button>
+          <button type="button" onClick={startRenaming}>Umbenennen</button>
           <button type="button" onClick={() => props.onUpdate({ pinned: !props.session.pinned })}>
             <Icon name="pin" size={14} /> {props.session.pinned ? "Lösen" : "Anpinnen"}
           </button>
@@ -173,25 +190,27 @@ function SessionGroup(props: {
   onUpdateSession: (sessionId: string, patch: Partial<SessionPatch>) => void;
   onDeleteSession: (sessionId: string) => void;
 }) {
-  if (!props.sessions.length) return null;
   return (
-    <section class="session-group">
-      {props.label ? <h2>{props.label}</h2> : null}
-      <div class="session-list">
-        {props.sessions.map((session) => (
-          <SessionRow
-
-            session={session}
-            active={session.id === props.activeSessionId}
-            searchQuery={props.searchQuery}
-            matchedSnippet={props.contentMatches?.get(session.id)}
-            onSelect={() => props.onSelectSession(session.id)}
-            onUpdate={(patch) => props.onUpdateSession(session.id, patch)}
-            onDelete={() => props.onDeleteSession(session.id)}
-          />
-        ))}
-      </div>
-    </section>
+    <Show when={props.sessions.length > 0}>
+      <section class="session-group">
+        {props.label ? <h2>{props.label}</h2> : null}
+        <div class="session-list">
+          <For each={props.sessions}>
+            {(session) => (
+              <SessionRow
+                session={session}
+                active={session.id === props.activeSessionId}
+                searchQuery={props.searchQuery}
+                matchedSnippet={props.contentMatches?.get(session.id)}
+                onSelect={() => props.onSelectSession(session.id)}
+                onUpdate={(patch) => props.onUpdateSession(session.id, patch)}
+                onDelete={() => props.onDeleteSession(session.id)}
+              />
+            )}
+          </For>
+        </div>
+      </section>
+    </Show>
   );
 }
 
@@ -328,12 +347,24 @@ export function Sidebar(props: SidebarProps) {
         </div>
 
         <div class="sessions-scroll">
-          {props.sessionsLoading ? (
-            <div class="sidebar-skeleton" aria-label="Sessions werden geladen">
-              <i /><i /><i /><i />
-            </div>
-          ) : filtered().length ? (
-            <>
+          <Show
+            when={!props.sessionsLoading}
+            fallback={
+              <div class="sidebar-skeleton" aria-label="Sessions werden geladen">
+                <i /><i /><i /><i />
+              </div>
+            }
+          >
+            <Show
+              when={filtered().length > 0}
+              fallback={
+                props.sessions.length ? (
+                  <div class="sidebar-empty"><Icon name="search" size={20} /><p>Keine passende Session</p></div>
+                ) : (
+                  <div class="sidebar-empty"><Icon name="chat" size={20} /><p>Noch keine Sessions</p><button type="button" onClick={props.onCreateSession}>Erste Session starten</button></div>
+                )
+              }
+            >
               <SessionGroup
                 label="Angepinnt"
                 sessions={pinned()}
@@ -354,7 +385,7 @@ export function Sidebar(props: SidebarProps) {
                 onUpdateSession={props.onUpdateSession}
                 onDeleteSession={props.onDeleteSession}
               />
-              {archived().length > 0 && (
+              <Show when={archived().length > 0}>
                 <details class="archived-sessions">
                   <summary><Icon name="archive" size={13} /> Archiviert <span>{archived().length}</span></summary>
                   <SessionGroup
@@ -368,13 +399,9 @@ export function Sidebar(props: SidebarProps) {
                     onDeleteSession={props.onDeleteSession}
                   />
                 </details>
-              )}
-            </>
-          ) : props.sessions.length ? (
-            <div class="sidebar-empty"><Icon name="search" size={20} /><p>Keine passende Session</p></div>
-          ) : (
-            <div class="sidebar-empty"><Icon name="chat" size={20} /><p>Noch keine Sessions</p><button type="button" onClick={props.onCreateSession}>Erste Session starten</button></div>
-          )}
+              </Show>
+            </Show>
+          </Show>
         </div>
 
         <div class="sidebar-footer">
