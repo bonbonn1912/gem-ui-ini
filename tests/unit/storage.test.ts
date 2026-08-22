@@ -40,8 +40,8 @@ describe("SQLite setup and migrations", () => {
       const versions = database
         .prepare("SELECT version FROM schema_migrations ORDER BY version")
         .all() as Array<{ version: number }>;
-      expect(versions.map(({ version }) => version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-      expect(getLatestSchemaVersion()).toBe(10);
+      expect(versions.map(({ version }) => version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+      expect(getLatestSchemaVersion()).toBe(11);
       const clientRequests = database
         .prepare(
           "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'client_requests'",

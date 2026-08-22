@@ -3,8 +3,14 @@ import path from "node:path";
 import {
   IPC_CHANNELS,
   JsonValueSchema,
+  type ActivateJiraProjectIntegrationInput,
   type ArchiveProjectInput,
+  type AttachJiraIssueInput,
   type AddContextFilesInput,
+  type DeactivateJiraProjectIntegrationInput,
+  type DeleteJiraConfigInput,
+  type GetJiraProjectIntegrationInput,
+  type SaveJiraConfigInput,
   type AddContextLinkInput,
   type AddTodoFilesInput,
   type AddTodoLinkInput,
@@ -76,6 +82,7 @@ import { registerValidatedIpcHandler } from "./register-handler";
 
 import type { IntegrationRegistry } from "../integrations/integration-registry";
 import type { GitLabService, GitLabSubscriptionHub } from "../integrations/gitlab";
+import type { JiraService } from "../integrations/jira";
 import { AppUpdateService } from "../updates/app-update-service";
 
 export type RegisterAppIpcOptions = {
@@ -98,6 +105,7 @@ export type RegisterAppIpcOptions = {
   integrations?: IntegrationRegistry;
   gitlab?: GitLabService;
   gitlabSubscriptionHub?: GitLabSubscriptionHub;
+  jira?: JiraService;
   updateService?: AppUpdateService;
 };
 
@@ -840,6 +848,55 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
       hub.unsubscribe(inp.subscriptionId);
       return { ok: true };
     });
+  }
+
+  if (options.jira) {
+    const jira = options.jira;
+
+    register(IPC_CHANNELS.listJiraConfigs, () => jira.listConfigs());
+
+    register(IPC_CHANNELS.saveJiraConfig, (input) =>
+      idempotent(options.clientRequests, input as SaveJiraConfigInput & { clientRequestId: string }, "jira.save-config", () =>
+        jira.saveConfig(input as SaveJiraConfigInput),
+      ),
+    );
+
+    register(IPC_CHANNELS.deleteJiraConfig, (input) =>
+      idempotent(options.clientRequests, input as DeleteJiraConfigInput & { clientRequestId: string }, "jira.delete-config", () =>
+        jira.deleteConfig(input as DeleteJiraConfigInput),
+      ),
+    );
+
+    register(IPC_CHANNELS.getJiraProjectIntegration, (input) =>
+      jira.getProjectIntegration(input as GetJiraProjectIntegrationInput),
+    );
+
+    register(IPC_CHANNELS.activateJiraProjectIntegration, (input) =>
+      idempotent(
+        options.clientRequests,
+        input as ActivateJiraProjectIntegrationInput & { clientRequestId: string },
+        "jira.activate-project-integration",
+        () => jira.activate(input as ActivateJiraProjectIntegrationInput),
+      ),
+    );
+
+    register(IPC_CHANNELS.deactivateJiraProjectIntegration, (input) =>
+      idempotent(
+        options.clientRequests,
+        input as DeactivateJiraProjectIntegrationInput & { clientRequestId: string },
+        "jira.deactivate-project-integration",
+        () => jira.deactivate(input as DeactivateJiraProjectIntegrationInput),
+      ),
+    );
+
+    register(IPC_CHANNELS.attachJiraIssue, (input) =>
+      idempotent(
+        options.clientRequests,
+        input as AttachJiraIssueInput & { clientRequestId: string },
+        "jira.attach-issue",
+        () => jira.attachIssue(input as AttachJiraIssueInput),
+      ),
+    );
   }
 
   return () => {

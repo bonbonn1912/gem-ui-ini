@@ -396,15 +396,19 @@ export const PreparedExternalContextSchema = z
   })
   .strict();
 
-export const IntegrationKindSchema = z.enum(["gitlab"]);
+export const IntegrationKindSchema = z.enum(["gitlab", "jira"]);
 
 export const IntegrationDescriptorSchema = z
   .object({
     kind: IntegrationKindSchema,
     name: z.string().trim().min(1).max(200),
     description: z.string().trim().min(1).max(500),
-    icon: z.literal("gitlab"),
-    scope: z.literal("repository"),
+    icon: z.enum(["gitlab", "jira"]),
+    /**
+     * "repository" binds per Git remote (GitLab), "project" applies to the
+     * whole project at once (Jira).
+     */
+    scope: z.enum(["repository", "project"]),
     defaultEnabled: z.literal(false),
   })
   .strict();

@@ -29,6 +29,7 @@ import {
   ContextAttachmentRepository,
   EventRepository,
   GitLabRepository,
+  JiraRepository,
   ProjectRepository,
   SessionRepository,
   SettingsRepository,
@@ -40,6 +41,7 @@ import {
 import { UsageService } from "./usage";
 import { GitLabService, GitLabSubscriptionHub, GitLabTokenVault } from "./integrations/gitlab";
 import { IntegrationRegistry } from "./integrations/integration-registry";
+import { JiraService } from "./integrations/jira";
 import { ExternalPromptContextRegistry } from "./integrations/external-prompt-context-registry";
 import { IPC_CHANNELS } from "../shared/contracts";
 
@@ -178,7 +180,17 @@ async function bootstrap(): Promise<void> {
       }
     },
   );
-  const integrationRegistry = new IntegrationRegistry(gitlabRepository);
+  const jiraRepository = new JiraRepository(database);
+  const jiraService = new JiraService({
+    repository: jiraRepository,
+    projects: projectService,
+    contextAttachments: contextAttachmentService,
+  });
+
+  const integrationRegistry = new IntegrationRegistry(
+    gitlabRepository,
+    jiraRepository,
+  );
 
   eventHub = new SessionEventHub({
     eventsAfter: (sessionId, afterSeq) =>
@@ -219,6 +231,7 @@ async function bootstrap(): Promise<void> {
     integrations: integrationRegistry,
     gitlab: gitlabService,
     gitlabSubscriptionHub,
+    jira: jiraService,
   };
   await openApplicationWindow();
 }

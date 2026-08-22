@@ -2219,3 +2219,44 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .token-last-turn-stats strong {
   color: #e2e8f0;
 }
+
+/* --- Jira integration ---------------------------------------------------
+   The issue view covers the workspace rather than sitting in the right
+   column: everything between the session sidebar and the panel rail belongs
+   to the page, with one slim bar for reload, "open in browser" and close. */
+
+.jira-icon-color { color: #2684ff; }
+
+.jira-prefix-tags { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+.jira-prefix-tag { padding: 1px 7px; border: 1px solid var(--border); border-radius: 99px; color: var(--text-soft); background: var(--surface); font-size: 9.5px; font-weight: 700; letter-spacing: .03em; }
+
+.jira-editor { padding: 12px; display: grid; gap: 10px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); }
+.jira-editor-hint { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.jira-editor-hint code { padding: 0 4px; border-radius: 4px; background: var(--surface-hover); font-size: 9.5px; }
+.jira-editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.jira-add-button { justify-self: start; display: inline-flex; align-items: center; gap: 6px; }
+
+.jira-issue-view {
+  position: absolute;
+  inset: 0 var(--panel-rail-width) 0 0;
+  z-index: 120;
+  display: grid;
+  grid-template-rows: 38px minmax(0, 1fr);
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+.jira-issue-header { padding: 0 6px 0 10px; display: flex; align-items: center; gap: 9px; overflow: hidden; border-bottom: 1px solid var(--border-soft); }
+.jira-issue-badge { display: inline-flex; align-items: center; gap: 5px; color: var(--text); font-size: 11px; font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
+.jira-issue-host { min-width: 0; overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.jira-issue-attach-error { display: inline-flex; align-items: center; gap: 4px; color: var(--red); font-size: 9.5px; white-space: nowrap; }
+.jira-issue-header-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.jira-issue-header-actions .secondary-button { height: 27px; padding: 0 9px; display: inline-flex; align-items: center; gap: 5px; font-size: 10px; }
+.jira-issue-body { min-height: 0; display: flex; }
+.jira-issue-body .link-live-preview { flex: 1 1 auto; min-width: 0; margin-top: 0; border: 0; border-radius: 0; }
+.jira-issue-body .link-preview-surface { height: 100%; min-height: 0; }
+
+@media (max-width: 640px) {
+  .jira-issue-view { inset: 0 var(--panel-rail-width) 0 0; }
+  .jira-issue-header-actions .secondary-button span { display: none; }
+}

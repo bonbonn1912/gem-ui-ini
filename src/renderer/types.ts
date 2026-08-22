@@ -36,6 +36,9 @@ import type {
   PreparedExternalContext as ContractPreparedExternalContext,
   IntegrationDescriptor as ContractIntegrationDescriptor,
   ProjectIntegrationStatus as ContractProjectIntegrationStatus,
+  JiraConfig as ContractJiraConfig,
+  JiraIssueMatch as ContractJiraIssueMatch,
+  JiraProjectIntegration as ContractJiraProjectIntegration,
   PermissionOption as ContractPermissionOption,
   ProjectRoot as ContractProjectRoot,
   ProjectRootCandidate as ContractProjectRootCandidate,
@@ -93,6 +96,9 @@ export type GitLabReviewState = ContractGitLabReviewState;
 export type PreparedExternalContext = ContractPreparedExternalContext;
 export type IntegrationDescriptor = ContractIntegrationDescriptor;
 export type ProjectIntegrationStatus = ContractProjectIntegrationStatus;
+export type JiraConfig = ContractJiraConfig;
+export type JiraIssueMatch = ContractJiraIssueMatch;
+export type JiraProjectIntegration = ContractJiraProjectIntegration;
 
 export type AgentExtensionScope = ContractAgentExtensionScope;
 export type GeminiSkill = ContractGeminiSkill;

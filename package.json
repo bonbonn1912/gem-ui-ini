@@ -1,7 +1,7 @@
 {
   "name": "geminui",
   "productName": "GeminUI",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "description": "Native multi-project desktop client for Gemini CLI",
   "main": ".vite/build/main.cjs",
   "private": true,

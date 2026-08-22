@@ -376,6 +376,28 @@ import {
   type TestGitLabConnectionInput,
 } from "./gitlab";
 
+import {
+  ActivateJiraProjectIntegrationInputSchema,
+  AttachJiraIssueInputSchema,
+  AttachJiraIssueResultSchema,
+  DeactivateJiraProjectIntegrationInputSchema,
+  DeleteJiraConfigInputSchema,
+  GetJiraProjectIntegrationInputSchema,
+  JiraConfigSchema,
+  JiraProjectIntegrationSchema,
+  ListJiraConfigsInputSchema,
+  SaveJiraConfigInputSchema,
+  type ActivateJiraProjectIntegrationInput,
+  type AttachJiraIssueInput,
+  type AttachJiraIssueResult,
+  type DeactivateJiraProjectIntegrationInput,
+  type DeleteJiraConfigInput,
+  type GetJiraProjectIntegrationInput,
+  type JiraConfig,
+  type JiraProjectIntegration,
+  type SaveJiraConfigInput,
+} from "./jira";
+
 export const IPC_CHANNELS = {
   getCapabilities: "app:get-capabilities",
   listProjects: "projects:list",
@@ -465,6 +487,13 @@ export const IPC_CHANNELS = {
   prepareGitLabReviewContext: "gitlab:prepare-review-context",
   resolveGitLabDiscussion: "gitlab:resolve-discussion",
   replyToGitLabDiscussion: "gitlab:reply-to-discussion",
+  listJiraConfigs: "jira:list-configs",
+  saveJiraConfig: "jira:save-config",
+  deleteJiraConfig: "jira:delete-config",
+  getJiraProjectIntegration: "jira:get-project-integration",
+  activateJiraProjectIntegration: "jira:activate-project-integration",
+  deactivateJiraProjectIntegration: "jira:deactivate-project-integration",
+  attachJiraIssue: "jira:attach-issue",
   listGeminiSkills: "agent-extensions:list-skills",
   listMcpServers: "agent-extensions:list-mcp-servers",
   openExternalHttpsUrl: "external:open-https-url",
@@ -561,6 +590,13 @@ export const IpcRequestSchemas = {
   [IPC_CHANNELS.prepareGitLabReviewContext]: PrepareGitLabReviewContextInputSchema,
   [IPC_CHANNELS.resolveGitLabDiscussion]: ResolveGitLabDiscussionInputSchema,
   [IPC_CHANNELS.replyToGitLabDiscussion]: ReplyToGitLabDiscussionInputSchema,
+  [IPC_CHANNELS.listJiraConfigs]: ListJiraConfigsInputSchema,
+  [IPC_CHANNELS.saveJiraConfig]: SaveJiraConfigInputSchema,
+  [IPC_CHANNELS.deleteJiraConfig]: DeleteJiraConfigInputSchema,
+  [IPC_CHANNELS.getJiraProjectIntegration]: GetJiraProjectIntegrationInputSchema,
+  [IPC_CHANNELS.activateJiraProjectIntegration]: ActivateJiraProjectIntegrationInputSchema,
+  [IPC_CHANNELS.deactivateJiraProjectIntegration]: DeactivateJiraProjectIntegrationInputSchema,
+  [IPC_CHANNELS.attachJiraIssue]: AttachJiraIssueInputSchema,
   [IPC_CHANNELS.listGeminiSkills]: ListAgentExtensionsInputSchema,
   [IPC_CHANNELS.listMcpServers]: ListAgentExtensionsInputSchema,
   [IPC_CHANNELS.openExternalHttpsUrl]: OpenExternalHttpsUrlInputSchema,
@@ -650,6 +686,13 @@ export const IpcResponseSchemas = {
   [IPC_CHANNELS.prepareGitLabReviewContext]: PreparedExternalContextSchema,
   [IPC_CHANNELS.resolveGitLabDiscussion]: GitLabDiscussionSchema,
   [IPC_CHANNELS.replyToGitLabDiscussion]: GitLabDiscussionSchema,
+  [IPC_CHANNELS.listJiraConfigs]: z.array(JiraConfigSchema),
+  [IPC_CHANNELS.saveJiraConfig]: JiraConfigSchema,
+  [IPC_CHANNELS.deleteJiraConfig]: VoidResultSchema,
+  [IPC_CHANNELS.getJiraProjectIntegration]: JiraProjectIntegrationSchema,
+  [IPC_CHANNELS.activateJiraProjectIntegration]: JiraProjectIntegrationSchema,
+  [IPC_CHANNELS.deactivateJiraProjectIntegration]: JiraProjectIntegrationSchema,
+  [IPC_CHANNELS.attachJiraIssue]: AttachJiraIssueResultSchema,
   [IPC_CHANNELS.listGeminiSkills]: GeminiSkillListSchema,
   [IPC_CHANNELS.listMcpServers]: McpServerListSchema,
   [IPC_CHANNELS.openExternalHttpsUrl]: VoidResultSchema,
@@ -827,6 +870,22 @@ export interface GemUiDesktopApi {
     replyToDiscussion(
       input: ReplyToGitLabDiscussionInput,
     ): Promise<GitLabDiscussion>;
+  };
+  jira: {
+    /** Every saved configuration, offered as a suggestion in any project. */
+    listConfigs(): Promise<JiraConfig[]>;
+    saveConfig(input: SaveJiraConfigInput): Promise<JiraConfig>;
+    deleteConfig(input: DeleteJiraConfigInput): Promise<VoidResult>;
+    getProjectIntegration(
+      input: GetJiraProjectIntegrationInput,
+    ): Promise<JiraProjectIntegration>;
+    activate(
+      input: ActivateJiraProjectIntegrationInput,
+    ): Promise<JiraProjectIntegration>;
+    deactivate(
+      input: DeactivateJiraProjectIntegrationInput,
+    ): Promise<JiraProjectIntegration>;
+    attachIssue(input: AttachJiraIssueInput): Promise<AttachJiraIssueResult>;
   };
   agentExtensions: {
     listSkills(input: ListAgentExtensionsInput): Promise<GeminiSkillList>;
