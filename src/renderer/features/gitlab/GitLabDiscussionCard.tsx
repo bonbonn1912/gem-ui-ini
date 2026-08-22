@@ -254,7 +254,7 @@ export function GitLabDiscussionCard({
             </button>
           )}
 
-          {!isReadOnly && !replyOpen && (
+          {!isReadOnly && !replyOpen && discussion.repliable && (
             <button
               type="button"
               className="tool-btn"
@@ -276,7 +276,7 @@ export function GitLabDiscussionCard({
       </footer>
 
       {/* Reply Form */}
-      {replyOpen && (
+      {replyOpen && discussion.repliable && (
         <form onSubmit={handleSendReply} className="discussion-reply-form">
           <textarea
             value={replyText}

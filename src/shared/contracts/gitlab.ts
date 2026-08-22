@@ -284,6 +284,13 @@ export const GitLabDiscussionSchema = z
     notes: z.array(GitLabDiscussionNoteSchema).min(1).max(500),
     resolvable: z.boolean(),
     resolved: z.boolean(),
+    /**
+     * GitLab lehnt Antworten ab, wenn die *erste* Notiz des Threads eine
+     * Systemnotiz ist ("Replies to system notes are not allowed", HTTP 400).
+     * Der Mapper wertet das an der Rohantwort aus, damit die UI den
+     * Antwort-Button gar nicht erst anbietet.
+     */
+    repliable: z.boolean(),
   })
   .strict();
 

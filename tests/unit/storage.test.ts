@@ -508,6 +508,56 @@ describe("repositories", () => {
       fixture.database.close();
     }
   });
+
+  it("nimmt vollständige ProjectRoot-Datensätze für den Root-Audittrail an", async () => {
+    // Regression: `ProjectAccess` liefert ganze ProjectRoot-Objekte inklusive
+    // id, projectId, createdAt und updatedAt. Ein striktes Auditschema hat sie
+    // mit `unrecognized_keys` abgelehnt — und damit den ersten Prompt jeder
+    // noch nicht gestarteten Session scheitern lassen.
+    const fixture = await createProjectFixture();
+    try {
+      const sessions = new SessionRepository(fixture.database);
+      const sessionId = randomUUID();
+      sessions.create({
+        id: sessionId,
+        provider: "gemini-cli",
+        providerSessionId: null,
+        projectId: fixture.project.id,
+        lastRootRevision: fixture.project.rootRevision,
+        lastRootFingerprint: fixture.project.rootFingerprint,
+        title: "Audittest",
+        status: "idle",
+        model: null,
+        mode: null,
+        pinned: false,
+        archived: false,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+
+      expect(() =>
+        sessions.recordRootSnapshot({
+          sessionId,
+          rootRevision: fixture.project.rootRevision,
+          rootFingerprint: fixture.project.rootFingerprint,
+          capturedAt: timestamp,
+          roots: fixture.project.roots,
+        }),
+      ).not.toThrow();
+
+      const snapshot = sessions.getRootSnapshot(sessionId);
+      expect(snapshot?.roots).toHaveLength(fixture.project.roots.length);
+      expect(snapshot?.roots.map((root) => root.kind).sort()).toEqual([
+        "additional",
+        "primary",
+      ]);
+      // Die Projektion speichert nur die Auditfelder, nicht die Datensatz-IDs.
+      expect(snapshot?.roots[0]).not.toHaveProperty("id");
+      expect(snapshot?.roots[0]).not.toHaveProperty("projectId");
+    } finally {
+      fixture.database.close();
+    }
+  });
 });
 
 async function createProjectFixture() {

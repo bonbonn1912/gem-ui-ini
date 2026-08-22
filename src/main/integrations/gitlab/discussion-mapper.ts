@@ -50,12 +50,31 @@ export function mapGitLabDiscussions(
   for (const raw of rawDiscussions) {
     if (!raw.notes || raw.notes.length === 0) continue;
 
+    /**
+     * GitLab liefert Systemnotizen ("hat den Titel geändert", "hat zugewiesen",
+     * "hat als bereit markiert") als vollwertige Discussions aus. Sie sind keine
+     * Kommentare: Die UI blendet sie aus, und die API lehnt Antworten darauf mit
+     * HTTP 400 ab. Rein systemische Threads werden deshalb gar nicht erst
+     * durchgereicht — sonst entstehen leere Karten, deren Antwortfeld nur
+     * scheitern kann.
+     */
+    const conversationNotes = raw.notes.filter((note) => !note.system);
+    if (conversationNotes.length === 0) continue;
+
+    /**
+     * Serverseitig prüft GitLab die *erste* Notiz des Threads. Beginnt er mit
+     * einer Systemnotiz, scheitert jede Antwort mit
+     * "Replies to system notes are not allowed" — auch wenn danach echte
+     * Kommentare folgen.
+     */
+    const repliable = !raw.notes[0]?.system;
+
     const mappedNotes: GitLabDiscussionNote[] = [];
     let isDiscussionResolvable = false;
     let areAllResolvableNotesResolved = true;
     let hasResolvableNotes = false;
 
-    for (const note of raw.notes) {
+    for (const note of conversationNotes) {
       const isSystem = Boolean(note.system);
       const isResolvable = Boolean(note.resolvable);
       const isResolved = Boolean(note.resolved);
@@ -133,6 +152,7 @@ export function mapGitLabDiscussions(
       notes: mappedNotes,
       resolvable: isDiscussionResolvable,
       resolved,
+      repliable,
     });
   }
 

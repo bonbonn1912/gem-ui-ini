@@ -1185,6 +1185,19 @@ export function App() {
     setRightPanel((current) => (current === id ? "none" : (id as RightPanel)));
   }, []);
 
+  /**
+   * Der Prompt ist gesendet, aber es gibt noch keine Reaktion: Solange die
+   * letzte Zeile der Timeline die eigene Nachricht ist, wartet die Session auf
+   * das erste Lebenszeichen des Agenten. Sobald Gedanke, Text, Tool oder
+   * Freigabe eintreffen, tragen diese Elemente ihren eigenen Status.
+   */
+  const awaitingAnswer = useMemo(() => {
+    if (chat.phase !== "running") return false;
+    const last = chat.items.at(-1);
+    if (!last) return false;
+    return last.kind === "message" && last.role === "user" && !last.failed;
+  }, [chat.phase, chat.items]);
+
   const effectivePhase: TurnPhase = useMemo(() => {
     if (chat.phase !== "idle" || !activeSession) return chat.phase;
     if (activeSession.status === "disconnected" || activeSession.status === "error") {
@@ -1383,6 +1396,7 @@ export function App() {
                 items={chat.items}
                 sessionTitle={activeSession.title}
                 gitPreviewGroups={gitPreviewGroups}
+                awaitingAnswer={awaitingAnswer}
                 onOpenExternal={openExternal}
                 onOpenGitDiff={openGitDiff}
                 onRespondToPermission={(request, option) => void respondToPermission(request, option)}

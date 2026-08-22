@@ -117,8 +117,28 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .primary-button:hover:not(:disabled) { background: var(--accent-strong); border-color: var(--accent-strong); }
 .secondary-button { background: var(--surface); border: 1px solid var(--border); }
 .secondary-button:hover:not(:disabled) { background: var(--surface-soft); }
-.mini-spinner { width: 14px; height: 14px; display: inline-block; border: 1.8px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin 0.72s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+.mini-spinner {
+  width: 14px;
+  height: 14px;
+  display: inline-block;
+  flex-shrink: 0;
+  border: 1.8px solid currentColor;
+  border-right-color: transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  box-sizing: border-box;
+  animation: spin 0.72s linear infinite;
+  will-change: transform;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 /* Shell and sidebar */
 .app-shell { height: 100%; display: grid; grid-template-columns: 292px minmax(0, 1fr); background: var(--canvas); }
@@ -331,6 +351,16 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .thought-content { padding: 10px 14px 12px 39px; border-top: 1px solid var(--border-soft); color: var(--muted); white-space: pre-wrap; font-size: 10.7px; line-height: 1.55; }
 .thinking-dots { display: flex; gap: 2px; }.thinking-dots i { width: 3px; height: 3px; border-radius: 50%; background: var(--accent); animation: dot-wave 1.2s ease-in-out infinite; }.thinking-dots i:nth-child(2) { animation-delay: .15s; }.thinking-dots i:nth-child(3) { animation-delay: .3s; }
 @keyframes dot-wave { 0%,70%,100% { transform: translateY(0); opacity: .35; } 35% { transform: translateY(-2px); opacity: 1; } }
+
+/* Wartende Antwort: steht exakt dort, wo gleich die echte Antwort erscheint,
+   damit der Blick beim ersten eintreffenden Zeichen nicht springt. Der Rahmen
+   trägt die Aussage auch dann, wenn reduzierte Bewegung die Punkte anhält. */
+.message--pending { align-items: center; }
+.typing-bubble { display: inline-flex; align-items: center; gap: 4px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 15px 15px 15px 4px; background: var(--surface); box-shadow: 0 1px 2px rgba(20,22,28,.04); }
+.typing-bubble i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: typing-wave 1.25s ease-in-out infinite; }
+.typing-bubble i:nth-child(2) { animation-delay: .16s; }
+.typing-bubble i:nth-child(3) { animation-delay: .32s; }
+@keyframes typing-wave { 0%,68%,100% { transform: translateY(0) scale(.82); opacity: .34; } 34% { transform: translateY(-3px) scale(1); opacity: 1; } }
 .tool-icon { width: 23px; height: 23px; display: grid; place-items: center; border-radius: 6px; color: var(--accent); background: var(--accent-soft); }
 .tool-card--completed .tool-icon { color: var(--green); background: var(--green-soft); }.tool-card--failed .tool-icon { color: var(--red); background: var(--red-soft); }
 .tool-title { overflow: hidden; color: var(--text-soft); font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
@@ -1544,7 +1574,10 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  *:not(.mini-spinner):not(.stream-cursor):not(.context-dot):not(.thinking-dots *):not(.app-info-trigger-icon):not(.update-available-dot):not(.session-status) {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 

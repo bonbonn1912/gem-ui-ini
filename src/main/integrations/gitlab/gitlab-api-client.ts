@@ -267,6 +267,13 @@ export class GitLabApiClient {
       if (response.status === 429) {
         throw new GitLabApiError(429, "GitLab Rate Limit erreicht. Bitte kurz warten.", retryAfterSeconds);
       }
+      if (response.status === 400 && /system notes/i.test(errorDetail)) {
+        throw new GitLabApiError(
+          400,
+          "Auf Systemnotizen (z. B. Status- oder Zuweisungsmeldungen) kann in GitLab nicht geantwortet werden.",
+          retryAfterSeconds,
+        );
+      }
 
       throw new GitLabApiError(
         response.status,

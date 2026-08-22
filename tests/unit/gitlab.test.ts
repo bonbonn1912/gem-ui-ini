@@ -267,6 +267,58 @@ describe("GitLab Discussion Mapper", () => {
     expect(mapped[0]?.notes[0]?.type).toBe("unknown");
     expect(mapped[0]?.notes[0]?.author.avatarUrl).toBeNull();
   });
+
+  it("drops system-only threads, strips system notes and flags non-repliable threads", () => {
+    const author = { id: 1, username: "alice", name: "Alice", avatar_url: null };
+    const base = {
+      type: "DiscussionNote",
+      author,
+      created_at: "2026-08-20T10:00:00Z",
+      updated_at: "2026-08-20T10:00:00Z",
+      resolvable: true,
+      resolved: false,
+      resolved_by: null,
+      position: null,
+    };
+    const systemNote = {
+      ...base,
+      id: 900,
+      body: "changed the description",
+      system: true,
+      resolvable: false,
+    };
+
+    const rawDiscussions = [
+      // Reine Systemmeldung: GitLab liefert sie als Discussion, sie ist aber kein
+      // Kommentar und darf keine leere Karte erzeugen.
+      { id: "sys-only", individual_note: true, notes: [systemNote] },
+      // Systemnotiz zuerst: GitLab lehnt Antworten mit HTTP 400 ab.
+      {
+        id: "sys-first",
+        individual_note: false,
+        notes: [systemNote, { ...base, id: 101, body: "echter Kommentar", system: false }],
+      },
+      {
+        id: "normal",
+        individual_note: false,
+        notes: [
+          { ...base, id: 102, body: "Bitte fixen", system: false },
+          systemNote,
+          { ...base, id: 103, body: "erledigt", system: false },
+        ],
+      },
+    ];
+
+    const mapped = mapGitLabDiscussions(rawDiscussions as never, null);
+
+    expect(mapped.map((d) => d.id)).toEqual(["sys-first", "normal"]);
+    expect(mapped[0]?.repliable).toBe(false);
+    expect(mapped[0]?.notes.map((n) => n.body)).toEqual(["echter Kommentar"]);
+    expect(mapped[1]?.repliable).toBe(true);
+    expect(mapped[1]?.notes.map((n) => n.body)).toEqual(["Bitte fixen", "erledigt"]);
+    expect(mapped.every((d) => d.notes.every((n) => !n.system))).toBe(true);
+    expect(GitLabDiscussionSchema.safeParse(mapped[1]).success).toBe(true);
+  });
 });
 
 describe("ReviewContextSnapshotStore", () => {

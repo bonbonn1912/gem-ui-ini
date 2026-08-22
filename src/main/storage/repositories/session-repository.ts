@@ -20,6 +20,14 @@ import {
   StorageNotFoundError,
 } from "../errors";
 
+/**
+ * Der Auditeintrag ist eine Projektion: Aufrufer reichen ganze `ProjectRoot`
+ * aus `ProjectAccess` durch, die zusätzlich `id`, `projectId`, `createdAt` und
+ * `updatedAt` tragen. Das Schema ist deshalb bewusst *nicht* strikt — Zod
+ * entfernt die überzähligen Felder, statt den Aufruf mit `unrecognized_keys`
+ * abzulehnen. Ein striktes Schema hat hier den ersten Prompt jeder noch nicht
+ * gestarteten Session scheitern lassen.
+ */
 const SessionRootAuditEntrySchema = z
   .object({
     kind: ProjectRootKindSchema,
@@ -28,7 +36,6 @@ const SessionRootAuditEntrySchema = z
     label: DisplayNameSchema,
     sortOrder: z.int().min(0).max(5),
   })
-  .strict()
   .superRefine((root, context) => {
     if (
       (root.kind === "primary" && root.sortOrder !== 0) ||

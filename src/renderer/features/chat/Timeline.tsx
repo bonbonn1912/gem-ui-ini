@@ -10,6 +10,8 @@ type TimelineProps = {
   items: TimelineItem[];
   sessionTitle: string;
   gitPreviewGroups: ReadonlyMap<string, GitPreviewGroup>;
+  /** Prompt ist raus, aber vom Agenten kam noch keine einzige Ausgabe. */
+  awaitingAnswer?: boolean;
   onOpenExternal: (url: string) => void;
   onOpenGitDiff: (selection: DiffSelection) => void;
   onRespondToPermission: (requestId: string, optionId: string) => void;
@@ -587,10 +589,38 @@ function TimelineEntry({
   );
 }
 
+/**
+ * Zwischen dem Absenden und dem ersten Zeichen der Antwort liegt spürbar Zeit:
+ * Der ACP-Prozess muss unter Umständen erst starten. Ohne Rückmeldung an der
+ * Stelle, an der die Antwort erscheinen wird, wirkt die App in dieser Lücke
+ * eingefroren.
+ */
+function PendingAnswer() {
+  return (
+    <article className="message message--assistant message--pending">
+      <span className="assistant-mark" aria-hidden="true">
+        <Icon name="sparkle" size={15} />
+      </span>
+      <div className="assistant-content">
+        <span
+          className="typing-bubble"
+          role="status"
+          aria-label="Gemini verarbeitet die Anfrage"
+        >
+          <i />
+          <i />
+          <i />
+        </span>
+      </div>
+    </article>
+  );
+}
+
 export function Timeline({
   items,
   sessionTitle,
   gitPreviewGroups,
+  awaitingAnswer = false,
   onOpenExternal,
   onOpenGitDiff,
   onRespondToPermission,
@@ -640,7 +670,7 @@ export function Timeline({
     if (stickToBottom.current) {
       anchorRef.current?.scrollIntoView?.({ block: "end" });
     }
-  }, [contentSignature, previewSignature]);
+  }, [contentSignature, previewSignature, awaitingAnswer]);
 
   if (items.length === 0) {
     return (
@@ -711,6 +741,7 @@ export function Timeline({
             />
           );
         })}
+        {awaitingAnswer && <PendingAnswer />}
         <div ref={anchorRef} className="scroll-anchor" />
       </div>
     </div>

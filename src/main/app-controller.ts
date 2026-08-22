@@ -674,13 +674,24 @@ export class AppController implements ProjectRuntimeCoordinator {
         ...toCachedSessionOptions(snapshot),
         updatedAt: now,
       });
-      this.#sessions.recordRootSnapshot({
-        sessionId: session.id,
-        rootRevision: access.rootRevision,
-        rootFingerprint: access.rootFingerprint,
-        capturedAt: now,
-        roots: [access.primaryRoot, ...access.additionalRoots],
-      });
+      // Der Root-Audittrail ist Buchhaltung, kein Teil des Sendewegs: Die
+      // Session läuft an dieser Stelle bereits. Ein Fehler beim Schreiben darf
+      // den Prompt deshalb nicht mehr abbrechen — die für den Root-Vergleich
+      // maßgeblichen Werte stehen ohnehin am Sessiondatensatz.
+      try {
+        this.#sessions.recordRootSnapshot({
+          sessionId: session.id,
+          rootRevision: access.rootRevision,
+          rootFingerprint: access.rootFingerprint,
+          capturedAt: now,
+          roots: [access.primaryRoot, ...access.additionalRoots],
+        });
+      } catch (auditError) {
+        console.error(
+          `[AppController] Root-Audittrail für Session ${session.id} konnte nicht geschrieben werden.`,
+          auditError,
+        );
+      }
     } catch (error) {
       this.#sessions.update(session.id, {
         status: "error",
