@@ -364,12 +364,13 @@ function AssistantMessage({
   onOpenExternal: (url: string) => void;
 }) {
   const [showRaw, setShowRaw] = useState(false);
+  const text = typeof item.text === "string" ? item.text : "";
   const isPlanOrMarkdown =
-    item.text.includes("#") ||
-    item.text.includes("```") ||
-    item.text.includes("- [ ]") ||
-    item.text.includes("- [x]") ||
-    item.text.length > 250;
+    text.includes("#") ||
+    text.includes("```") ||
+    text.includes("- [ ]") ||
+    text.includes("- [x]") ||
+    text.length > 250;
 
   return (
     <article className="message message--assistant">

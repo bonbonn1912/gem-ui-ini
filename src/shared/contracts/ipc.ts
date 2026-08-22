@@ -104,6 +104,7 @@ import {
   SetProjectRootsInputSchema,
   SetProjectApprovalPolicyInputSchema,
   SetProjectStatsEnabledInputSchema,
+  SetProjectLiveTokensEnabledInputSchema,
   type ArchiveProjectInput,
   type CreateProjectInput,
   type DeleteProjectInput,
@@ -119,6 +120,7 @@ import {
   type SetProjectRootsInput,
   type SetProjectApprovalPolicyInput,
   type SetProjectStatsEnabledInput,
+  type SetProjectLiveTokensEnabledInput,
 } from "./projects";
 import {
   ProjectFileSearchResultSchema,
@@ -424,6 +426,7 @@ export const IPC_CHANNELS = {
   setProjectRoots: "projects:set-additional-roots",
   setProjectApprovalPolicy: "projects:set-approval-policy",
   setProjectStatsEnabled: "projects:set-stats-enabled",
+  setProjectLiveTokensEnabled: "projects:set-live-tokens-enabled",
   deleteProject: "projects:delete",
   listSessions: "sessions:list",
   createSession: "sessions:create",
@@ -535,6 +538,7 @@ export const IpcRequestSchemas = {
   [IPC_CHANNELS.setProjectRoots]: SetProjectRootsInputSchema,
   [IPC_CHANNELS.setProjectApprovalPolicy]: SetProjectApprovalPolicyInputSchema,
   [IPC_CHANNELS.setProjectStatsEnabled]: SetProjectStatsEnabledInputSchema,
+  [IPC_CHANNELS.setProjectLiveTokensEnabled]: SetProjectLiveTokensEnabledInputSchema,
   [IPC_CHANNELS.deleteProject]: DeleteProjectInputSchema,
   [IPC_CHANNELS.listSessions]: ListSessionsInputSchema,
   [IPC_CHANNELS.createSession]: CreateSessionInputSchema,
@@ -634,6 +638,7 @@ export const IpcResponseSchemas = {
   [IPC_CHANNELS.setProjectRoots]: ProjectWithRootsSchema,
   [IPC_CHANNELS.setProjectApprovalPolicy]: ProjectApprovalPolicySchema,
   [IPC_CHANNELS.setProjectStatsEnabled]: ProjectWithRootsSchema,
+  [IPC_CHANNELS.setProjectLiveTokensEnabled]: ProjectWithRootsSchema,
   [IPC_CHANNELS.deleteProject]: VoidResultSchema,
   [IPC_CHANNELS.listSessions]: z.array(AppSessionSchema),
   [IPC_CHANNELS.createSession]: AppSessionSchema,
@@ -761,6 +766,9 @@ export interface GemUiDesktopApi {
     ): Promise<ProjectApprovalPolicy>;
     setStatsEnabled(
       input: SetProjectStatsEnabledInput,
+    ): Promise<ProjectWithRoots>;
+    setLiveTokensEnabled(
+      input: SetProjectLiveTokensEnabledInput,
     ): Promise<ProjectWithRoots>;
     delete(input: DeleteProjectInput): Promise<VoidResult>;
   };

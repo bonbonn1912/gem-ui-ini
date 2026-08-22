@@ -176,6 +176,7 @@ export class ProjectService {
       approvalModeId: null,
       approvalModeState: "gemini_default",
       statsEnabled: false,
+      liveTokensEnabled: false,
       archived: false,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -267,6 +268,10 @@ export class ProjectService {
 
   setStatsEnabled(projectId: string, enabled: boolean): ProjectWithRoots {
     return this.projects.setStatsEnabled(projectId, enabled);
+  }
+
+  setLiveTokensEnabled(projectId: string, enabled: boolean): ProjectWithRoots {
+    return this.projects.setLiveTokensEnabled(projectId, enabled);
   }
 
   async getCurrentAccess(projectId: string): Promise<ProjectAccess> {

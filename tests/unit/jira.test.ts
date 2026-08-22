@@ -184,6 +184,7 @@ describe("JiraService attachIssue", () => {
           approvalModeId: null,
           approvalModeState: "gemini_default",
           statsEnabled: false,
+          liveTokensEnabled: false,
           archived: false,
           createdAt: "2026-08-22T10:00:00.000Z",
           updatedAt: "2026-08-22T10:00:00.000Z",

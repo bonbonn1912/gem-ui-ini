@@ -50,6 +50,7 @@ import {
   type SetProjectRootsInput,
   type SetProjectApprovalPolicyInput,
   type SetProjectStatsEnabledInput,
+  type SetProjectLiveTokensEnabledInput,
   type SearchProjectFilesInput,
   type SearchSessionsInput,
   type SetSessionModeInput,
@@ -274,6 +275,17 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
       () => {
         const value = input as SetProjectStatsEnabledInput;
         return options.projects.setStatsEnabled(value.projectId, value.enabled);
+      },
+    ),
+  );
+  register(IPC_CHANNELS.setProjectLiveTokensEnabled, (input) =>
+    idempotent(
+      options.clientRequests,
+      input as SetProjectLiveTokensEnabledInput,
+      "projects.set-live-tokens-enabled",
+      () => {
+        const value = input as SetProjectLiveTokensEnabledInput;
+        return options.projects.setLiveTokensEnabled(value.projectId, value.enabled);
       },
     ),
   );

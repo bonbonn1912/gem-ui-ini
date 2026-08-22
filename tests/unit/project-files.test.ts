@@ -53,6 +53,98 @@ describe("ProjectFileService", () => {
     }
   });
 
+  it("findet Ordner, listet ihren Inhalt auf und übergeht ausgeschlossene Verzeichnisse", async () => {
+    const fixture = await createFixture();
+    const database = openSqliteDatabase(":memory:");
+    try {
+      const projects = new ProjectService(new ProjectRepository(database));
+      const project = await projects.create({
+        clientRequestId: randomUUID(),
+        name: "Ordnersuche",
+        primaryRootPath: fixture.primary,
+        additionalRootPaths: [fixture.additional],
+      });
+      const service = new ProjectFileService(projects);
+
+      // Freie Suche: der Ordner steht als Wegweiser vor den Dateien.
+      const found = await service.search({
+        projectId: project.id,
+        expectedRootRevision: project.rootRevision,
+        query: "src",
+        limit: 10,
+      });
+      expect(found.entries[0]).toMatchObject({
+        kind: "directory",
+        relativePath: "src",
+        childCount: 2,
+        contextEligible: true,
+      });
+      // node_modules ist ausgeschlossen und darf auch als Ordner nicht auftauchen.
+      expect(found.entries.some((entry) => entry.relativePath.startsWith("node_modules"))).toBe(false);
+
+      // Der Schrägstrich schaltet auf den Inhalt des Ordners um.
+      const inside = await service.search({
+        projectId: project.id,
+        expectedRootRevision: project.rootRevision,
+        query: "src/",
+        limit: 24,
+      });
+      expect(inside.entries.map((entry) => entry.relativePath).sort()).toEqual([
+        "src/auth-helper.ts",
+        "src/auth.ts",
+      ]);
+      expect(inside.entries.every((entry) => entry.kind === "file")).toBe(true);
+
+      // Und filtert innerhalb des Ordners weiter.
+      const filtered = await service.search({
+        projectId: project.id,
+        expectedRootRevision: project.rootRevision,
+        query: "src/helper",
+        limit: 24,
+      });
+      expect(filtered.entries.map((entry) => entry.relativePath)).toEqual(["src/auth-helper.ts"]);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("löst einen Ordnerbezug zu seinen Dateien auf", async () => {
+    const fixture = await createFixture();
+    const database = openSqliteDatabase(":memory:");
+    try {
+      const projects = new ProjectService(new ProjectRepository(database));
+      const project = await projects.create({
+        clientRequestId: randomUUID(),
+        name: "Ordnerkontext",
+        primaryRootPath: fixture.primary,
+        additionalRootPaths: [fixture.additional],
+      });
+      const service = new ProjectFileService(projects);
+
+      const context = await service.buildPromptContext({
+        projectId: project.id,
+        expectedRootRevision: project.rootRevision,
+        references: [
+          { rootId: project.roots[0]!.id, relativePath: "src", kind: "directory" },
+        ],
+      });
+
+      const combined = context.parts.map((part) => ("text" in part ? part.text : "")).join("\n");
+      expect(combined).toContain("@Ordner:");
+      expect(combined).toContain("src/auth.ts");
+      expect(combined).toContain("src/auth-helper.ts");
+      // Ein Ordner erzeugt genau einen Eintrag in der Nachricht, nicht einen je Datei.
+      expect(context.snapshots).toHaveLength(1);
+      expect(context.snapshots[0]).toMatchObject({
+        kind: "directory",
+        relativePath: "src",
+        fileCount: 2,
+      });
+    } finally {
+      database.close();
+    }
+  });
+
   it("liest ausgewählte Dateien frisch als Promptkontext und dokumentiert ihren Projektroot", async () => {
     const fixture = await createFixture();
     const database = openSqliteDatabase(":memory:");

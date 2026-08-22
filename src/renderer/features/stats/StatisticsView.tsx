@@ -16,15 +16,18 @@ import {
 
 type StatisticsViewProps = {
   onClose: () => void;
+  projects?: AppProject[];
   activeProject?: AppProject | null;
-  onEnableProjectStats?: () => Promise<void> | void;
+  onEnableProjectStats?: (projectId: string) => Promise<void> | void;
 };
 
 export function StatisticsView({
   onClose,
+  projects = [],
   activeProject,
   onEnableProjectStats,
 }: StatisticsViewProps) {
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [enabling, setEnabling] = useState(false);
   const {
     stats,
@@ -37,17 +40,20 @@ export function StatisticsView({
     selectedModel,
     setSelectedModel,
     refresh,
-  } = useAppStats("30d", "day", activeProject?.id);
+  } = useAppStats("30d", "day", selectedProjectId || undefined);
 
-  const isStatsDisabled = activeProject ? !activeProject.statsEnabled : false;
+  const currentProject =
+    projects.find((p) => p.id === selectedProjectId) ??
+    (selectedProjectId && activeProject?.id === selectedProjectId ? activeProject : null);
+  const isStatsDisabled = currentProject ? !currentProject.statsEnabled : false;
   const hasHistoricalData =
     Boolean(stats) && ((stats?.summary.totalTokens ?? 0) > 0 || (stats?.summary.totalTurns ?? 0) > 0);
 
   const handleEnableStats = async () => {
-    if (!onEnableProjectStats || enabling) return;
+    if (!onEnableProjectStats || enabling || !currentProject) return;
     setEnabling(true);
     try {
-      await onEnableProjectStats();
+      await onEnableProjectStats(currentProject.id);
       await refresh();
     } finally {
       setEnabling(false);
@@ -66,15 +72,32 @@ export function StatisticsView({
             <div>
               <h1>Statistiken & Metriken</h1>
               <p className="stats-header-subtitle">
-                {activeProject
-                  ? `Nutzungs- und Performance-Daten für „${activeProject.name}“`
-                  : "Gesamte Nutzungs- und Performance-Daten aller Projekte und Sessions"}
+                {currentProject
+                  ? `Nutzungs- und Performance-Daten für „${currentProject.name}“`
+                  : "Gesamte globale Nutzungs- und Performance-Daten aller Projekte und Sessions"}
               </p>
             </div>
           </div>
         </div>
 
         <div className="stats-header-right">
+          {/* Project Filter Dropdown */}
+          {projects.length > 0 && (
+            <select
+              className="stats-model-select stats-project-select"
+              value={selectedProjectId}
+              onChange={(e) => setSelectedProjectId(e.target.value)}
+              aria-label="Projekt filtern"
+            >
+              <option value="">Alle Projekte (Global)</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          )}
+
           {/* Granularity Toggle */}
           <div className="stats-pill-group" role="group" aria-label="Zeitebene">
             <button

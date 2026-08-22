@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useCallback,
   useEffect,
   useRef,
@@ -36,6 +37,7 @@ type ComposerProps = {
   contextAttachmentCount: number;
   contextEstimatedTokens: number;
   contextOverBudget: boolean;
+  liveEstimatedTokens?: number | null;
   disabled?: boolean;
   draft?: ComposerDraft | null;
   externalContexts?: PreparedExternalContext[];
@@ -75,6 +77,21 @@ function activeFileMention(text: string, caret: number): ActiveFileMention | nul
   return { start, end: caret, query };
 }
 
+/**
+ * Der Schrägstrich schaltet die Auswahl von "suche überall" auf "zeig mir den
+ * Inhalt dieses Ordners" um. Der Eingabetext ist damit der einzige Zustand —
+ * es braucht keinen zweiten Modus, und ein von Hand getippter Pfad verhält
+ * sich genauso wie einer, der per Tab entstanden ist.
+ */
+function directoryScope(query: string): { directory: string; filter: string } | null {
+  const lastSlash = query.lastIndexOf("/");
+  if (lastSlash < 0) return null;
+  return {
+    directory: query.slice(0, lastSlash).replace(/^\/+|\/+$/g, ""),
+    filter: query.slice(lastSlash + 1),
+  };
+}
+
 function readableSize(bytes: number): string {
   if (bytes < 1_024) return `${bytes} B`;
   if (bytes < 1_048_576) return `${Math.round(bytes / 1_024)} KB`;
@@ -100,6 +117,7 @@ export function Composer({
   contextAttachmentCount,
   contextEstimatedTokens,
   contextOverBudget,
+  liveEstimatedTokens = null,
   disabled = false,
   draft = null,
   externalContexts = [],
@@ -145,6 +163,8 @@ export function Composer({
   const mention = activeFileMention(text, caretPosition);
   const mentionKey = mention ? `${mention.start}:${mention.end}:${mention.query}` : null;
   const fileMenuOpen = Boolean(mention && mentionKey !== dismissedMention && !disabled);
+  /** Gesetzt, sobald die Erwähnung einen Ordner adressiert ("src/…"). */
+  const scope = mention ? directoryScope(mention.query) : null;
 
   const hydrate = useCallback(async (staged: Attachment[]): Promise<ComposerAttachment[]> => {
     return Promise.all(
@@ -287,7 +307,8 @@ export function Composer({
         projectId,
         expectedRootRevision: rootRevision,
         query: mention.query,
-        limit: 10,
+        // Ein Ordnerinhalt darf länger sein als eine Trefferliste.
+        limit: directoryScope(mention.query) ? 24 : 10,
       }).then((result) => {
         if (fileSearchSequence.current !== sequence) return;
         setFileSuggestions(result.entries);
@@ -320,19 +341,60 @@ export function Composer({
     if (!currentMention || !entry.contextEligible) return;
     if (!projectFiles.some((item) => item.rootId === entry.rootId && item.relativePath === entry.relativePath)) {
       if (projectFiles.length >= MAX_PROJECT_FILE_REFERENCES) {
-        onError(`Pro Nachricht können höchstens ${MAX_PROJECT_FILE_REFERENCES} Projektdateien referenziert werden.`);
+        onError(`Pro Nachricht können höchstens ${MAX_PROJECT_FILE_REFERENCES} Projektdateien oder -ordner referenziert werden.`);
         return;
       }
       setProjectFiles((current) => [...current, entry]);
     }
 
-    const referenceText = `@${entry.relativePath}`;
+    // Der Schrägstrich am Ende macht im Text sichtbar, dass ein ganzer Ordner
+    // gemeint ist — und nicht eine Datei ohne Endung.
+    const referenceText = `@${entry.relativePath}${entry.kind === "directory" ? "/" : ""}`;
     const nextText = `${text.slice(0, currentMention.start)}${referenceText} ${text.slice(currentMention.end)}`;
     const nextCaret = currentMention.start + referenceText.length + 1;
     setText(nextText);
     setCaretPosition(nextCaret);
     setDismissedMention(null);
     setFileSuggestions([]);
+    setActiveSuggestion(-1);
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
+  /**
+   * Ein Ordner wird nicht übernommen, sondern betreten: Die Erwähnung wird zu
+   * `@pfad/` und die Liste zeigt seinen Inhalt. Verschachtelte Ordner bleiben
+   * so eine Navigation statt einer flachen Pfadliste.
+   */
+  const openDirectory = (entry: ProjectFileSearchEntry) => {
+    const currentMention = activeFileMention(text, caretPosition);
+    if (!currentMention) return;
+    const reference = `@${entry.relativePath}/`;
+    const nextText = `${text.slice(0, currentMention.start)}${reference}${text.slice(currentMention.end)}`;
+    const nextCaret = currentMention.start + reference.length;
+    setText(nextText);
+    setCaretPosition(nextCaret);
+    setDismissedMention(null);
+    setFileSuggestions([]);
+    setActiveSuggestion(-1);
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
+  /** Springt im Brotkrumenpfad auf eine Ebene — "" ist die freie Suche. */
+  const jumpToDirectory = (directory: string) => {
+    const currentMention = activeFileMention(text, caretPosition);
+    if (!currentMention) return;
+    const reference = directory ? `@${directory}/` : "@";
+    const nextText = `${text.slice(0, currentMention.start)}${reference}${text.slice(currentMention.end)}`;
+    const nextCaret = currentMention.start + reference.length;
+    setText(nextText);
+    setCaretPosition(nextCaret);
+    setDismissedMention(null);
     setActiveSuggestion(-1);
     window.requestAnimationFrame(() => {
       textareaRef.current?.focus();
@@ -431,13 +493,15 @@ export function Composer({
         return;
       }
       if ((event.key === "Tab" || event.key === "Enter") && !event.shiftKey && !event.nativeEvent.isComposing) {
+        event.preventDefault();
         const entry = fileSuggestions[activeSuggestion];
-        if (entry?.contextEligible) {
-          event.preventDefault();
-          selectProjectFile(entry);
+        if (!entry?.contextEligible) return;
+        // Tab geht in einen Ordner hinein, Enter übernimmt ihn als Kontext.
+        if (event.key === "Tab" && entry.kind === "directory") {
+          openDirectory(entry);
           return;
         }
-        event.preventDefault();
+        selectProjectFile(entry);
         return;
       }
     }
@@ -483,8 +547,33 @@ export function Composer({
           {fileMenuOpen && (
             <div className="project-file-menu" id={PROJECT_FILE_MENU_ID} role="listbox" aria-label="Projektdateien">
               <header>
-                <span><Icon name="file-text" size={14} /> Projektdateien</span>
-                <span><kbd>↑</kbd><kbd>↓</kbd> wählen · <kbd>Tab</kbd>/<kbd>Enter</kbd> übernehmen</span>
+                {scope?.directory ? (
+                  <nav className="project-file-breadcrumb" aria-label="Ordnerpfad">
+                    <button type="button" onMouseDown={(event) => { event.preventDefault(); jumpToDirectory(""); }}>
+                      <Icon name="folder" size={13} /> Projekt
+                    </button>
+                    {scope.directory.split("/").map((segment, index, all) => (
+                      <span key={`${segment}-${index}`}>
+                        <i aria-hidden="true">/</i>
+                        <button
+                          type="button"
+                          aria-current={index === all.length - 1 ? "location" : undefined}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            jumpToDirectory(all.slice(0, index + 1).join("/"));
+                          }}
+                        >
+                          {segment}
+                        </button>
+                      </span>
+                    ))}
+                  </nav>
+                ) : (
+                  <span><Icon name="file-text" size={14} /> Projektdateien und -ordner</span>
+                )}
+                <span className="project-file-menu-hint">
+                  <kbd>↑</kbd><kbd>↓</kbd> wählen · <kbd>Tab</kbd> öffnen · <kbd>Enter</kbd> übernehmen
+                </span>
               </header>
               <div className="project-file-menu-list">
                 {fileSearchLoading && fileSuggestions.length === 0 && (
@@ -495,14 +584,24 @@ export function Composer({
                 )}
                 {!fileSearchLoading && !fileSearchError && fileSuggestions.length === 0 && (
                   <div className="project-file-menu-state">
-                    {mention?.query ? "Keine passende Projektdatei gefunden." : "Tippe den ersten Buchstaben des Dateinamens oder Pfads."}
+                    {scope
+                      ? "Dieser Ordner enthält nichts Passendes."
+                      : mention?.query
+                        ? "Kein passender Eintrag gefunden."
+                        : "Tippe den Anfang eines Datei- oder Ordnernamens."}
                   </div>
                 )}
                 {fileSuggestions.map((entry, index) => (
+                  <Fragment key={`${entry.rootId}:${entry.relativePath}`}>
+                  {(index === 0 || fileSuggestions[index - 1]?.kind !== entry.kind) &&
+                    fileSuggestions.some((other) => other.kind !== entry.kind) && (
+                      <p className="project-file-group" aria-hidden="true">
+                        {entry.kind === "directory" ? "Ordner" : "Dateien"}
+                      </p>
+                    )}
                   <button
-                    className={`project-file-option ${index === activeSuggestion ? "project-file-option--active" : ""}`}
+                    className={`project-file-option ${index === activeSuggestion ? "project-file-option--active" : ""} ${entry.kind === "directory" ? "project-file-option--directory" : ""}`}
                     id={`${PROJECT_FILE_MENU_ID}-${index}`}
-                    key={`${entry.rootId}:${entry.relativePath}`}
                     type="button"
                     role="option"
                     aria-selected={index === activeSuggestion}
@@ -510,19 +609,44 @@ export function Composer({
                     title={entry.contextUnavailableReason ?? `${entry.rootLabel}/${entry.relativePath}`}
                     onMouseDown={(event) => {
                       event.preventDefault();
-                      selectProjectFile(entry);
+                      // Klick folgt der Hauptabsicht: Ordner werden geöffnet,
+                      // Dateien übernommen. Ein Ordner wird per Enter zum
+                      // Kontext.
+                      if (entry.kind === "directory" && entry.contextEligible) openDirectory(entry);
+                      else selectProjectFile(entry);
                     }}
                     onMouseEnter={() => {
                       if (entry.contextEligible) setActiveSuggestion(index);
                     }}
                   >
-                    <span className="project-file-option-icon"><Icon name="file-text" size={14} /></span>
-                    <span className="project-file-option-copy">
-                      <strong>{entry.displayName}</strong>
-                      <small><span>{entry.rootLabel}</span>{entry.relativePath}</small>
+                    <span className="project-file-option-icon">
+                      <Icon name={entry.kind === "directory" ? "folder" : "file-text"} size={14} />
                     </span>
-                    <span className="project-file-option-size">{entry.contextEligible ? readableSize(entry.size) : "Nicht lesbar"}</span>
+                    <span className="project-file-option-copy">
+                      <strong>
+                        {entry.displayName}
+                        {entry.kind === "directory" ? "/" : ""}
+                      </strong>
+                      {/* Im Ordnermodus sagt der Brotkrumenpfad bereits, wo wir
+                          sind — der volle Pfad in jeder Zeile wäre Wiederholung. */}
+                      <small>
+                        <span>{entry.rootLabel}</span>
+                        {scope ? null : entry.relativePath}
+                      </small>
+                    </span>
+                    {entry.kind === "directory" ? (
+                      <span className="project-file-option-size">
+                        {entry.contextEligible
+                          ? `${entry.childCount} ${entry.childCount === 1 ? "Eintrag" : "Einträge"}`
+                          : "Leer"}
+                      </span>
+                    ) : (
+                      <span className="project-file-option-size">
+                        {entry.contextEligible ? readableSize(entry.size) : "Nicht lesbar"}
+                      </span>
+                    )}
                   </button>
+                  </Fragment>
                 ))}
               </div>
             </div>
@@ -554,12 +678,19 @@ export function Composer({
             </div>
           )}
           {projectFiles.length > 0 && (
-            <div className="project-file-reference-strip" aria-label="Referenzierte Projektdateien">
+            <div className="project-file-reference-strip" aria-label="Referenzierte Projektdateien und -ordner">
               {projectFiles.map((entry) => (
-                <span className="project-file-reference" key={`${entry.rootId}:${entry.relativePath}`} title={`${entry.rootLabel}/${entry.relativePath}`}>
-                  <Icon name="file-text" size={12} />
-                  <strong>{entry.displayName}</strong>
-                  <small>{entry.rootLabel}</small>
+                <span
+                  className={`project-file-reference ${entry.kind === "directory" ? "project-file-reference--directory" : ""}`}
+                  key={`${entry.rootId}:${entry.relativePath}`}
+                  title={`${entry.rootLabel}/${entry.relativePath}`}
+                >
+                  <Icon name={entry.kind === "directory" ? "folder" : "file-text"} size={12} />
+                  <strong>
+                    {entry.displayName}
+                    {entry.kind === "directory" ? "/" : ""}
+                  </strong>
+                  <small>{entry.kind === "directory" ? "Ordner" : entry.rootLabel}</small>
                   <button
                     type="button"
                     onClick={() => setProjectFiles((current) => current.filter((item) => item.rootId !== entry.rootId || item.relativePath !== entry.relativePath))}
@@ -614,6 +745,19 @@ export function Composer({
                   <span>Ablehnen</span>
                 </button>
               </div>
+            </div>
+          )}
+          {running && liveEstimatedTokens !== null && liveEstimatedTokens > 0 && (
+            <div className="composer-live-token-banner" aria-live="polite">
+              <span className="live-token-pulse-dot" />
+              <span className="live-token-icon">
+                <Icon name="sparkle" size={13} />
+              </span>
+              <span className="live-token-label">Geschätzter Token-Output:</span>
+              <strong className="live-token-value">
+                ~{liveEstimatedTokens.toLocaleString("de-DE")} Tokens
+              </strong>
+              <small className="live-token-hint">(Live-Schätzung)</small>
             </div>
           )}
           <textarea

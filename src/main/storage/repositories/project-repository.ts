@@ -22,6 +22,7 @@ type ProjectRow = {
   approval_mode_id: string | null;
   approval_mode_state: "gemini_default" | "available" | "unavailable";
   stats_enabled?: number;
+  live_tokens_enabled?: number;
   archived: number;
   created_at: string;
   updated_at: string;
@@ -52,8 +53,9 @@ export class ProjectRepository {
         .prepare(
           `INSERT INTO projects (
              id, name, primary_root_id, root_revision, root_fingerprint,
-             approval_mode_id, approval_mode_state, stats_enabled, archived, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             approval_mode_id, approval_mode_state, stats_enabled, live_tokens_enabled,
+             archived, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           parsedProject.id,
@@ -64,6 +66,7 @@ export class ProjectRepository {
           parsedProject.approvalModeId,
           parsedProject.approvalModeState,
           parsedProject.statsEnabled ? 1 : 0,
+          parsedProject.liveTokensEnabled ? 1 : 0,
           parsedProject.archived ? 1 : 0,
           parsedProject.createdAt,
           parsedProject.updatedAt,
@@ -97,7 +100,7 @@ export class ProjectRepository {
     const project = this.database
       .prepare(
         `SELECT id, name, primary_root_id, root_revision, root_fingerprint,
-                approval_mode_id, approval_mode_state, stats_enabled,
+                approval_mode_id, approval_mode_state, stats_enabled, live_tokens_enabled,
                 archived, created_at, updated_at
          FROM projects WHERE id = ?`,
       )
@@ -131,7 +134,7 @@ export class ProjectRepository {
     const projects = this.database
       .prepare(
         `SELECT id, name, primary_root_id, root_revision, root_fingerprint,
-                approval_mode_id, approval_mode_state, stats_enabled,
+                approval_mode_id, approval_mode_state, stats_enabled, live_tokens_enabled,
                 archived, created_at, updated_at
          FROM projects
          WHERE archived = 0 OR ? = 1
@@ -297,6 +300,21 @@ export class ProjectRepository {
     return this.getById(projectId);
   }
 
+  setLiveTokensEnabled(projectId: string, enabled: boolean): ProjectWithRoots {
+    const updatedAt = new Date().toISOString();
+    const result = this.database
+      .prepare(
+        `UPDATE projects
+         SET live_tokens_enabled = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(enabled ? 1 : 0, updatedAt, projectId);
+    if (result.changes !== 1) {
+      throw new StorageNotFoundError("Project", projectId);
+    }
+    return this.getById(projectId);
+  }
+
   delete(projectId: string): void {
     const result = this.database
       .prepare("DELETE FROM projects WHERE id = ?")
@@ -321,6 +339,7 @@ function parseProject(
       approvalModeId: project.approval_mode_id,
       approvalModeState: project.approval_mode_state,
       statsEnabled: (project.stats_enabled ?? 0) === 1,
+      liveTokensEnabled: (project.live_tokens_enabled ?? 0) === 1,
       archived: project.archived === 1,
       createdAt: project.created_at,
       updatedAt: project.updated_at,

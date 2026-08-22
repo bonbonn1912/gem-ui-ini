@@ -411,6 +411,33 @@ describe("ProjectService", () => {
       database.close();
     }
   });
+
+  it("persists liveTokensEnabled setting and defaults to false", async () => {
+    const { primary } = await createRootFixture();
+    const database = openSqliteDatabase(":memory:");
+    try {
+      const repository = new ProjectRepository(database);
+      const service = new ProjectService(repository);
+      const project = await service.create({
+        clientRequestId: randomUUID(),
+        name: "Live tokens test",
+        primaryRootPath: primary,
+        additionalRootPaths: [],
+      });
+      expect(project.liveTokensEnabled).toBe(false);
+
+      const updated = service.setLiveTokensEnabled(project.id, true);
+      expect(updated.liveTokensEnabled).toBe(true);
+
+      const reloaded = repository.getById(project.id);
+      expect(reloaded.liveTokensEnabled).toBe(true);
+
+      const disabled = service.setLiveTokensEnabled(project.id, false);
+      expect(disabled.liveTokensEnabled).toBe(false);
+    } finally {
+      database.close();
+    }
+  });
 });
 
 async function createRootFixture(): Promise<{

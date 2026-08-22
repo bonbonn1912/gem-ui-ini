@@ -18,6 +18,7 @@ type ProjectSettingsDialogProps = {
     name: string;
     additionalRootPaths: string[];
     statsEnabled?: boolean;
+    liveTokensEnabled?: boolean;
   }) => Promise<void>;
   onDelete: () => Promise<void>;
 };
@@ -63,6 +64,7 @@ export function ProjectSettingsDialog({
     () => new Set(),
   );
   const [statsEnabled, setStatsEnabled] = useState(false);
+  const [liveTokensEnabled, setLiveTokensEnabled] = useState(false);
 
   const primary = useMemo(
     () => project?.roots.find((root) => root.kind === "primary") ?? null,
@@ -73,6 +75,7 @@ export function ProjectSettingsDialog({
     if (!open || !project) return;
     setName(project.name);
     setStatsEnabled(Boolean(project.statsEnabled));
+    setLiveTokensEnabled(Boolean(project.liveTokensEnabled));
     setAdditional(
       project.roots
         .filter((root) => root.kind === "additional")
@@ -167,6 +170,7 @@ export function ProjectSettingsDialog({
         name: name.trim(),
         additionalRootPaths: additional.map((root) => root.path),
         statsEnabled,
+        liveTokensEnabled,
       });
       const nextModeId = selectedModeId || null;
       if (approvalPolicy && nextModeId !== approvalPolicy.modeId) {
@@ -378,6 +382,23 @@ export function ProjectSettingsDialog({
                 onChange={(event) => setStatsEnabled(event.target.checked)}
               />
               <span>Statistiken für dieses Projekt erfassen (Standard: Aus)</span>
+            </label>
+          </div>
+
+          <div className="approval-policy-field stats-tracking-field">
+            <div className="field-heading">
+              <div>
+                <span>Live-Token-Schätzung</span>
+                <small>Zeigt während Gemini antwortet eine fortlaufende Schätzung der generierten Tokens über der Chat-Eingabe an</small>
+              </div>
+            </div>
+            <label className="stats-toggle-label">
+              <input
+                type="checkbox"
+                checked={liveTokensEnabled}
+                onChange={(event) => setLiveTokensEnabled(event.target.checked)}
+              />
+              <span>Live-Token-Schätzung während des Runs anzeigen (Standard: Aus)</span>
             </label>
           </div>
 

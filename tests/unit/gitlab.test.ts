@@ -374,6 +374,7 @@ describe("GitLabRepository Storage", () => {
           approvalModeId: null,
           approvalModeState: "gemini_default",
           statsEnabled: false,
+          liveTokensEnabled: false,
           archived: false,
           createdAt: now,
           updatedAt: now,

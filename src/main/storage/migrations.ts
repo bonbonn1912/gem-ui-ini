@@ -545,6 +545,13 @@ const migrations: readonly Migration[] = [
       CREATE INDEX turn_metrics_plan ON turn_metrics(plan_decision) WHERE plan_decision IS NOT NULL;
     `,
   },
+  {
+    version: 16,
+    name: "016_project_live_tokens_enabled",
+    sql: `
+      ALTER TABLE projects ADD COLUMN live_tokens_enabled INTEGER NOT NULL DEFAULT 0 CHECK(live_tokens_enabled IN (0, 1));
+    `,
+  },
 ];
 
 export function runMigrations(database: SqliteDatabase): void {

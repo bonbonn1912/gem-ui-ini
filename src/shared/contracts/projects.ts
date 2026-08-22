@@ -70,6 +70,7 @@ export const AppProjectSchema = z
     approvalModeId: z.string().trim().min(1).max(100).nullable(),
     approvalModeState: ProjectApprovalModeStateSchema,
     statsEnabled: z.boolean().default(false),
+    liveTokensEnabled: z.boolean().default(false),
     archived: z.boolean(),
     createdAt: IsoTimestampSchema,
     updatedAt: IsoTimestampSchema,
@@ -226,6 +227,14 @@ export const SetProjectStatsEnabledInputSchema = z
   })
   .strict();
 
+export const SetProjectLiveTokensEnabledInputSchema = z
+  .object({
+    clientRequestId: ClientRequestIdSchema,
+    projectId: EntityIdSchema,
+    enabled: z.boolean(),
+  })
+  .strict();
+
 export const ProjectApprovalPolicySchema = z
   .object({
     projectId: EntityIdSchema,
@@ -300,6 +309,9 @@ export type SetProjectApprovalPolicyInput = z.input<
 >;
 export type SetProjectStatsEnabledInput = z.input<
   typeof SetProjectStatsEnabledInputSchema
+>;
+export type SetProjectLiveTokensEnabledInput = z.input<
+  typeof SetProjectLiveTokensEnabledInputSchema
 >;
 export type ProjectApprovalModeState = z.infer<
   typeof ProjectApprovalModeStateSchema

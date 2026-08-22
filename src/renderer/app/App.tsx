@@ -774,6 +774,7 @@ export function App() {
     name: string;
     additionalRootPaths: string[];
     statsEnabled?: boolean;
+    liveTokensEnabled?: boolean;
   }) => {
     if (!activeProject) return;
     let updated = activeProject;
@@ -795,6 +796,20 @@ export function App() {
       updated = await window.gemUi.projects.setStatsEnabled({
         projectId: updated.id,
         enabled: input.statsEnabled,
+        clientRequestId: createClientRequestId(),
+      });
+      setProjects((current) =>
+        current.map((project) => project.id === updated.id ? updated : project),
+      );
+    }
+
+    if (
+      input.liveTokensEnabled !== undefined &&
+      input.liveTokensEnabled !== Boolean(updated.liveTokensEnabled)
+    ) {
+      updated = await window.gemUi.projects.setLiveTokensEnabled({
+        projectId: updated.id,
+        enabled: input.liveTokensEnabled,
         clientRequestId: createClientRequestId(),
       });
       setProjects((current) =>
@@ -987,11 +1002,12 @@ export function App() {
       text,
       attachments,
       contextAttachments: contextAttachments.included.map(({ id, kind, title }) => ({ id, kind, title })),
-      projectFiles: projectFiles.map(({ rootId, rootLabel, relativePath, displayName }) => ({
+      projectFiles: projectFiles.map(({ rootId, rootLabel, relativePath, displayName, kind }) => ({
         rootId,
         rootLabel,
         relativePath,
         displayName,
+        kind,
       })),
       timestamp: new Date().toISOString(),
     });
@@ -1012,7 +1028,13 @@ export function App() {
         text,
         attachmentIds: attachments.map((attachment) => typeof attachment === "string" ? attachment : attachment.id),
         contextAttachmentIds: contextAttachments.included.map((attachment) => typeof attachment === "string" ? attachment : attachment.id),
-        projectFiles: projectFiles.map(({ rootId, relativePath }) => ({ rootId, relativePath })),
+        // `kind` muss mit: Ein Ordnerbezug wird im Main-Prozess zu seinen
+        // Dateien aufgelöst, ein fehlendes Feld würde ihn als Datei lesen.
+        projectFiles: projectFiles.map(({ rootId, relativePath, kind }) => ({
+          rootId,
+          relativePath,
+          kind,
+        })),
         externalContextRefs: (externalContextRefs ?? []).map((ref) => ({ kind: ref.kind, id: ref.id })),
         expectedRootRevision: activeProject?.rootRevision ?? 1,
         clientRequestId,
@@ -1287,6 +1309,29 @@ export function App() {
     return false;
   }, [activeSession?.id, activeSession?.mode, effectivePhase, chat.items, planTurnBySession]);
 
+  const liveEstimatedTokens = useMemo(() => {
+    if (effectivePhase !== "running") return null;
+    let chars = 0;
+    for (let i = chat.items.length - 1; i >= 0; i--) {
+      const item = chat.items[i]!;
+      if (item.kind === "message" && item.role === "user") {
+        break;
+      }
+      if (item.kind === "message" && item.role === "assistant") {
+        chars += item.text?.length ?? 0;
+      } else if (item.kind === "thought") {
+        chars += item.text?.length ?? 0;
+      } else if (item.kind === "tool") {
+        if (typeof item.input === "string") chars += item.input.length;
+        else if (item.input) chars += JSON.stringify(item.input).length;
+        if (typeof item.output === "string") chars += item.output.length;
+        else if (item.output) chars += JSON.stringify(item.output).length;
+        if (item.diff) chars += item.diff.length;
+      }
+    }
+    return chars > 0 ? Math.max(1, Math.round(chars / 3.8)) : null;
+  }, [chat.items, effectivePhase]);
+
   if (booting) return <LoadingScreen />;
   if (fatalError) {
     return (
@@ -1345,12 +1390,9 @@ export function App() {
         {statsOpen ? (
           <div className="chat-workspace stats-workspace">
             <StatisticsView
+              projects={projects}
               activeProject={activeProject}
-              onEnableProjectStats={
-                activeProject
-                  ? () => toggleProjectStats(activeProject.id, true)
-                  : undefined
-              }
+              onEnableProjectStats={(projectId) => toggleProjectStats(projectId, true)}
               onClose={() => setStatsOpen(false)}
             />
             <PanelRail
@@ -1497,6 +1539,7 @@ export function App() {
                 contextAttachmentCount={contextAttachments.included.length}
                 contextEstimatedTokens={contextAttachments.list?.estimatedTotalTokens ?? 0}
                 contextOverBudget={contextAttachments.list?.overBudget ?? false}
+                liveEstimatedTokens={activeProject?.liveTokensEnabled ? liveEstimatedTokens : null}
                 draft={composerDraft}
                 externalContexts={pendingExternalContexts}
                 sessionMode={activeSession.mode}

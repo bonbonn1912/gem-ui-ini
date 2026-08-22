@@ -47,6 +47,7 @@ const project: AppProject = {
   approvalModeId: null,
   approvalModeState: "gemini_default",
   statsEnabled: false,
+  liveTokensEnabled: false,
   archived: false,
   roots: [
     { id: "root-1", projectId: "project-1", kind: "primary", path: "/work/portal", realPath: "/work/portal", label: "portal", sortOrder: 0, createdAt: "2026-08-20T10:00:00.000Z", updatedAt: "2026-08-20T10:00:00.000Z" },
@@ -101,12 +102,14 @@ function todoList(todos: Todo[]): TodoList {
 }
 
 function createApi(options: {
+  project?: any;
   projects?: AppProject[];
   sessions?: AppSession[];
   contextList?: ContextAttachmentList;
   todos?: TodoList;
 } = {}) {
   let subscriber: ((events: StreamEnvelope[]) => void) | undefined;
+  const activeProj = options.project ?? project;
   const api: GemUiDesktopApi = {
     getCapabilities: vi.fn().mockResolvedValue(capabilities),
     app: {
@@ -121,8 +124,8 @@ function createApi(options: {
       onDownloadProgress: vi.fn().mockReturnValue(() => {}),
     },
     projects: {
-      list: vi.fn().mockResolvedValue(options.projects ?? [project]),
-      get: vi.fn().mockResolvedValue(project),
+      list: vi.fn().mockResolvedValue(options.projects ?? [activeProj]),
+      get: vi.fn().mockResolvedValue(activeProj),
       reauthorizeRoot: vi.fn().mockResolvedValue({ status: "cancelled" }),
       getApprovalPolicy: vi.fn().mockResolvedValue({
         projectId: project.id,
@@ -156,6 +159,10 @@ function createApi(options: {
       setStatsEnabled: vi.fn().mockImplementation(async (input) => ({
         ...project,
         statsEnabled: input.enabled,
+      })),
+      setLiveTokensEnabled: vi.fn().mockImplementation(async (input) => ({
+        ...project,
+        liveTokensEnabled: input.enabled,
       })),
       delete: vi.fn().mockResolvedValue(undefined),
     },
@@ -555,7 +562,9 @@ describe("Renderer UI", () => {
         rootLabel: "portal",
         relativePath: "src/auth.ts",
         displayName: "auth.ts",
+        kind: "file",
         size: 512,
+        childCount: 0,
         contextEligible: true,
         contextUnavailableReason: null,
       }],
@@ -567,18 +576,18 @@ describe("Renderer UI", () => {
     const composer = await screen.findByRole("textbox", { name: "Nachricht an Gemini" });
     await user.type(composer, "Prüfe @");
     expect(screen.getByRole("listbox", { name: "Projektdateien" })).toBeVisible();
-    expect(screen.getByText("Tippe den ersten Buchstaben des Dateinamens oder Pfads.")).toBeVisible();
+    expect(screen.getByText("Tippe den Anfang eines Datei- oder Ordnernamens.")).toBeVisible();
     await user.type(composer, "aut");
     expect(await screen.findByRole("option", { name: /auth\.ts/ })).toBeVisible();
 
     await user.keyboard("{Tab}");
-    expect(screen.getByLabelText("Referenzierte Projektdateien")).toHaveTextContent("auth.ts");
+    expect(screen.getByLabelText("Referenzierte Projektdateien und -ordner")).toHaveTextContent("auth.ts");
     expect(composer).toHaveValue("Prüfe @src/auth.ts ");
 
     await user.type(composer, "auf Fehler{Enter}");
     await waitFor(() => expect(api.sessions.sendPrompt).toHaveBeenCalledTimes(1));
     expect(api.sessions.sendPrompt).toHaveBeenCalledWith(expect.objectContaining({
-      projectFiles: [{ rootId: project.roots[0]!.id, relativePath: "src/auth.ts" }],
+      projectFiles: [{ rootId: project.roots[0]!.id, relativePath: "src/auth.ts", kind: "file" }],
     }));
     expect(screen.getByText("auth.ts", { selector: ".sent-project-file > span" })).toBeVisible();
   });
@@ -1917,7 +1926,7 @@ describe("Renderer UI", () => {
     expect(infoButton.querySelector(".app-info-trigger-icon--pulse")).toBeInTheDocument();
   });
 
-  it("öffnet Statistiken und zeigt Aktivierungs-Aufforderung wenn Tracking deaktiviert ist und keine Daten vorliegen", async () => {
+  it("öffnet Statistiken standardmäßig global und erlaubt Filterung nach Projekt mit Aktivierungs-Aufforderung", async () => {
     const user = userEvent.setup();
     const { api } = createApi();
     window.gemUi = api;
@@ -1930,6 +1939,12 @@ describe("Renderer UI", () => {
     await user.click(statsBtn);
 
     expect(await screen.findByRole("main", { name: "App-Statistiken" })).toBeInTheDocument();
+    expect(screen.getByText(/Gesamte globale Nutzungs- und Performance-Daten/i)).toBeInTheDocument();
+
+    // Select specific project in the project filter
+    const projectSelect = screen.getByRole("combobox", { name: "Projekt filtern" });
+    await user.selectOptions(projectSelect, project.id);
+
     expect(screen.getByText("Statistiken sind aktuell nicht aktiviert")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Statistiken jetzt aktivieren/i })).toBeInTheDocument();
 
@@ -1943,7 +1958,7 @@ describe("Renderer UI", () => {
     );
   });
 
-  it("zeigt Warnbalken wenn Statistik-Tracking deaktiviert ist aber historische Daten vorliegen", async () => {
+  it("zeigt Warnbalken wenn Statistik-Tracking deaktiviert ist aber historische Daten vorliegen nach Projekt-Filterung", async () => {
     const user = userEvent.setup();
     const { api } = createApi();
     api.stats.get = vi.fn().mockResolvedValue({
@@ -1992,9 +2007,74 @@ describe("Renderer UI", () => {
     await user.click(statsBtn);
 
     expect(await screen.findByRole("main", { name: "App-Statistiken" })).toBeInTheDocument();
+
+    // Select specific project in the project filter
+    const projectSelect = screen.getByRole("combobox", { name: "Projekt filtern" });
+    await user.selectOptions(projectSelect, project.id);
+
     expect(screen.getByText(/Statistik-Erfassung ist für dieses Projekt aktuell deaktiviert/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Jetzt wieder aktivieren/i })).toBeInTheDocument();
     expect(screen.getByText("12.5k")).toBeInTheDocument(); // total tokens rendered in KPI (12500 -> 12.5k)
     expect(screen.getByText(/⚡ Cache:/i)).toBeInTheDocument();
+  });
+
+  it("blendet während des Antwort-Runs die Live-Token-Schätzung über dem Composer ein wenn in Projekteinstellungen aktiviert", async () => {
+    const liveProject = {
+      ...project,
+      liveTokensEnabled: true,
+    };
+    const { api, emit } = createApi({ project: liveProject });
+    window.gemUi = api;
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Login reparieren" });
+
+    // Emit assistant message delta
+    await emit([
+      {
+        sessionId: session.id,
+        turnId: "turn-live-1",
+        seq: 1,
+        event: {
+          type: "message.assistant.delta",
+          messageId: "assistant-live-1",
+          delta: "Hier ist eine längere Antwort von Gemini mit vielen Wörtern und Details zum Beheben des Fehlers.",
+        },
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+
+    expect(screen.getByText(/Geschätzter Token-Output:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Tokens/i)).toBeInTheDocument();
+    expect(screen.getByText(/\(Live-Schätzung\)/i)).toBeInTheDocument();
+  });
+
+  it("zeigt standardmäßig keine Live-Token-Schätzung wenn liveTokensEnabled deaktiviert ist", async () => {
+    const defaultProject = {
+      ...project,
+      liveTokensEnabled: false,
+    };
+    const { api, emit } = createApi({ project: defaultProject });
+    window.gemUi = api;
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Login reparieren" });
+
+    // Emit assistant message delta
+    await emit([
+      {
+        sessionId: session.id,
+        turnId: "turn-live-1",
+        seq: 1,
+        event: {
+          type: "message.assistant.delta",
+          messageId: "assistant-live-2",
+          delta: "Hier ist eine Antwort von Gemini.",
+        },
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+
+    expect(screen.queryByText(/Geschätzter Token-Output:/i)).not.toBeInTheDocument();
   });
 });

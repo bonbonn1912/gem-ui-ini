@@ -30,30 +30,89 @@ export function selectBestReleaseAsset(
   if (!assets || assets.length === 0) return null;
 
   if (platform === "win32") {
-    // Windows: prefer Setup.exe or any .exe, followed by .msi or windows zip
-    const setupExe = assets.find(
+    // Windows: Only accept Windows executables, MSI or Windows ZIPs
+    const winEligible = assets.filter((a) => {
+      const name = a.name.toLowerCase();
+      if (
+        name.endsWith(".dmg") ||
+        name.endsWith(".pkg") ||
+        name.endsWith(".deb") ||
+        name.endsWith(".rpm") ||
+        name.endsWith(".appimage") ||
+        name.endsWith(".blockmap") ||
+        name.endsWith(".yml") ||
+        name.endsWith(".yaml") ||
+        name.endsWith(".json")
+      ) {
+        return false;
+      }
+      if (name.includes("darwin") || name.includes("mac") || name.includes("linux") || name.includes("osx")) {
+        return false;
+      }
+      const isWindowsZip =
+        name.endsWith(".zip") &&
+        (/[-_.]win(?:32|64|dows)?[-_.]/i.test(name) ||
+          name.includes("windows") ||
+          name.endsWith("-win.zip") ||
+          name.endsWith("-windows.zip"));
+
+      return name.endsWith(".exe") || name.endsWith(".msi") || isWindowsZip;
+    });
+
+    if (winEligible.length === 0) return null;
+
+    // 1. Prefer Setup.exe or any .exe
+    const setupExe = winEligible.find(
       (a) => a.name.toLowerCase().includes("setup") && a.name.toLowerCase().endsWith(".exe"),
     );
     if (setupExe) return setupExe.browser_download_url;
 
-    const anyExe = assets.find((a) => a.name.toLowerCase().endsWith(".exe"));
+    const anyExe = winEligible.find((a) => a.name.toLowerCase().endsWith(".exe"));
     if (anyExe) return anyExe.browser_download_url;
 
-    const msi = assets.find((a) => a.name.toLowerCase().endsWith(".msi"));
+    const msi = winEligible.find((a) => a.name.toLowerCase().endsWith(".msi"));
     if (msi) return msi.browser_download_url;
 
-    const winZip = assets.find(
-      (a) => (a.name.toLowerCase().includes("win") || a.name.toLowerCase().includes("windows")) && a.name.toLowerCase().endsWith(".zip"),
-    );
+    const winZip = winEligible.find((a) => a.name.toLowerCase().endsWith(".zip"));
     if (winZip) return winZip.browser_download_url;
+
+    return null;
   } else if (platform === "darwin") {
     // macOS: prefer .dmg or .zip matching CPU architecture (arm64 for Apple Silicon, x64 for Intel)
     const isArm = arch === "arm64";
     const primaryArch = isArm ? "arm64" : "x64";
     const secondaryArch = isArm ? "aarch64" : "x86_64";
 
+    const macEligible = assets.filter((a) => {
+      const name = a.name.toLowerCase();
+      if (
+        name.endsWith(".exe") ||
+        name.endsWith(".msi") ||
+        name.endsWith(".deb") ||
+        name.endsWith(".rpm") ||
+        name.endsWith(".appimage") ||
+        name.endsWith(".blockmap") ||
+        name.endsWith(".yml") ||
+        name.endsWith(".yaml") ||
+        name.endsWith(".json")
+      ) {
+        return false;
+      }
+      const isWindowsName =
+        /[-_.]win(?:32|64|dows)?[-_.]/i.test(name) ||
+        name.includes("windows") ||
+        name.endsWith("-win.zip") ||
+        name.endsWith("-windows.zip");
+      if (isWindowsName || name.includes("linux")) {
+        return false;
+      }
+      return name.endsWith(".dmg") || name.endsWith(".pkg") || name.endsWith(".zip");
+    });
+
+    if (macEligible.length === 0) return null;
+
     // 1. DMG matching architecture
-    const archDmg = assets.find(
+    const archDmg = macEligible.find(
       (a) =>
         a.name.toLowerCase().endsWith(".dmg") &&
         (a.name.toLowerCase().includes(primaryArch) || a.name.toLowerCase().includes(secondaryArch)),
@@ -61,7 +120,7 @@ export function selectBestReleaseAsset(
     if (archDmg) return archDmg.browser_download_url;
 
     // 2. ZIP matching architecture
-    const archZip = assets.find(
+    const archZip = macEligible.find(
       (a) =>
         a.name.toLowerCase().endsWith(".zip") &&
         (a.name.toLowerCase().includes(primaryArch) || a.name.toLowerCase().includes(secondaryArch)),
@@ -69,16 +128,18 @@ export function selectBestReleaseAsset(
     if (archZip) return archZip.browser_download_url;
 
     // 3. Any DMG
-    const anyDmg = assets.find((a) => a.name.toLowerCase().endsWith(".dmg"));
+    const anyDmg = macEligible.find((a) => a.name.toLowerCase().endsWith(".dmg"));
     if (anyDmg) return anyDmg.browser_download_url;
 
-    // 4. Any macOS zip
-    const macZip = assets.find(
-      (a) =>
-        a.name.toLowerCase().endsWith(".zip") &&
-        (a.name.toLowerCase().includes("darwin") || a.name.toLowerCase().includes("mac")),
-    );
+    // 4. Any macOS pkg
+    const anyPkg = macEligible.find((a) => a.name.toLowerCase().endsWith(".pkg"));
+    if (anyPkg) return anyPkg.browser_download_url;
+
+    // 5. Any macOS zip
+    const macZip = macEligible.find((a) => a.name.toLowerCase().endsWith(".zip"));
     if (macZip) return macZip.browser_download_url;
+
+    return null;
   } else if (platform === "linux") {
     const deb = assets.find((a) => a.name.toLowerCase().endsWith(".deb"));
     if (deb) return deb.browser_download_url;
@@ -86,10 +147,10 @@ export function selectBestReleaseAsset(
     if (appImage) return appImage.browser_download_url;
     const rpm = assets.find((a) => a.name.toLowerCase().endsWith(".rpm"));
     if (rpm) return rpm.browser_download_url;
+    return null;
   }
 
-  // Fallback: first asset or null
-  return assets[0]?.browser_download_url ?? null;
+  return null;
 }
 
 function cleanReleaseNotes(notes: string | null | undefined): string | null {
@@ -209,13 +270,16 @@ export class AppUpdateService {
       return {
         currentVersion,
         latestVersion: cleanLatest,
-        updateAvailable: isNewer,
+        updateAvailable: isNewer && downloadUrl !== null,
         releaseName: release.name || rawTag || `Version ${cleanLatest}`,
         releaseNotes: cleanReleaseNotes(release.body),
         publishedAt: release.published_at ? new Date(release.published_at).toISOString() : null,
-        htmlUrl: null,
+        htmlUrl: release.html_url || null,
         downloadUrl,
-        error: null,
+        error:
+          isNewer && !downloadUrl
+            ? "Neues Update verfügbar, aber kein passender Installer für dieses Betriebssystem im Release vorhanden."
+            : null,
       };
     } catch (err: unknown) {
       return {

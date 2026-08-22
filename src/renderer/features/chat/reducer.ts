@@ -54,7 +54,7 @@ export type MessageItem = TimelineBase & {
   };
   attachments: Array<{ id: string; name: string; mimeType?: string }>;
   contextAttachments: Array<{ id: string; kind: "file" | "link"; title: string }>;
-  projectFiles?: Array<{ rootId: string; relativePath: string; rootLabel?: string; displayName?: string }>;
+  projectFiles?: Array<{ rootId: string; relativePath: string; rootLabel?: string; displayName?: string; kind?: "file" | "directory" }>;
   externalContexts?: Array<{
     kind: "gitlab_review";
     id: string;
@@ -146,7 +146,7 @@ export type ChatAction =
       text: string;
       attachments: Attachment[];
       contextAttachments: Array<{ id: string; kind: "file" | "link"; title: string }>;
-      projectFiles: Array<{ rootId: string; rootLabel: string; relativePath: string; displayName: string }>;
+      projectFiles: Array<{ rootId: string; rootLabel: string; relativePath: string; displayName: string; kind?: "file" | "directory" }>;
       timestamp: string;
     }
   | { type: "prompt-failed"; clientRequestId: string; message: string }
@@ -170,8 +170,19 @@ export function createChatState(sessionId: string | null = null): ChatState {
   };
 }
 
-function eventText(event: { delta?: string; text?: string; content?: string }): string {
-  return event.delta ?? event.text ?? event.content ?? "";
+function eventText(event: { delta?: string; text?: string; content?: unknown }): string {
+  if (typeof event.delta === "string") return event.delta;
+  if (typeof event.text === "string") return event.text;
+  if (typeof event.content === "string") return event.content;
+  if (
+    event.content &&
+    typeof event.content === "object" &&
+    "text" in event.content &&
+    typeof (event.content as { text?: unknown }).text === "string"
+  ) {
+    return (event.content as { text: string }).text;
+  }
+  return "";
 }
 
 function itemId(prefix: string, envelope: StreamEnvelope, explicit?: string): string {

@@ -57,6 +57,7 @@ describe("SessionExportService", () => {
     approvalModeId: null,
     approvalModeState: "gemini_default",
     statsEnabled: false,
+    liveTokensEnabled: false,
     createdAt: "2026-08-20T10:00:00.000Z",
     updatedAt: "2026-08-20T10:00:00.000Z",
     archived: false,

@@ -164,6 +164,40 @@ describe("AppUpdateService", () => {
     expect(winInfo.downloadUrl).toBe("https://example.com/windows.exe");
   });
 
+  it("never selects a Mac installer on Windows when Windows build is absent", async () => {
+    const macOnlyAssets = [
+      {
+        name: "GeminUI-darwin-arm64-0.5.1.zip",
+        browser_download_url: "https://example.com/macos-arm64.zip",
+      },
+      {
+        name: "GeminUI-0.5.1.dmg",
+        browser_download_url: "https://example.com/macos.dmg",
+      },
+    ];
+
+    const mockFetch = async () =>
+      new Response(
+        JSON.stringify({
+          tag_name: "v0.5.1",
+          assets: macOnlyAssets,
+        }),
+      );
+
+    const winService = new AppUpdateService({
+      currentVersion: "0.5.0",
+      platform: "win32",
+      arch: "x64",
+      fetchFn: mockFetch as any,
+    });
+
+    const info = await winService.checkForUpdates();
+    expect(info.latestVersion).toBe("0.5.1");
+    expect(info.downloadUrl).toBeNull();
+    expect(info.updateAvailable).toBe(false);
+    expect(info.error).toContain("kein passender Installer");
+  });
+
   it("downloads update binary with progress reporting", async () => {
     const chunk1 = new Uint8Array([1, 2, 3, 4]);
     const chunk2 = new Uint8Array([5, 6, 7, 8]);

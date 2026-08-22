@@ -170,6 +170,8 @@ const desktopApi: GemUiDesktopApi = {
       ipcRenderer.invoke(IPC_CHANNELS.setProjectApprovalPolicy, input),
     setStatsEnabled: (input) =>
       ipcRenderer.invoke(IPC_CHANNELS.setProjectStatsEnabled, input),
+    setLiveTokensEnabled: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.setProjectLiveTokensEnabled, input),
     delete: (input) => ipcRenderer.invoke(IPC_CHANNELS.deleteProject, input),
   },
 
