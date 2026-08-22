@@ -24,6 +24,52 @@ function envelope(seq: number, event: AgentEvent, turnId = "turn-1"): StreamEnve
 }
 
 describe("chatReducer", () => {
+  /**
+   * Regression: Wird die App beendet, während eine Antwort läuft, endet die
+   * gespeicherte Timeline ohne Abschlussereignis. Beim nächsten Start bleibt
+   * das Abspielen deshalb in "running" stehen — die Oberfläche zeigt einen
+   * Abbrechen-Knopf für eine Antwort, die niemand mehr schreibt. Der
+   * Sessionabgleich im Main-Prozess trägt das fehlende Ereignis nach.
+   */
+  it("bleibt ohne Abschlussereignis in running und wird durch turn.cancelled aufgelöst", () => {
+    const history: StreamEnvelope[] = [
+      envelope(1, {
+        type: "message.user",
+        messageId: "user-1",
+        text: "Bitte analysieren",
+        attachmentIds: [],
+        contextAttachments: [],
+        projectFiles: [],
+        externalContexts: [],
+      }),
+      envelope(2, { type: "message.assistant.delta", messageId: "assistant-1", delta: "Ich schaue " }),
+    ];
+
+    const abandoned = chatReducer(createChatState("session-1"), {
+      type: "events",
+      events: history,
+    });
+    expect(abandoned.phase).toBe("running");
+    expect(abandoned.activeTurnId).toBe("turn-1");
+
+    const repaired = chatReducer(createChatState("session-1"), {
+      type: "events",
+      events: [
+        ...history,
+        envelope(3, {
+          type: "turn.cancelled",
+          reason: "Diese Antwort lief noch, als die Anwendung beendet wurde.",
+        }),
+      ],
+    });
+    expect(repaired.phase).toBe("idle");
+    expect(repaired.activeTurnId).toBeNull();
+    expect(repaired.items.at(-1)).toMatchObject({
+      kind: "notice",
+      tone: "neutral",
+    });
+  });
+
   it("sortiert Stream-Events, fügt Textdeltas zusammen und ignoriert Replay-Duplikate", () => {
     const initial = createChatState("session-1");
     const streamed = chatReducer(initial, {

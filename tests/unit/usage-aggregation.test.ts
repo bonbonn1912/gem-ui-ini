@@ -26,7 +26,7 @@ const timestamp = "2026-08-20T12:00:00.000Z";
 afterEach(async () => {
   await Promise.all(
     temporaryDirectories.splice(0).map((directory) =>
-      rm(directory, { recursive: true, force: true }),
+      rm(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }),
     ),
   );
 });

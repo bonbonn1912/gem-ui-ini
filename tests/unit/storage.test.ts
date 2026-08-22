@@ -27,7 +27,7 @@ const timestamp = "2026-08-20T12:00:00.000Z";
 afterEach(async () => {
   await Promise.all(
     temporaryDirectories.splice(0).map((directory) =>
-      rm(directory, { recursive: true, force: true }),
+      rm(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }),
     ),
   );
 });
@@ -504,6 +504,46 @@ describe("repositories", () => {
       });
       fixture.projects.delete(fixture.project.id);
       expect(sessions.findById(sessionId)).toBeNull();
+    } finally {
+      fixture.database.close();
+    }
+  });
+
+  it("findet Sessions mit laufend behauptetem Zustand über Projektgrenzen hinweg", async () => {
+    // Grundlage des Sessionabgleichs: Nach einem Neustart läuft keiner dieser
+    // Zustände noch wirklich.
+    const fixture = await createProjectFixture();
+    try {
+      const sessions = new SessionRepository(fixture.database);
+      const base = {
+        provider: "gemini-cli" as const,
+        providerSessionId: null,
+        projectId: fixture.project.id,
+        lastRootRevision: fixture.project.rootRevision,
+        lastRootFingerprint: fixture.project.rootFingerprint,
+        model: null,
+        mode: null,
+        pinned: false,
+        archived: false,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      const runningId = randomUUID();
+      const idleId = randomUUID();
+      sessions.create({ ...base, id: runningId, title: "Läuft", status: "running" });
+      sessions.create({ ...base, id: idleId, title: "Ruht", status: "idle" });
+      sessions.create({ ...base, id: randomUUID(), title: "Startet", status: "starting" });
+
+      const live = sessions.listByStatuses([
+        "starting",
+        "running",
+        "awaiting_permission",
+        "cancelling",
+      ]);
+      expect(live).toHaveLength(2);
+      expect(live.map((session) => session.id)).toContain(runningId);
+      expect(live.map((session) => session.id)).not.toContain(idleId);
+      expect(sessions.listByStatuses([])).toEqual([]);
     } finally {
       fixture.database.close();
     }

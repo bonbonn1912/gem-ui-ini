@@ -19,11 +19,17 @@ import {
 } from "../../src/main/app-controller";
 
 const temporaryDirectories: string[] = [];
+const openDatabases: SqliteDatabase[] = [];
 
 afterEach(async () => {
+  for (const db of openDatabases.splice(0)) {
+    try {
+      db.close();
+    } catch {}
+  }
   await Promise.all(
     temporaryDirectories.splice(0).map((directory) =>
-      rm(directory, { recursive: true, force: true }),
+      rm(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }),
     ),
   );
 });
@@ -31,7 +37,8 @@ afterEach(async () => {
 async function createFixture() {
   const directory = await mkdtemp(path.join(os.tmpdir(), "gem-ui-stats-test-"));
   temporaryDirectories.push(directory);
-  const database = openSqliteDatabase(path.join(directory, "state.db"));
+  const database = openSqliteDatabase(":memory:");
+  openDatabases.push(database);
 
   const projectRepository = new ProjectRepository(database);
   const projectService = new ProjectService(projectRepository);

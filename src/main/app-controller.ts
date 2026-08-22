@@ -20,6 +20,7 @@ import {
   type SendPromptInput,
   type SessionOption,
   type SessionReconnectState,
+  type SessionStatus,
   type SetSessionModeInput,
   type SetSessionModelInput,
   SetProjectApprovalPolicyInputSchema,
@@ -56,6 +57,32 @@ import {
   type SessionRepository,
   type StatsRepository,
 } from "./storage";
+
+/**
+ * Zustände, die einen laufenden Gemini-Prozess behaupten. Nach einem Neustart
+ * — und unter Windows auch nach einem harten Abschuss der App — steht so ein
+ * Zustand in der Datenbank, ohne dass noch irgendetwas läuft.
+ */
+const LIVE_SESSION_STATUSES = [
+  "starting",
+  "running",
+  "awaiting_permission",
+  "cancelling",
+] as const satisfies readonly SessionStatus[];
+
+/**
+ * Ereignisse, nach denen ein Turn noch offen ist. Endet die Timeline auf einem
+ * davon, wurde die Antwort nie abgeschlossen und der Renderer bleibt beim
+ * Abspielen der Historie in "running" stehen — mitsamt Abbrechen-Knopf.
+ */
+const OPEN_TURN_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "message.user",
+  "message.assistant.delta",
+  "message.thought.delta",
+  "tool.started",
+  "tool.updated",
+  "permission.requested",
+]);
 
 type ActiveTurn = {
   turnId: string;
@@ -130,6 +157,13 @@ export class AppController implements ProjectRuntimeCoordinator {
   readonly #activeTurns = new Map<string, ActiveTurn>();
   readonly #eventBuffers = new Map<string, PendingEventBuffer>();
   readonly #reconnectedSessions = new Set<string>();
+  /**
+   * Sessions, deren ACP-Prozess gerade hochgefahren wird. Sie stehen auf
+   * `starting`, haben aber noch keinen aktiven Turn — ohne diese Merkliste
+   * würde der Abgleich sie fälschlich für verwaist halten.
+   */
+  readonly #openingSessions = new Set<string>();
+  #reconcileTimer: ReturnType<typeof setInterval> | null = null;
   #manager: GeminiSessionManager | null = null;
   #managerBinaryPath: string | null = null;
   #unsubscribeManager: (() => void) | null = null;
@@ -150,6 +184,9 @@ export class AppController implements ProjectRuntimeCoordinator {
   }
 
   listSessions(input: ListSessionsInput): AppSession[] {
+    // Der Moment, in dem die Oberfläche den Zustand liest, ist auch der
+    // richtige, um ihn vorher geradezurücken.
+    this.reconcileSessions(input.projectId);
     return this.#sessions.listByProject(
       input.projectId,
       input.includeArchived ?? false,
@@ -180,6 +217,7 @@ export class AppController implements ProjectRuntimeCoordinator {
       ...access.additionalRoots,
     ]);
 
+    this.#openingSessions.add(appSession.id);
     try {
       const manager = await this.#getManager();
       await this.#makeRoomForSession(manager, appSession.id);
@@ -206,6 +244,8 @@ export class AppController implements ProjectRuntimeCoordinator {
         updatedAt: new Date().toISOString(),
       });
       throw error;
+    } finally {
+      this.#openingSessions.delete(appSession.id);
     }
   }
 
@@ -467,6 +507,77 @@ export class AppController implements ProjectRuntimeCoordinator {
     };
   }
 
+  /**
+   * Gleicht den gespeicherten Sessionzustand mit der Wirklichkeit ab.
+   *
+   * Wird die App beendet, während ein Turn läuft, bleibt in der Datenbank
+   * `running` stehen und die Timeline endet ohne Abschlussereignis. Beim
+   * nächsten Start zeigt die Oberfläche deshalb einen Abbrechen-Knopf für eine
+   * Antwort, die niemand mehr schreibt. Hier wird ein solcher Turn
+   * nachträglich beendet.
+   *
+   * Maßstab ist ausschließlich der eigene Prozesszustand: Nur ein Eintrag in
+   * `#activeTurns` bedeutet, dass wirklich noch etwas läuft.
+   */
+  reconcileSessions(projectId?: string): number {
+    let repaired = 0;
+    for (const session of this.#sessions.listByStatuses(LIVE_SESSION_STATUSES)) {
+      if (projectId && session.projectId !== projectId) continue;
+      if (this.#activeTurns.has(session.id)) continue;
+      if (this.#openingSessions.has(session.id)) continue;
+      this.#closeAbandonedTurn(session.id);
+      repaired += 1;
+    }
+    return repaired;
+  }
+
+  /**
+   * Wiederholter Abgleich für lange Laufzeiten: Endet ein Turn ohne sein
+   * Abschlussereignis — etwa weil der Gemini-Prozess weggebrochen ist —,
+   * räumt der nächste Durchlauf auf, statt den Zustand bis zum Neustart
+   * stehen zu lassen.
+   */
+  startSessionReconciliation(intervalMs = 60_000): void {
+    if (this.#reconcileTimer) return;
+    this.#reconcileTimer = setInterval(() => {
+      try {
+        this.reconcileSessions();
+      } catch (error) {
+        console.error("[AppController] Sessionabgleich fehlgeschlagen.", error);
+      }
+    }, intervalMs);
+  }
+
+  #closeAbandonedTurn(sessionId: string): void {
+    try {
+      const latestSeq = this.#events.latestSequence(sessionId);
+      const last =
+        latestSeq > 0
+          ? this.#events.listAfter(sessionId, latestSeq - 1, 1).at(-1)
+          : undefined;
+
+      if (last?.turnId && OPEN_TURN_EVENT_TYPES.has(last.event.type)) {
+        const envelope = this.#events.append({
+          sessionId,
+          turnId: last.turnId,
+          event: {
+            type: "turn.cancelled",
+            reason:
+              "Diese Antwort lief noch, als die Anwendung beendet wurde. Der Turn wurde deshalb nachträglich abgeschlossen.",
+          },
+          timestamp: new Date().toISOString(),
+        });
+        void this.#publishEvents([envelope]);
+      }
+    } catch (error) {
+      console.error(
+        `[AppController] Offener Turn von Session ${sessionId} konnte nicht abgeschlossen werden.`,
+        error,
+      );
+    }
+    this.#safeSessionUpdate(sessionId, { status: "idle" });
+  }
+
   getStats(input?: GetStatsInput): AppStats {
     if (!this.#stats) {
       throw new Error("StatsRepository ist nicht initialisiert.");
@@ -643,6 +754,10 @@ export class AppController implements ProjectRuntimeCoordinator {
   }
 
   async dispose(): Promise<void> {
+    if (this.#reconcileTimer) {
+      clearInterval(this.#reconcileTimer);
+      this.#reconcileTimer = null;
+    }
     for (const buffer of this.#eventBuffers.values()) clearTimeout(buffer.timer);
     for (const sessionId of [...this.#eventBuffers.keys()]) {
       this.#flushBufferedEvents(sessionId);
@@ -683,6 +798,7 @@ export class AppController implements ProjectRuntimeCoordinator {
     if (manager.getSession(session.id)) return;
     await this.#makeRoomForSession(manager, session.id);
 
+    this.#openingSessions.add(session.id);
     this.#sessions.update(session.id, {
       status: "starting",
       updatedAt: new Date().toISOString(),
@@ -755,6 +871,8 @@ export class AppController implements ProjectRuntimeCoordinator {
         updatedAt: new Date().toISOString(),
       });
       throw error;
+    } finally {
+      this.#openingSessions.delete(session.id);
     }
   }
 

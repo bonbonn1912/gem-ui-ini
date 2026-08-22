@@ -182,6 +182,28 @@ export class SessionRepository {
     }
   }
 
+  /**
+   * Alle Sessions in einem der übergebenen Zustände — unabhängig vom Projekt.
+   * Grundlage für den Abgleich beim Start: Zustände wie `running` behaupten
+   * einen laufenden Prozess, den es nach einem Neustart nicht mehr gibt.
+   */
+  listByStatuses(statuses: readonly SessionStatus[]): AppSession[] {
+    if (statuses.length === 0) return [];
+    const placeholders = statuses.map(() => "?").join(", ");
+    const rows = this.database
+      .prepare(
+        `SELECT id, provider, provider_session_id, project_id,
+                last_root_revision, last_root_fingerprint, title, status,
+                model, mode, available_models_json, available_modes_json,
+                pinned, archived, created_at, updated_at
+         FROM sessions
+         WHERE status IN (${placeholders})
+         ORDER BY updated_at DESC`,
+      )
+      .all(...statuses) as SessionRow[];
+    return rows.map(parseSession);
+  }
+
   listByProject(projectId: string, includeArchived = false): AppSession[] {
     const rows = this.database
       .prepare(

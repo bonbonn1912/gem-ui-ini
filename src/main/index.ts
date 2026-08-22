@@ -216,6 +216,21 @@ async function bootstrap(): Promise<void> {
   });
   projectService.setRuntimeCoordinator(controller);
 
+  /**
+   * Nach einem Neustart läuft garantiert kein Gemini-Prozess mehr. Sessions,
+   * die beim letzten Beenden mitten in einer Antwort standen, tragen aber noch
+   * `running` und eine Timeline ohne Abschluss — die Oberfläche würde einen
+   * Abbrechen-Knopf für eine Antwort zeigen, die niemand mehr schreibt. Der
+   * Abgleich läuft deshalb einmal beim Start und danach im Hintergrund weiter.
+   */
+  const repairedSessions = controller.reconcileSessions();
+  if (repairedSessions > 0) {
+    console.info(
+      `[GeminUI] ${repairedSessions} Session(s) mit verwaistem Zustand beim Start bereinigt.`,
+    );
+  }
+  controller.startSessionReconciliation();
+
   const sessionExportService = new SessionExportService({
     sessions: sessionRepository,
     projects: projectRepository,
