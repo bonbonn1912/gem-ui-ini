@@ -6,11 +6,24 @@ stages:
 default:
   interruptible: true
 
+variables:
+  CARGO_HOME: "$CI_PROJECT_DIR/.cargo"
+  RUSTUP_HOME: "$CI_PROJECT_DIR/.rustup"
+
+cache:
+  key: "$CI_JOB_NAME-$CI_COMMIT_REF_SLUG"
+  policy: pull-push
+  paths:
+    - .npm/
+    - .cargo/
+    - .rustup/
+    - src/target/
+
 typecheck_and_test:
   stage: test
   image: node:24-bullseye
   script:
-    - npm ci
+    - npm ci --cache .npm --prefer-offline
     - npm run typecheck
     - npm test
   rules:
@@ -24,15 +37,50 @@ build_windows:
     - saas-windows-medium-amd64
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v/'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - |
+      if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+          winget install --id OpenJS.NodeJS.LTS --exact --silent --accept-source-agreements --accept-package-agreements
+        } elseif (Get-Command choco -ErrorAction SilentlyContinue) {
+          choco install nodejs-lts --yes --no-progress
+        } else {
+          throw "Node.js is not installed and no supported package manager is available"
+        }
+        $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+      }
+      if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
+        Invoke-WebRequest -Uri https://win.rustup.rs/x86_64 -OutFile rustup-init.exe
+        .\rustup-init.exe -y --default-toolchain stable --profile minimal
+      }
+      $env:Path = "$env:CARGO_HOME\bin;$env:Path"
+      rustup toolchain install stable --profile minimal
+      rustup default stable
+      rustup component add rustfmt clippy
+      rustup target add x86_64-pc-windows-msvc
   script:
-    - npm ci
-    - npm run make -- --platform=win32 --arch=x64
+    - npm ci --cache .npm --prefer-offline
+    - npm run typecheck
+    - npm test
+    - cargo fmt --manifest-path src/Cargo.toml --all -- --check
+    - cargo test --manifest-path src/Cargo.toml
+    - cargo clippy --manifest-path src/Cargo.toml --all-targets -- -D warnings
+    - |
+      $buildConfig = '{"bundle":{"createUpdaterArtifacts":false}}'
+      if ($env:CI_COMMIT_TAG -match '^v') {
+        if (-not $env:TAURI_SIGNING_PRIVATE_KEY) { throw "TAURI_SIGNING_PRIVATE_KEY fehlt für signierte Tag-Releases" }
+        $buildConfig = '{"bundle":{"createUpdaterArtifacts":true}}'
+      }
+      npm exec tauri -- build --config src/tauri.conf.json --config $buildConfig --target x86_64-pc-windows-msvc --ci
   artifacts:
-    name: "geminui-windows-$CI_COMMIT_TAG"
+    name: "geminui-windows-x64-$CI_COMMIT_REF_SLUG"
     paths:
-      - out/make/squirrel.windows/x64/*.exe
-      - out/make/squirrel.windows/x64/*.nupkg
-      - out/make/squirrel.windows/x64/RELEASES
+      - src/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+      - src/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
+      - src/target/x86_64-pc-windows-msvc/release/bundle/**/*.nsis.zip
+      - src/target/x86_64-pc-windows-msvc/release/bundle/**/*.sig
     expire_in: 30 days
 
 build_macos:
@@ -41,13 +89,42 @@ build_macos:
     - saas-macos-medium-m1
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v/'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - |
+      if ! command -v node >/dev/null 2>&1; then
+        brew install node@24
+        brew link --overwrite node@24
+      fi
+      if ! command -v rustup >/dev/null 2>&1; then
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+      fi
+      export PATH="$CARGO_HOME/bin:$PATH"
+      rustup toolchain install stable --profile minimal
+      rustup default stable
+      rustup component add rustfmt clippy
+      rustup target add aarch64-apple-darwin
   script:
-    - npm ci
-    - npm run make -- --platform=darwin --arch=arm64
+    - npm ci --cache .npm --prefer-offline
+    - npm run typecheck
+    - npm test
+    - cargo fmt --manifest-path src/Cargo.toml --all -- --check
+    - cargo test --manifest-path src/Cargo.toml
+    - cargo clippy --manifest-path src/Cargo.toml --all-targets -- -D warnings
+    - |
+      build_config='{"bundle":{"createUpdaterArtifacts":false}}'
+      if [[ "$CI_COMMIT_TAG" =~ ^v ]]; then
+        [[ -n "$TAURI_SIGNING_PRIVATE_KEY" ]] || { echo "TAURI_SIGNING_PRIVATE_KEY fehlt für signierte Tag-Releases"; exit 1; }
+        build_config='{"bundle":{"createUpdaterArtifacts":true}}'
+      fi
+      npm exec tauri -- build --config src/tauri.conf.json --config "$build_config" --target aarch64-apple-darwin --ci
   artifacts:
-    name: "geminui-macos-arm64-$CI_COMMIT_TAG"
+    name: "geminui-macos-arm64-$CI_COMMIT_REF_SLUG"
     paths:
-      - out/make/zip/darwin/arm64/*.zip
+      - src/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+      - src/target/aarch64-apple-darwin/release/bundle/**/*.app.tar.gz
+      - src/target/aarch64-apple-darwin/release/bundle/**/*.sig
     expire_in: 30 days
 
 create_release:
@@ -61,8 +138,8 @@ create_release:
     - job: build_macos
       artifacts: true
   script:
-    - echo "Publishing Release $CI_COMMIT_TAG for Windows and macOS"
+    - echo "Publishing Tauri release $CI_COMMIT_TAG for Windows and macOS"
   release:
     name: "Release $CI_COMMIT_TAG"
     tag_name: "$CI_COMMIT_TAG"
-    description: "GeminUI Desktop Release $CI_COMMIT_TAG für Windows und macOS"
+    description: "GeminUI Tauri Desktop Release $CI_COMMIT_TAG für Windows und macOS"

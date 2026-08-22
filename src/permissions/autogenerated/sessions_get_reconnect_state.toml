@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sessions-get-reconnect-state"
+description = "Enables the sessions_get_reconnect_state command without any pre-configured scope."
+commands.allow = ["sessions_get_reconnect_state"]
+
+[[permission]]
+identifier = "deny-sessions-get-reconnect-state"
+description = "Denies the sessions_get_reconnect_state command without any pre-configured scope."
+commands.deny = ["sessions_get_reconnect_state"]

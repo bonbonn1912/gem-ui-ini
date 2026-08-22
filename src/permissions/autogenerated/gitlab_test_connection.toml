@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gitlab-test-connection"
+description = "Enables the gitlab_test_connection command without any pre-configured scope."
+commands.allow = ["gitlab_test_connection"]
+
+[[permission]]
+identifier = "deny-gitlab-test-connection"
+description = "Denies the gitlab_test_connection command without any pre-configured scope."
+commands.deny = ["gitlab_test_connection"]

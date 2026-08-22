@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-todos-attach-attachment"
+description = "Enables the todos_attach_attachment command without any pre-configured scope."
+commands.allow = ["todos_attach_attachment"]
+
+[[permission]]
+identifier = "deny-todos-attach-attachment"
+description = "Denies the todos_attach_attachment command without any pre-configured scope."
+commands.deny = ["todos_attach_attachment"]

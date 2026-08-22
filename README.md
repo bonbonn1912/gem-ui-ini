@@ -1,6 +1,6 @@
 # GeminUI
 
-GeminUI ist ein nativer Electron-Client für die lokal installierte Gemini CLI. Die App verwaltet mehrere Projekte und Sessions, streamt ACP-Antworten, zeigt Tool-Aufrufe und Freigaben und unterstützt Bilder per Auswahl, Drag-and-drop und Zwischenablage.
+GeminUI ist ein schlanker Tauri-2-Desktop-Client für die lokal installierte Gemini CLI. Das Backend läuft in Rust, die Oberfläche in SolidJS. Die App verwaltet mehrere Projekte und Sessions, streamt ACP-Antworten, zeigt Tool-Aufrufe und Freigaben und unterstützt Bilder per Auswahl, Drag-and-drop und Zwischenablage.
 
 ## Voraussetzungen und Anmeldung
 
@@ -17,6 +17,7 @@ Ein Projekt besitzt genau einen Hauptordner und bis zu fünf zusätzliche Ordner
 ## Voraussetzungen
 
 - macOS, Linux oder Windows mit einer kompatiblen Node-/Gemini-CLI-Installation
+- Rust Stable und die [Tauri-Systemvoraussetzungen](https://v2.tauri.app/start/prerequisites/) für die jeweilige Plattform
 - Gemini CLI `0.56.0` oder neuer mit `--acp`
 - eine funktionierende Gemini-CLI-Anmeldung
 
@@ -40,14 +41,8 @@ Wichtige Prüfungen:
 ```bash
 npm run typecheck
 npm test
+npm run verify
 npm run build
-npm run test:e2e
-```
-
-Der reale ACP-Multi-Root-Smoke-Test ist bewusst opt-in, weil er die lokal installierte und angemeldete Gemini CLI startet:
-
-```bash
-npm run test:gemini
 ```
 
 ## Paket erzeugen
@@ -59,9 +54,9 @@ npm ci
 npm run make
 ```
 
-Das ZIP liegt anschließend unter
-`out/make/zip/darwin/arm64/GeminUI-darwin-arm64-0.1.0.zip` (auf Intel
-entsprechend `x64`). `npm run package` erzeugt nur das lokale `.app`-Bundle.
+DMG und App-Bundle liegen anschließend unter
+`src/target/release/bundle/` (bei explizitem Target unter dem jeweiligen
+Target-Unterordner).
 
 Windows (in PowerShell auf Windows 10/11):
 
@@ -70,12 +65,29 @@ npm ci
 npm run make
 ```
 
-Der Squirrel-Installer liegt anschließend unter
-`out\make\squirrel.windows\x64\`. Windows-Artefakte sollten wegen Electron und
-der nativen SQLite-Binary auf Windows gebaut werden. Alternativ erzeugt der
-Workflow `.github/workflows/windows.yml` das Artefakt auf `windows-2022`.
+NSIS- und MSI-Installer liegen anschließend unter
+`src\target\release\bundle\`. Alternativ erzeugt der Workflow
+`.github/workflows/windows.yml` das Artefakt auf `windows-2022`.
 
-Forge legt alle Ergebnisse unter `out/` ab. Lokale Entwicklungsartefakte sind
+### Signierte Updates
+
+Der Updater liest das signierte Tauri-Manifest
+`https://github.com/bonbonn1912/gem-ui-ini/releases/latest/download/latest.json`.
+Lokale Builds bleiben deshalb absichtlich ohne Update-Artefakte. Der
+Tag-Release-Workflow aktiviert sie und benötigt dafür zwei Repository-Secrets:
+
+- `TAURI_SIGNING_PRIVATE_KEY`: Inhalt des privaten Schlüssels, der zur
+  öffentlichen Key-Zeile in `src/tauri.conf.json` gehört
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: Passwort des Schlüssels (leer, falls
+  der Schlüssel ohne Passwort erzeugt wurde)
+
+Der private Schlüssel darf niemals committed oder in Logs ausgegeben werden.
+Der GitLab-Tag-Build verwendet dieselben CI-Variablen. Ohne diese Variable
+schlagen signierte Tag-Releases absichtlich mit einer klaren Fehlermeldung
+fehl; Merge-Request- und `main`-Builds bleiben unsigniert und benötigen kein
+Secret.
+
+Tauri legt alle Ergebnisse unter `src/target/release/bundle/` ab. Lokale Entwicklungsartefakte sind
 nicht notarisiert beziehungsweise für eine öffentliche Verteilung signiert.
 Für einen Firmen-PC ist keine Microsoft-Store-Veröffentlichung nötig; eine
 Unternehmensrichtlinie kann unsignierte Installer jedoch blockieren. Für eine
@@ -96,6 +108,21 @@ Release behält eine verlässliche App-Identität über Versionen hinweg.
 
 ## Funktionsumfang
 
+### Stand von 0.11.0
+
+Version 0.11.0 ist der native technische Rewrite mit vollständiger
+Feature-Parität zur früheren Desktop-Anwendung. Produktiv verdrahtet sind die
+Tauri-Shell, SQLite/WAL und Migrationen sowie Projektverwaltung einschließlich
+Root-Validierung, Reautorisierung und Idempotenz. ACP-Prozesssteuerung,
+Session-Limit, Permission-Broker, Event-Batching, Binary-Probing sowie Git-
+und Diff-Parser sind in Rust implementiert und getestet. Sämtliche Session-,
+Attachment-, Todo-, GitLab-, Jira-, Update- und Integrations-Commands sind über
+die typisierte Tauri-Brücke an die SolidJS-Oberfläche angeschlossen. Native
+Dateiauswahl, Drag-and-drop, Link-Vorschau und der signaturgeprüfte Tauri-Updater
+ersetzen die früheren Electron-Pfade vollständig.
+
+Der umgesetzte Funktionsumfang umfasst:
+
 - native Projekte mit einem unveränderlichen Primary Root und bis zu fünf Additional Roots
 - Projektordner später hinzufügen oder entfernen; laufende Turns schützen die Root-Änderung
 - mehrere persistente Sessions pro Projekt
@@ -110,8 +137,8 @@ Release behält eine verlässliche App-Identität über Versionen hinweg.
 
 ## Sicherheitsmodell
 
-Der Renderer läuft ohne Node-Integration in einer Sandbox. Die Preload-Bridge bietet nur konkrete, typisierte Aktionen; der Main-Prozess validiert jeden IPC-Payload und den Absender erneut. Navigation, neue Fenster und Chromium-Permissions sind standardmäßig gesperrt. Markdown wird ohne Raw HTML gerendert, und externe Links dürfen nur als validiertes `https:` im Systembrowser geöffnet werden.
+Der SolidJS-Renderer hat keinen Node-Zugriff. Tauri-Capabilities erlauben pro Fenster nur die benötigten Commands; der Vorschau-Webview erhält keine App-Commands. Rust deserialisiert und validiert Eingaben typisiert. Navigation und neue Fenster sind standardmäßig gesperrt. Markdown wird ohne Raw HTML gerendert, und externe Links dürfen nur als validiertes `https:` im Systembrowser geöffnet werden.
 
 Die Auswahl aller Projektordner ist die explizite Trust-Entscheidung. Deshalb startet die App Gemini mit `--skip-trust`; Geminis Tool-Freigaben bleiben davon unberührt. Die Root-Liste ist keine Betriebssystem-Sandbox: Für eine harte Isolation muss zusätzlich Geminis eigener Sandbox-Modus verwendet werden.
 
-Die ausführliche Architektur, Datenmodelle, Risiken und Abnahmekriterien stehen in [implementation.md](./implementation.md).
+Der verbindliche Migrationsplan, die Zielarchitektur, Risiken und Abnahmekriterien stehen in [rewrite.md](./rewrite.md).

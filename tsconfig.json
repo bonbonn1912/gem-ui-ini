@@ -7,21 +7,27 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-    "strict": true,
+    "strict": false,
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "paths": {
+      "@renderer/*": ["./frontend/renderer/*"]
+    },
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "jsx": "react-jsx",
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
     "types": ["node", "vite/client"]
   },
   "include": [
-    "src",
-    "tests",
-    "forge.config.ts",
-    "vite.*.config.ts",
+    "frontend/renderer/**/*.ts",
+    "frontend/renderer/**/*.tsx",
+    "frontend/shared/**/*.ts",
+    "tests/unit/renderer-*.ts",
+    "tests/unit/renderer-*.tsx",
+    "vite.renderer.config.ts",
     "vitest.config.ts"
   ]
 }

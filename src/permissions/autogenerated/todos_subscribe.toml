@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-todos-subscribe"
+description = "Enables the todos_subscribe command without any pre-configured scope."
+commands.allow = ["todos_subscribe"]
+
+[[permission]]
+identifier = "deny-todos-subscribe"
+description = "Denies the todos_subscribe command without any pre-configured scope."
+commands.deny = ["todos_subscribe"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-attachments-stage-dropped-paths"
+description = "Enables the attachments_stage_dropped_paths command without any pre-configured scope."
+commands.allow = ["attachments_stage_dropped_paths"]
+
+[[permission]]
+identifier = "deny-attachments-stage-dropped-paths"
+description = "Denies the attachments_stage_dropped_paths command without any pre-configured scope."
+commands.deny = ["attachments_stage_dropped_paths"]

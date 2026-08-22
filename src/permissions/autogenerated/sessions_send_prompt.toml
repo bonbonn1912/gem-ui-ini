@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sessions-send-prompt"
+description = "Enables the sessions_send_prompt command without any pre-configured scope."
+commands.allow = ["sessions_send_prompt"]
+
+[[permission]]
+identifier = "deny-sessions-send-prompt"
+description = "Denies the sessions_send_prompt command without any pre-configured scope."
+commands.deny = ["sessions_send_prompt"]

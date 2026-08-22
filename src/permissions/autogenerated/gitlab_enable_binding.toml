@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gitlab-enable-binding"
+description = "Enables the gitlab_enable_binding command without any pre-configured scope."
+commands.allow = ["gitlab_enable_binding"]
+
+[[permission]]
+identifier = "deny-gitlab-enable-binding"
+description = "Denies the gitlab_enable_binding command without any pre-configured scope."
+commands.deny = ["gitlab_enable_binding"]

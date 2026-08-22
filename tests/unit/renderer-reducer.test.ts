@@ -5,13 +5,13 @@ import {
   type ChatState,
   type PermissionItem,
   type ToolItem,
-} from "../../src/renderer/features/chat/reducer";
+} from "../../frontend/renderer/features/chat/reducer";
 import type {
   AgentEvent,
   StreamEnvelope,
   TokenCounters,
   UsageSnapshot,
-} from "../../src/renderer/types";
+} from "../../frontend/renderer/types";
 
 function envelope(seq: number, event: AgentEvent, turnId = "turn-1"): StreamEnvelope {
   return {

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gitlab-list-repository-candidates"
+description = "Enables the gitlab_list_repository_candidates command without any pre-configured scope."
+commands.allow = ["gitlab_list_repository_candidates"]
+
+[[permission]]
+identifier = "deny-gitlab-list-repository-candidates"
+description = "Denies the gitlab_list_repository_candidates command without any pre-configured scope."
+commands.deny = ["gitlab_list_repository_candidates"]

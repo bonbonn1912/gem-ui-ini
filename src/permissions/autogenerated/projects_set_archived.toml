@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-projects-set-archived"
+description = "Enables the projects_set_archived command without any pre-configured scope."
+commands.allow = ["projects_set_archived"]
+
+[[permission]]
+identifier = "deny-projects-set-archived"
+description = "Denies the projects_set_archived command without any pre-configured scope."
+commands.deny = ["projects_set_archived"]

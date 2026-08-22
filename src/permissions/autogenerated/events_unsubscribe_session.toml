@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-events-unsubscribe-session"
+description = "Enables the events_unsubscribe_session command without any pre-configured scope."
+commands.allow = ["events_unsubscribe_session"]
+
+[[permission]]
+identifier = "deny-events-unsubscribe-session"
+description = "Denies the events_unsubscribe_session command without any pre-configured scope."
+commands.deny = ["events_unsubscribe_session"]

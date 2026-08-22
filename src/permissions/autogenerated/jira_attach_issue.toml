@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-jira-attach-issue"
+description = "Enables the jira_attach_issue command without any pre-configured scope."
+commands.allow = ["jira_attach_issue"]
+
+[[permission]]
+identifier = "deny-jira-attach-issue"
+description = "Denies the jira_attach_issue command without any pre-configured scope."
+commands.deny = ["jira_attach_issue"]

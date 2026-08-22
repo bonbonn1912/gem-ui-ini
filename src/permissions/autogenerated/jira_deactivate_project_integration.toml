@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-jira-deactivate-project-integration"
+description = "Enables the jira_deactivate_project_integration command without any pre-configured scope."
+commands.allow = ["jira_deactivate_project_integration"]
+
+[[permission]]
+identifier = "deny-jira-deactivate-project-integration"
+description = "Denies the jira_deactivate_project_integration command without any pre-configured scope."
+commands.deny = ["jira_deactivate_project_integration"]

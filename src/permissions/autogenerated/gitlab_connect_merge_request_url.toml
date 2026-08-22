@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gitlab-connect-merge-request-url"
+description = "Enables the gitlab_connect_merge_request_url command without any pre-configured scope."
+commands.allow = ["gitlab_connect_merge_request_url"]
+
+[[permission]]
+identifier = "deny-gitlab-connect-merge-request-url"
+description = "Denies the gitlab_connect_merge_request_url command without any pre-configured scope."
+commands.deny = ["gitlab_connect_merge_request_url"]

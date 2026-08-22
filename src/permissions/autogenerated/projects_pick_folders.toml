@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-projects-pick-folders"
+description = "Enables the projects_pick_folders command without any pre-configured scope."
+commands.allow = ["projects_pick_folders"]
+
+[[permission]]
+identifier = "deny-projects-pick-folders"
+description = "Denies the projects_pick_folders command without any pre-configured scope."
+commands.deny = ["projects_pick_folders"]

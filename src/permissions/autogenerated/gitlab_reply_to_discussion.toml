@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gitlab-reply-to-discussion"
+description = "Enables the gitlab_reply_to_discussion command without any pre-configured scope."
+commands.allow = ["gitlab_reply_to_discussion"]
+
+[[permission]]
+identifier = "deny-gitlab-reply-to-discussion"
+description = "Denies the gitlab_reply_to_discussion command without any pre-configured scope."
+commands.deny = ["gitlab_reply_to_discussion"]

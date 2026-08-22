@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-attachments-stage-clipboard-image"
+description = "Enables the attachments_stage_clipboard_image command without any pre-configured scope."
+commands.allow = ["attachments_stage_clipboard_image"]
+
+[[permission]]
+identifier = "deny-attachments-stage-clipboard-image"
+description = "Denies the attachments_stage_clipboard_image command without any pre-configured scope."
+commands.deny = ["attachments_stage_clipboard_image"]

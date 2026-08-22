@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-projects-get-approval-policy"
+description = "Enables the projects_get_approval_policy command without any pre-configured scope."
+commands.allow = ["projects_get_approval_policy"]
+
+[[permission]]
+identifier = "deny-projects-get-approval-policy"
+description = "Denies the projects_get_approval_policy command without any pre-configured scope."
+commands.deny = ["projects_get_approval_policy"]

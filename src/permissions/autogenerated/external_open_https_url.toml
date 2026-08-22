@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-external-open-https-url"
+description = "Enables the external_open_https_url command without any pre-configured scope."
+commands.allow = ["external_open_https_url"]
+
+[[permission]]
+identifier = "deny-external-open-https-url"
+description = "Denies the external_open_https_url command without any pre-configured scope."
+commands.deny = ["external_open_https_url"]

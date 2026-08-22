@@ -12,6 +12,7 @@ jobs:
   build-release:
     name: Build (${{ matrix.os }}-${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -19,24 +20,39 @@ jobs:
           - os: windows
             arch: x64
             runner: windows-2022
-            artifact_patterns: |
-              out/make/squirrel.windows/x64/*.exe
-              out/make/squirrel.windows/x64/*.nupkg
-              out/make/squirrel.windows/x64/RELEASES
+            target: x86_64-pc-windows-msvc
+            bundle_dir: src/target/x86_64-pc-windows-msvc/release/bundle
           - os: macos
             arch: arm64
-            runner: macos-latest
-            artifact_patterns: |
-              out/make/zip/darwin/arm64/*.zip
+            runner: macos-14
+            target: aarch64-apple-darwin
+            bundle_dir: src/target/aarch64-apple-darwin/release/bundle
+
+    env:
+      # Configure these repository secrets before creating a release. The
+      # private key is never checked into the repository or printed by CI.
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ./src -> target
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Install Dependencies
@@ -48,11 +64,108 @@ jobs:
       - name: Unit Tests
         run: npm test
 
-      - name: Package & Make Artifacts
-        run: npm run make -- --arch=${{ matrix.arch }}
+      - name: Rust checks
+        run: |
+          cargo fmt --manifest-path src/Cargo.toml --all -- --check
+          cargo test --manifest-path src/Cargo.toml
+          cargo clippy --manifest-path src/Cargo.toml --all-targets -- -D warnings
 
-      - name: Upload to GitHub Release
+      - name: Build signed Tauri bundles
+        shell: bash
+        run: |
+          test -n "$TAURI_SIGNING_PRIVATE_KEY" || {
+            echo "TAURI_SIGNING_PRIVATE_KEY is required for signed releases" >&2
+            exit 1
+          }
+          npm exec tauri -- build \
+            --config src/tauri.conf.json \
+            --config '{"bundle":{"createUpdaterArtifacts":true}}' \
+            --target '${{ matrix.target }}' \
+            --ci
+
+      - name: Upload bundle artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: geminui-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            ${{ matrix.bundle_dir }}/**/*.exe
+            ${{ matrix.bundle_dir }}/**/*.msi
+            ${{ matrix.bundle_dir }}/**/*.dmg
+            ${{ matrix.bundle_dir }}/**/*.nsis.zip
+            ${{ matrix.bundle_dir }}/**/*.app.tar.gz
+            ${{ matrix.bundle_dir }}/**/*.sig
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish release and updater manifest
+    runs-on: ubuntu-latest
+    needs: build-release
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download bundle artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: geminui-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create signed latest.json
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import datetime
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path("release-assets")
+          platforms = {}
+          for signature_path in sorted(root.rglob("*.sig")):
+              filename = signature_path.name
+              if filename.endswith(".nsis.zip.sig"):
+                  target = "windows-x86_64"
+                  artifact = filename[:-len(".sig")]
+              elif filename.endswith(".app.tar.gz.sig"):
+                  target = "darwin-aarch64"
+                  artifact = filename[:-len(".sig")]
+              else:
+                  continue
+              signature = signature_path.read_text(encoding="utf-8").strip()
+              if not signature:
+                  raise SystemExit(f"Empty updater signature: {signature_path}")
+              if target in platforms:
+                  raise SystemExit(f"Multiple updater artifacts for {target}")
+              tag = os.environ["RELEASE_TAG"]
+              repo = os.environ["RELEASE_REPOSITORY"]
+              platforms[target] = {
+                  "signature": signature,
+                  "url": f"https://github.com/{repo}/releases/download/{tag}/{artifact}",
+              }
+
+          required = {"windows-x86_64", "darwin-aarch64"}
+          missing = required - platforms.keys()
+          if missing:
+              raise SystemExit(f"Missing signed updater platforms: {sorted(missing)}")
+
+          package = json.loads(Path("package.json").read_text(encoding="utf-8"))
+          manifest = {
+              "version": package["version"],
+              "notes": f"GeminUI {package['version']}",
+              "pub_date": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              "platforms": platforms,
+          }
+          (root / "latest.json").write_text(
+              json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+          )
+          PY
+
+      - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.artifact_patterns }}
+          files: release-assets/**
           generate_release_notes: true
+          fail_on_unmatched_files: true

@@ -1,19 +1,19 @@
-import react from "@vitejs/plugin-react";
+import solid from "vite-plugin-solid";
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
 
 export default defineConfig({
-  root: "src/renderer",
-  plugins: [react()],
+  root: "frontend/renderer",
+  plugins: [solid()],
   resolve: {
     alias: {
-      "@shared": fileURLToPath(new URL("./src/shared", import.meta.url)),
+      "@shared": fileURLToPath(new URL("./frontend/shared", import.meta.url)),
+      "@renderer": fileURLToPath(new URL("./frontend/renderer", import.meta.url)),
     },
   },
   build: {
-    outDir: fileURLToPath(
-      new URL("./.vite/renderer/main_window", import.meta.url),
-    ),
+    outDir: fileURLToPath(new URL("./dist", import.meta.url)),
+    emptyOutDir: true,
     sourcemap: true,
   },
 });

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gitlab-replace-token"
+description = "Enables the gitlab_replace_token command without any pre-configured scope."
+commands.allow = ["gitlab_replace_token"]
+
+[[permission]]
+identifier = "deny-gitlab-replace-token"
+description = "Denies the gitlab_replace_token command without any pre-configured scope."
+commands.deny = ["gitlab_replace_token"]

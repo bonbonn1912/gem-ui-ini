@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-context-attachments-open-file"
+description = "Enables the context_attachments_open_file command without any pre-configured scope."
+commands.allow = ["context_attachments_open_file"]
+
+[[permission]]
+identifier = "deny-context-attachments-open-file"
+description = "Denies the context_attachments_open_file command without any pre-configured scope."
+commands.deny = ["context_attachments_open_file"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-todos-add-files"
+description = "Enables the todos_add_files command without any pre-configured scope."
+commands.allow = ["todos_add_files"]
+
+[[permission]]
+identifier = "deny-todos-add-files"
+description = "Denies the todos_add_files command without any pre-configured scope."
+commands.deny = ["todos_add_files"]

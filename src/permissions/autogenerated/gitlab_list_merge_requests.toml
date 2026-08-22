@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gitlab-list-merge-requests"
+description = "Enables the gitlab_list_merge_requests command without any pre-configured scope."
+commands.allow = ["gitlab_list_merge_requests"]
+
+[[permission]]
+identifier = "deny-gitlab-list-merge-requests"
+description = "Denies the gitlab_list_merge_requests command without any pre-configured scope."
+commands.deny = ["gitlab_list_merge_requests"]

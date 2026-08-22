@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-attachments-remove"
+description = "Enables the attachments_remove command without any pre-configured scope."
+commands.allow = ["attachments_remove"]
+
+[[permission]]
+identifier = "deny-attachments-remove"
+description = "Denies the attachments_remove command without any pre-configured scope."
+commands.deny = ["attachments_remove"]

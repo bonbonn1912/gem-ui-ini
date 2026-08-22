@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-todos-detach-attachment"
+description = "Enables the todos_detach_attachment command without any pre-configured scope."
+commands.allow = ["todos_detach_attachment"]
+
+[[permission]]
+identifier = "deny-todos-detach-attachment"
+description = "Denies the todos_detach_attachment command without any pre-configured scope."
+commands.deny = ["todos_detach_attachment"]

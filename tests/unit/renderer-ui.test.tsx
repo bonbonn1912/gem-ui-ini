@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@solidjs/testing-library";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { App } from "../../src/renderer/app/App";
-import { LinkPreviewSurface } from "../../src/renderer/features/attachments/LinkPreviewSurface";
+import { App } from "../../frontend/renderer/app/App";
+import { LinkPreviewSurface } from "../../frontend/renderer/features/attachments/LinkPreviewSurface";
 import type {
   AppCapabilities,
   AppProject,
@@ -15,7 +15,7 @@ import type {
   StreamEnvelope,
   Todo,
   TodoList,
-} from "../../src/renderer/types";
+} from "../../frontend/renderer/types";
 
 const capabilities: AppCapabilities = {
   appVersion: "0.1.0",
@@ -315,7 +315,7 @@ function createApi(options: {
       if (!subscriber) throw new Error("Der Session-Stream ist noch nicht abonniert.");
     });
     const deliver = subscriber;
-    await act(async () => { deliver?.(events); });
+    deliver?.(events);
   };
   return { api, emit };
 }
@@ -414,7 +414,7 @@ describe("Renderer UI", () => {
     const { api } = createApi({ contextList });
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     const toggle = await screen.findByRole("button", { name: "Anhänge öffnen, 2 Anhänge, 1 im Kontext" });
     expect(toggle).toHaveAttribute("aria-pressed", "false");
     await user.click(toggle);
@@ -431,7 +431,7 @@ describe("Renderer UI", () => {
     const { api } = createApi({ contextList: populatedContextList() });
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     await user.click(await screen.findByRole("button", { name: "Anhänge öffnen, 2 Anhänge, 1 im Kontext" }));
     const separator = screen.getByRole("separator", { name: "Breite von Chat und rechtem Panel ändern" });
     expect(separator).toHaveAttribute("aria-valuenow", "520");
@@ -457,7 +457,7 @@ describe("Renderer UI", () => {
     });
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     await user.click(await screen.findByRole("button", { name: "Anhänge öffnen, 2 Anhänge, 1 im Kontext" }));
     const selectAll = await screen.findByRole("checkbox", { name: "Projekt: alle im Kontext" });
     expect(selectAll).toHaveAttribute("aria-checked", "mixed");
@@ -474,7 +474,7 @@ describe("Renderer UI", () => {
     const { api } = createApi({ contextList: populatedContextList(true) });
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     const composer = await screen.findByRole("textbox", { name: "Nachricht an Gemini" });
     await user.type(composer, "Fasse den Kontext zusammen");
     const send = screen.getByRole("button", { name: "Nachricht senden" });
@@ -488,7 +488,7 @@ describe("Renderer UI", () => {
     const { api } = createApi({ contextList });
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     const composer = await screen.findByRole("textbox", { name: "Nachricht an Gemini" });
     await screen.findByRole("button", { name: "Anhänge öffnen, 2 Anhänge, 1 im Kontext" });
     await user.type(composer, "Nutze die Architektur{Enter}");
@@ -518,7 +518,7 @@ describe("Renderer UI", () => {
     });
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     const composer = await screen.findByRole("textbox", { name: "Nachricht an Gemini" });
     await user.type(composer, "Prüfe @");
     expect(screen.getByRole("listbox", { name: "Projektdateien" })).toBeVisible();
@@ -545,7 +545,7 @@ describe("Renderer UI", () => {
     vi.mocked(api.contextAttachments.addLink).mockResolvedValue(contextList);
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     await user.click(await screen.findByRole("button", { name: "Anhänge öffnen, 2 Anhänge, 1 im Kontext" }));
 
     // Menu öffnen & Link hinzufügen Dialog öffnen
@@ -582,7 +582,7 @@ describe("Renderer UI", () => {
     });
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     await user.click(await screen.findByRole("button", { name: "Anhänge öffnen, 2 Anhänge, 1 im Kontext" }));
 
     // Link-Anhang auswählen
@@ -613,15 +613,15 @@ describe("Renderer UI", () => {
       loading: false,
     });
     window.gemUi = api;
-    const rendered = render(
+    const rendered = render(() => (
       <LinkPreviewSurface
         attachmentId="41000000-0000-4000-8000-000000000002"
         host="jira.example.com"
         url="https://jira.example.com/browse/LOGIN-42"
         onOpenExternal={vi.fn()}
         onClose={vi.fn()}
-      />,
-    );
+      />
+    ));
     await waitFor(() => expect(api.linkPreview.open).toHaveBeenCalledTimes(1));
     vi.mocked(api.linkPreview.close).mockClear();
     rendered.unmount();
@@ -655,7 +655,7 @@ describe("Renderer UI", () => {
     });
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     await screen.findByRole("heading", { name: "Starte eine neue Session" });
     await user.click(screen.getByRole("button", { name: /^Änderungen öffnen/ }));
     expect(await screen.findByText("Arbeitsverzeichnis sauber")).toBeVisible();
@@ -727,7 +727,7 @@ describe("Renderer UI", () => {
     });
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     const composer = await screen.findByRole("textbox", { name: "Nachricht an Gemini" });
     // The accessible name gains a ", N Dateien" suffix as soon as the git status
     // arrives, so match the prefix instead of racing the subscription.
@@ -821,7 +821,7 @@ describe("Renderer UI", () => {
     });
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     const composer = await screen.findByRole("textbox", { name: "Nachricht an Gemini" });
     await waitFor(() => expect(api.git.subscribeProjectStatus).toHaveBeenCalledTimes(1));
 
@@ -877,7 +877,7 @@ describe("Renderer UI", () => {
       ]);
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     await screen.findByRole("heading", { name: "Dein erster Workspace" });
     await user.click(within(screen.getByRole("main")).getByRole("button", { name: "Projekt anlegen" }));
     const dialog = await screen.findByRole("dialog", { name: "Neues Projekt" });
@@ -899,7 +899,7 @@ describe("Renderer UI", () => {
     const user = userEvent.setup();
     const { api, emit } = createApi();
     window.gemUi = api;
-    render(<App />);
+    render(() => <App />);
 
     const composer = await screen.findByRole("textbox", { name: "Nachricht an Gemini" });
     await user.type(composer, "Bitte prüfe den Login{Enter}");
@@ -975,7 +975,7 @@ describe("Renderer UI", () => {
     });
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     await screen.findByRole("heading", { name: "Login reparieren" });
 
     await emit([
@@ -1045,7 +1045,7 @@ describe("Renderer UI", () => {
     });
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     await screen.findByRole("heading", { name: "Login reparieren" });
 
     await user.click(screen.getByTitle("Sessioneinstellungen"));
@@ -1065,7 +1065,7 @@ describe("Renderer UI", () => {
     const { api } = createApi();
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     await screen.findByRole("heading", { name: "Login reparieren" });
 
     // The pill stays visible: nothing reported is not the same as broken.
@@ -1077,7 +1077,7 @@ describe("Renderer UI", () => {
     const { api, emit } = createApi();
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     await screen.findByRole("heading", { name: "Login reparieren" });
 
     await emit([
@@ -1153,7 +1153,7 @@ describe("Renderer UI", () => {
     const { api } = createApi();
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     await screen.findByRole("heading", { name: "Login reparieren" });
 
     expect(screen.getByText("GeminUI")).toBeVisible();
@@ -1173,7 +1173,7 @@ describe("Renderer UI", () => {
     vi.mocked(api.sessions.create).mockRejectedValue(new Error(longMessage));
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     await screen.findByRole("heading", { name: "Login reparieren" });
     await user.click(screen.getByRole("button", { name: /Neue Session/ }));
 
@@ -1202,7 +1202,7 @@ describe("Renderer UI", () => {
     const { api } = createApi({ todos: todoList([todo]) });
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     await screen.findByRole("heading", { name: "Login reparieren" });
 
     await user.click(screen.getByRole("button", { name: /^Todos öffnen/ }));
@@ -1240,7 +1240,7 @@ describe("Renderer UI", () => {
     const { api } = createApi({ todos: todoList([todo]) });
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     const composer = await screen.findByRole("textbox", { name: "Nachricht an Gemini" });
     await user.type(composer, "Vorher getippt");
 
@@ -1273,7 +1273,7 @@ describe("Renderer UI", () => {
     });
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     await screen.findByRole("heading", { name: "Login reparieren" });
     await user.click(screen.getByRole("button", { name: "Projekt bearbeiten" }));
 
@@ -1312,7 +1312,7 @@ describe("Renderer UI", () => {
     });
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     await screen.findByRole("heading", { name: "Login reparieren" });
     await user.click(screen.getByRole("button", { name: "Projekt bearbeiten" }));
 
@@ -1347,7 +1347,7 @@ describe("Renderer UI", () => {
     vi.mocked(api.sessions.list).mockResolvedValue([planSession]);
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     await screen.findByRole("heading", { name: "Architektur planen" });
 
     await emit([
@@ -1395,7 +1395,7 @@ describe("Renderer UI", () => {
     vi.mocked(api.sessions.list).mockResolvedValue([planSession]);
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     await screen.findByRole("heading", { name: "Architektur planen" });
 
     await emit([
@@ -1435,7 +1435,7 @@ describe("Renderer UI", () => {
     );
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     await screen.findByRole("heading", { name: "Login reparieren" });
 
     // Open context attachments panel
@@ -1459,7 +1459,7 @@ describe("Renderer UI", () => {
     const { api } = createApi();
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     await screen.findByRole("heading", { name: "Login reparieren" });
 
     // Hover / click on usage pill to open token details popover
@@ -1488,7 +1488,7 @@ describe("Renderer UI", () => {
     });
     window.gemUi = api;
 
-    render(<App />);
+    render(() => <App />);
     await screen.findByRole("heading", { name: "Login reparieren" });
 
     // Sidebar search input
@@ -1513,7 +1513,7 @@ describe("Renderer UI", () => {
   it("sendet GitLab-Review-Kontext mit valider, strikter SendPromptInputSchema-Payload", async () => {
     const { api } = createApi();
     window.gemUi = api;
-    render(<App />);
+    render(() => <App />);
     await screen.findByRole("heading", { name: "Login reparieren" });
 
     // Directly simulate sending with externalContextRefs

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-context-attachments-remove"
+description = "Enables the context_attachments_remove command without any pre-configured scope."
+commands.allow = ["context_attachments_remove"]
+
+[[permission]]
+identifier = "deny-context-attachments-remove"
+description = "Denies the context_attachments_remove command without any pre-configured scope."
+commands.deny = ["context_attachments_remove"]

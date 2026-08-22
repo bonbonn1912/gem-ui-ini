@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-jira-list-configs"
+description = "Enables the jira_list_configs command without any pre-configured scope."
+commands.allow = ["jira_list_configs"]
+
+[[permission]]
+identifier = "deny-jira-list-configs"
+description = "Denies the jira_list_configs command without any pre-configured scope."
+commands.deny = ["jira_list_configs"]

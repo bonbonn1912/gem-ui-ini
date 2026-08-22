@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-jira-delete-config"
+description = "Enables the jira_delete_config command without any pre-configured scope."
+commands.allow = ["jira_delete_config"]
+
+[[permission]]
+identifier = "deny-jira-delete-config"
+description = "Denies the jira_delete_config command without any pre-configured scope."
+commands.deny = ["jira_delete_config"]

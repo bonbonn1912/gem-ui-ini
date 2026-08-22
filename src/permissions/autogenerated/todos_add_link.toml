@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-todos-add-link"
+description = "Enables the todos_add_link command without any pre-configured scope."
+commands.allow = ["todos_add_link"]
+
+[[permission]]
+identifier = "deny-todos-add-link"
+description = "Denies the todos_add_link command without any pre-configured scope."
+commands.deny = ["todos_add_link"]

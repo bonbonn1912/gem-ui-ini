@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-git-unsubscribe-project-status"
+description = "Enables the git_unsubscribe_project_status command without any pre-configured scope."
+commands.allow = ["git_unsubscribe_project_status"]
+
+[[permission]]
+identifier = "deny-git-unsubscribe-project-status"
+description = "Denies the git_unsubscribe_project_status command without any pre-configured scope."
+commands.deny = ["git_unsubscribe_project_status"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-context-attachments-refresh-link-preview"
+description = "Enables the context_attachments_refresh_link_preview command without any pre-configured scope."
+commands.allow = ["context_attachments_refresh_link_preview"]
+
+[[permission]]
+identifier = "deny-context-attachments-refresh-link-preview"
+description = "Denies the context_attachments_refresh_link_preview command without any pre-configured scope."
+commands.deny = ["context_attachments_refresh_link_preview"]

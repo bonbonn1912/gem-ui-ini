@@ -223,7 +223,7 @@ Zum Vergleich: die vorige Fassung dieses Dokuments zählte 16.327 LOC Backend, 7
 
 ```
 gem-ui/
-├── src-tauri/
+├── src/
 │   ├── Cargo.toml
 │   ├── tauri.conf.json
 │   ├── capabilities/

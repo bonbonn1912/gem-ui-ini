@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-git-subscribe-project-status"
+description = "Enables the git_subscribe_project_status command without any pre-configured scope."
+commands.allow = ["git_subscribe_project_status"]
+
+[[permission]]
+identifier = "deny-git-subscribe-project-status"
+description = "Denies the git_subscribe_project_status command without any pre-configured scope."
+commands.deny = ["git_subscribe_project_status"]

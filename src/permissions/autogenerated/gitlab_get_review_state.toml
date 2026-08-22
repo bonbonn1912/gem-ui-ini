@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gitlab-get-review-state"
+description = "Enables the gitlab_get_review_state command without any pre-configured scope."
+commands.allow = ["gitlab_get_review_state"]
+
+[[permission]]
+identifier = "deny-gitlab-get-review-state"
+description = "Denies the gitlab_get_review_state command without any pre-configured scope."
+commands.deny = ["gitlab_get_review_state"]

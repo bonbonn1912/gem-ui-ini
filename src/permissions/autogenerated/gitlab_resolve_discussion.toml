@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gitlab-resolve-discussion"
+description = "Enables the gitlab_resolve_discussion command without any pre-configured scope."
+commands.allow = ["gitlab_resolve_discussion"]
+
+[[permission]]
+identifier = "deny-gitlab-resolve-discussion"
+description = "Denies the gitlab_resolve_discussion command without any pre-configured scope."
+commands.deny = ["gitlab_resolve_discussion"]

@@ -1,0 +1,39 @@
+"$schema" = "schemas/schema.json"
+
+[[permission]]
+identifier = "main-commands"
+description = "Allows the main GeminUI webview to invoke the audited application commands."
+commands.allow = [
+  "get_capabilities",
+  "projects_list", "projects_get", "projects_reauthorize_root",
+  "projects_get_approval_policy", "project_files_search", "projects_pick_folders",
+  "projects_create", "projects_rename", "projects_set_archived",
+  "projects_set_additional_roots", "projects_set_approval_policy", "projects_delete",
+  "sessions_list", "sessions_create", "sessions_update", "sessions_delete",
+  "sessions_send_prompt", "sessions_cancel_turn", "sessions_respond_to_permission",
+  "sessions_set_mode", "sessions_set_model", "sessions_get_reconnect_state", "sessions_search",
+  "settings_choose_gemini_binary", "settings_choose_git_binary",
+  "attachments_pick_images", "attachments_stage_dropped_paths",
+  "attachments_stage_clipboard_image", "attachments_get_preview", "attachments_remove",
+  "context_attachments_list", "context_attachments_add_files", "context_attachments_add_link",
+  "context_attachments_update", "context_attachments_set_inclusion", "context_attachments_remove",
+  "context_attachments_refresh_link_preview", "context_attachments_get_bytes",
+  "context_attachments_subscribe", "context_attachments_unsubscribe", "context_attachments_open_file",
+  "todos_list", "todos_create", "todos_update", "todos_reorder", "todos_delete",
+  "todos_add_files", "todos_add_link", "todos_attach_attachment", "todos_detach_attachment",
+  "todos_prepare_for_session", "todos_subscribe", "todos_unsubscribe",
+  "link_preview_open", "link_preview_set_bounds", "link_preview_close", "link_preview_clear_storage",
+  "events_subscribe_session", "events_unsubscribe_session",
+  "git_list_project_repositories", "git_get_project_status", "git_get_file_diff",
+  "git_subscribe_project_status", "git_unsubscribe_project_status",
+  "integrations_list_project", "gitlab_list_repository_candidates", "gitlab_list_connections",
+  "gitlab_test_connection", "gitlab_save_connection", "gitlab_replace_token",
+  "gitlab_remove_connection", "gitlab_enable_binding", "gitlab_disable_binding",
+  "gitlab_list_merge_requests", "gitlab_select_merge_request", "gitlab_connect_merge_request_url",
+  "gitlab_get_review_state", "gitlab_subscribe_review_state", "gitlab_unsubscribe_review_state",
+  "gitlab_prepare_review_context", "gitlab_resolve_discussion", "gitlab_reply_to_discussion",
+  "jira_list_configs", "jira_save_config", "jira_delete_config", "jira_get_project_integration",
+  "jira_activate_project_integration", "jira_deactivate_project_integration", "jira_attach_issue",
+  "agent_extensions_list_skills", "agent_extensions_list_mcp_servers",
+  "external_open_https_url", "app_check_for_updates", "app_download_update", "app_install_update",
+]

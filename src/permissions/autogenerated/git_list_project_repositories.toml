@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-git-list-project-repositories"
+description = "Enables the git_list_project_repositories command without any pre-configured scope."
+commands.allow = ["git_list_project_repositories"]
+
+[[permission]]
+identifier = "deny-git-list-project-repositories"
+description = "Denies the git_list_project_repositories command without any pre-configured scope."
+commands.deny = ["git_list_project_repositories"]

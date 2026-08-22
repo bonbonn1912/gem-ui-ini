@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gitlab-prepare-review-context"
+description = "Enables the gitlab_prepare_review_context command without any pre-configured scope."
+commands.allow = ["gitlab_prepare_review_context"]
+
+[[permission]]
+identifier = "deny-gitlab-prepare-review-context"
+description = "Denies the gitlab_prepare_review_context command without any pre-configured scope."
+commands.deny = ["gitlab_prepare_review_context"]

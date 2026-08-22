@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gitlab-list-connections"
+description = "Enables the gitlab_list_connections command without any pre-configured scope."
+commands.allow = ["gitlab_list_connections"]
+
+[[permission]]
+identifier = "deny-gitlab-list-connections"
+description = "Denies the gitlab_list_connections command without any pre-configured scope."
+commands.deny = ["gitlab_list_connections"]

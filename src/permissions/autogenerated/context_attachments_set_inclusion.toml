@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-context-attachments-set-inclusion"
+description = "Enables the context_attachments_set_inclusion command without any pre-configured scope."
+commands.allow = ["context_attachments_set_inclusion"]
+
+[[permission]]
+identifier = "deny-context-attachments-set-inclusion"
+description = "Denies the context_attachments_set_inclusion command without any pre-configured scope."
+commands.deny = ["context_attachments_set_inclusion"]
