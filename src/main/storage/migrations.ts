@@ -401,6 +401,42 @@ const migrations: readonly Migration[] = [
         ON todo_attachment_links(todo_id, sort_order);
     `,
   },
+  {
+    version: 11,
+    name: "011_jira_integration",
+    sql: `
+      -- A Jira configuration is global on purpose: the instance URL and its
+      -- issue prefixes are a property of the company, not of one project, so
+      -- once entered they are offered in every other project's integrations
+      -- tab. Several may exist because a person can work against more than
+      -- one Jira.
+      CREATE TABLE jira_configs (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 100),
+        base_url TEXT NOT NULL CHECK(length(base_url) BETWEEN 8 AND 2048),
+        issue_prefixes_json TEXT NOT NULL DEFAULT '[]'
+          CHECK(json_valid(issue_prefixes_json) AND json_array_length(issue_prefixes_json) BETWEEN 1 AND 25),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(name)
+      ) STRICT;
+
+      -- The activation is per project and singular: project_id is the primary
+      -- key, so a project can point at one configuration or at none. A row
+      -- missing here is what "Jira is off for this project" means.
+      CREATE TABLE jira_project_integrations (
+        project_id TEXT PRIMARY KEY,
+        config_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        FOREIGN KEY (config_id) REFERENCES jira_configs(id) ON DELETE CASCADE
+      ) STRICT;
+
+      CREATE INDEX jira_project_integrations_config
+        ON jira_project_integrations(config_id);
+    `,
+  },
 ];
 
 export function runMigrations(database: SqliteDatabase): void {

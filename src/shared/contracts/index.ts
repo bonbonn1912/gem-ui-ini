@@ -6,6 +6,7 @@ export * from "./events";
 export * from "./git";
 export * from "./gitlab";
 export * from "./ipc";
+export * from "./jira";
 export * from "./projects";
 export * from "./project-files";
 export * from "./settings";

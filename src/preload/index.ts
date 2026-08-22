@@ -337,6 +337,19 @@ const desktopApi: GemUiDesktopApi = {
     },
   },
 
+  jira: {
+    listConfigs: () => ipcRenderer.invoke(IPC_CHANNELS.listJiraConfigs, {}),
+    saveConfig: (input) => ipcRenderer.invoke(IPC_CHANNELS.saveJiraConfig, input),
+    deleteConfig: (input) => ipcRenderer.invoke(IPC_CHANNELS.deleteJiraConfig, input),
+    getProjectIntegration: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.getJiraProjectIntegration, input),
+    activate: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.activateJiraProjectIntegration, input),
+    deactivate: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.deactivateJiraProjectIntegration, input),
+    attachIssue: (input) => ipcRenderer.invoke(IPC_CHANNELS.attachJiraIssue, input),
+  },
+
   agentExtensions: {
     listSkills: (input) =>
       ipcRenderer.invoke(IPC_CHANNELS.listGeminiSkills, input),
@@ -442,6 +455,7 @@ Object.freeze(desktopApi.settings);
 Object.freeze(desktopApi.agentExtensions);
 Object.freeze(desktopApi.integrations);
 Object.freeze(desktopApi.gitlab);
+Object.freeze(desktopApi.jira);
 contextBridge.exposeInMainWorld("gemUi", Object.freeze(desktopApi));
 
 function createClientRequestId(): string {

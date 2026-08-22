@@ -280,6 +280,20 @@ function createApi(options: {
       resolveDiscussion: vi.fn(),
       replyToDiscussion: vi.fn(),
     },
+    jira: {
+      listConfigs: vi.fn().mockResolvedValue([]),
+      saveConfig: vi.fn(),
+      deleteConfig: vi.fn().mockResolvedValue({ ok: true }),
+      getProjectIntegration: vi.fn().mockResolvedValue({
+        projectId: project.id,
+        activeConfigId: null,
+        activeConfig: null,
+        updatedAt: null,
+      }),
+      activate: vi.fn(),
+      deactivate: vi.fn(),
+      attachIssue: vi.fn(),
+    },
     settings: {
       chooseGeminiBinary: vi.fn().mockResolvedValue(capabilities),
       chooseGitBinary: vi.fn().mockResolvedValue(capabilities),

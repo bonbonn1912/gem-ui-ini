@@ -30,6 +30,8 @@ import { Sidebar } from "../features/sessions/Sidebar";
 import { TodosPanel } from "../features/todos/TodosPanel";
 import { useTodos } from "../features/todos/useTodos";
 import { GitLabPanel, type ReviewDelivery } from "../features/gitlab/GitLabPanel";
+import { JiraIssueView } from "../features/jira/JiraIssueView";
+import { useJiraIssue } from "../features/jira/useJiraIssue";
 import { McpPanel } from "../features/mcp/McpPanel";
 import { SkillsPanel } from "../features/skills/SkillsPanel";
 import {
@@ -212,12 +214,17 @@ function RootChangeBanner() {
   );
 }
 
+/**
+ * "jira" is a rail entry like the others but not a side panel: it swaps the
+ * chat view for the issue, so it never opens the right column.
+ */
 type RightPanel =
   | "none"
   | "changes"
   | "attachments"
   | "todos"
   | "gitlab"
+  | "jira"
   | "skills"
   | "mcp";
 
@@ -226,6 +233,7 @@ const RESTORABLE_RIGHT_PANELS = [
   "attachments",
   "todos",
   "gitlab",
+  "jira",
   "skills",
   "mcp",
 ] as const satisfies readonly RightPanel[];
@@ -387,6 +395,11 @@ export function App() {
   const changesOpen = rightPanel === "changes";
   const attachmentsOpen = rightPanel === "attachments";
   const todosOpen = rightPanel === "todos";
+  /**
+   * "jira" is a rail entry that replaces the chat view rather than opening the
+   * right column, so it must not widen the grid or show the resize handle.
+   */
+  const rightPanelOpen = rightPanel !== "none" && rightPanel !== "jira";
   const contextAttachments = useContextAttachments({
     project: activeProject,
     sessionId: activeSessionId,
@@ -435,6 +448,30 @@ export function App() {
   }, [activeProject?.id, activeProject?.rootRevision, projectSettingsOpen]);
 
   const gitlabEnabled = gitlabCandidates.some((c) => c.binding?.enabled);
+
+  const jira = useJiraIssue({
+    project: activeProject,
+    sessionId: activeSessionId,
+    sessionTitle: activeSession?.title ?? null,
+    // Reloading when the settings dialog closes is what makes a just-activated
+    // Jira integration appear without restarting the app.
+    reloadToken: projectSettingsOpen,
+  });
+  const jiraIssue = activeSession ? jira.issue : null;
+
+  /**
+   * The Jira view lives under the same condition as its rail entry: a
+   * `rightPanel` of "jira" restored from localStorage, or left over from a
+   * session whose title did match, must not leave the workspace showing an
+   * issue the current session has nothing to do with.
+   */
+  useEffect(() => {
+    if (rightPanel !== "jira" || jiraIssue) return;
+    // Waiting for the activation to arrive: resetting first would close the
+    // view on every start for sessions that legitimately have an issue.
+    if (activeSession && jira.integration === null) return;
+    setRightPanel("none");
+  }, [activeSession, jira.integration, jiraIssue, rightPanel]);
 
   /**
    * The GitLab panel lives under the same condition as its toggle. Without
@@ -521,7 +558,10 @@ export function App() {
   }, [activeProject?.id, activeSession?.id, rightPanel]);
 
   useLayoutEffect(() => {
-    if (rightPanel !== "attachments" || projectDialogOpen || projectSettingsOpen) {
+    // The attachments panel and the Jira view share the one embedded web view,
+    // so it is torn down whenever neither is what the workspace is showing.
+    const usesLinkPreview = rightPanel === "attachments" || rightPanel === "jira";
+    if (!usesLinkPreview || projectDialogOpen || projectSettingsOpen) {
       void window.gemUi?.linkPreview.close();
     }
   }, [activeProjectId, activeSessionId, projectDialogOpen, projectSettingsOpen, rightPanel]);
@@ -1057,6 +1097,18 @@ export function App() {
     if (gitlabEnabled) {
       items.push({ id: "gitlab", icon: "gitlab", label: "GitLab", name: "GitLab Review" });
     }
+    // Jira appears only when this session's name actually names an issue on the
+    // activated instance — an entry that opened an empty issue view would be a
+    // promise the integration cannot keep.
+    if (jiraIssue) {
+      items.push({
+        id: "jira",
+        icon: "jira",
+        label: "Jira",
+        name: `Jira-Issue ${jiraIssue.issueKey}`,
+        detail: jiraIssue.issueKey,
+      });
+    }
     items.push(
       { id: "skills", icon: "skill", label: "Skills" },
       { id: "mcp", icon: "server", label: "MCP", name: "MCP-Server" },
@@ -1067,6 +1119,7 @@ export function App() {
     contextAttachments.all.length,
     contextAttachments.included.length,
     gitlabEnabled,
+    jiraIssue?.issueKey,
     todos.openCount,
   ]);
 
@@ -1162,7 +1215,7 @@ export function App() {
         ) : activeProject && !activeSession ? (
           <div
             ref={workspaceRef}
-            className={`chat-workspace ${rightPanel !== "none" ? "chat-workspace--panel" : ""}`}
+            className={`chat-workspace ${rightPanelOpen ? "chat-workspace--panel" : ""}`}
             style={{ "--right-panel-width": `${rightPanelWidth}px` } as CSSProperties}
           >
             <div className="project-empty-host">
@@ -1234,13 +1287,13 @@ export function App() {
                 onOpenSettings={() => setProjectSettingsOpen(true)}
               />
             ) : null}
-            {rightPanel !== "none" && <RightPanelResizeHandle width={rightPanelWidth} onChange={setRightPanelWidth} />}
+            {rightPanelOpen && <RightPanelResizeHandle width={rightPanelWidth} onChange={setRightPanelWidth} />}
             <PanelRail items={railItems} activeId={rightPanel} onToggle={toggleRightPanel} />
           </div>
         ) : activeProject && activeSession ? (
           <div
             ref={workspaceRef}
-            className={`chat-workspace ${rightPanel !== "none" ? "chat-workspace--panel" : ""}`}
+            className={`chat-workspace ${rightPanelOpen ? "chat-workspace--panel" : ""}`}
             style={{ "--right-panel-width": `${rightPanelWidth}px` } as CSSProperties}
           >
             <div className="chat-view">
@@ -1354,7 +1407,18 @@ export function App() {
                 onOpenSettings={() => setProjectSettingsOpen(true)}
               />
             ) : null}
-            {rightPanel !== "none" && <RightPanelResizeHandle width={rightPanelWidth} onChange={setRightPanelWidth} />}
+            {/* The issue covers the workspace instead of replacing the chat
+                view, so an unsent draft in the composer survives a look at
+                Jira. Everything but the panel rail is behind it. */}
+            {rightPanel === "jira" && jiraIssue && (
+              <JiraIssueView
+                issue={jiraIssue}
+                attachError={jira.attachError}
+                onClose={() => setRightPanel("none")}
+                onOpenExternal={openInExternalBrowser}
+              />
+            )}
+            {rightPanelOpen && <RightPanelResizeHandle width={rightPanelWidth} onChange={setRightPanelWidth} />}
             <PanelRail items={railItems} activeId={rightPanel} onToggle={toggleRightPanel} />
           </div>
         ) : null}

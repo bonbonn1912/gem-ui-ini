@@ -23,6 +23,7 @@ export type IconName =
   | "globe"
   | "image"
   | "info"
+  | "jira"
   | "link"
   | "menu"
   | "more"
@@ -212,6 +213,13 @@ export function Icon({ name, size = 18, ...props }: IconProps) {
           <rect x="3.5" y="4" width="17" height="16" rx="2.5" />
           <circle cx="9" cy="9.5" r="1.5" />
           <path d="m5.5 18 4.7-4.7 2.7 2.7 2-2 3.6 4" />
+        </svg>
+      );
+    case "jira":
+      return (
+        <svg {...common}>
+          <path d="M12 2.6 21.4 12 12 21.4 2.6 12Z" />
+          <path d="M12 8.4 15.6 12 12 15.6 8.4 12Z" />
         </svg>
       );
     case "link":

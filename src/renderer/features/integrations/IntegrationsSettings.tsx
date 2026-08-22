@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Icon } from "../../components/Icon";
 import type { GitLabRepositoryCandidate } from "../../types";
 import { GitLabSetupDialog } from "../gitlab/GitLabSetupDialog";
+import { JiraSettings } from "../jira/JiraSettings";
 
 type IntegrationsSettingsProps = {
   projectId: string;
@@ -172,6 +173,8 @@ export function IntegrationsSettings({
           )}
         </div>
       </div>
+
+      <JiraSettings projectId={projectId} />
 
       <GitLabSetupDialog
         open={setupCandidate !== null}
