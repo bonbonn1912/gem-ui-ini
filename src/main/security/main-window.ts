@@ -127,6 +127,18 @@ export function createMainWindow(): BrowserWindow {
     show: false,
     backgroundColor: "#0f1115",
     title: "GeminUI",
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
+    ...(process.platform === "darwin"
+      ? {
+          trafficLightPosition: { x: 16, y: 16 },
+        }
+      : {
+          titleBarOverlay: {
+            color: "#18181b",
+            symbolColor: "#a1a1aa",
+            height: 38,
+          },
+        }),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       nodeIntegration: false,
