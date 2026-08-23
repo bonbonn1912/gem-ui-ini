@@ -68,6 +68,43 @@ export function formatModelDisplayName(model: string): string {
   return model;
 }
 
+/**
+ * Calculates a sampled set of tick indices so that X-axis date/time labels never collide or overlap.
+ * Dynamically scales based on the available width (innerWidth) and required minimum spacing per label.
+ */
+export function getSampledTickIndices(
+  totalCount: number,
+  innerWidth: number,
+  minSpacingPx = 65,
+): Set<number> {
+  const visibleIndices = new Set<number>();
+  if (totalCount <= 0) return visibleIndices;
+  if (totalCount === 1) {
+    visibleIndices.add(0);
+    return visibleIndices;
+  }
+
+  const maxTicks = Math.max(1, Math.floor(innerWidth / minSpacingPx));
+  if (totalCount <= maxTicks) {
+    for (let i = 0; i < totalCount; i++) {
+      visibleIndices.add(i);
+    }
+    return visibleIndices;
+  }
+
+  if (maxTicks === 1) {
+    visibleIndices.add(totalCount - 1);
+    return visibleIndices;
+  }
+
+  const step = (totalCount - 1) / (maxTicks - 1);
+  for (let i = 0; i < maxTicks; i++) {
+    const idx = Math.min(totalCount - 1, Math.round(i * step));
+    visibleIndices.add(idx);
+  }
+  return visibleIndices;
+}
+
 function useAutoScrollToEnd(deps: unknown[] = []) {
   const scrollRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -111,6 +148,10 @@ export function TokenUsageChart({
   const padding = { top: 20, right: 30, bottom: 40, left: 55 };
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
+
+  const visibleTickIndices = useMemo(() => {
+    return getSampledTickIndices(timeSeries.length, innerWidth, 65);
+  }, [timeSeries.length, innerWidth]);
 
   // Donut chart calculation
   const donutData = useMemo(() => {
@@ -300,14 +341,16 @@ export function TokenUsageChart({
                         rx={1.5}
                       />
                     ))}
-                    <text
-                      x={x + barWidth / 2}
-                      y={height - padding.bottom + 16}
-                      textAnchor="middle"
-                      className="stats-axis-text"
-                    >
-                      {point.label}
-                    </text>
+                    {visibleTickIndices.has(index) && (
+                      <text
+                        x={x + barWidth / 2}
+                        y={height - padding.bottom + 16}
+                        textAnchor="middle"
+                        className="stats-axis-text"
+                      >
+                        {point.label}
+                      </text>
+                    )}
                   </g>
                 );
               })}
@@ -345,6 +388,7 @@ export function TokenUsageChart({
                   );
                 })}
                 {timeSeries.map((point, index) => {
+                  if (!visibleTickIndices.has(index)) return null;
                   const colWidth = innerWidth / Math.max(timeSeries.length - 1, 1);
                   const x = padding.left + (timeSeries.length === 1 ? innerWidth / 2 : index * colWidth);
                   return (
@@ -418,6 +462,10 @@ export function ResponseTimeChart({
   const padding = { top: 20, right: 30, bottom: 40, left: 60 };
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
+
+  const visibleTickIndices = useMemo(() => {
+    return getSampledTickIndices(timeSeries.length, innerWidth, 65);
+  }, [timeSeries.length, innerWidth]);
 
   return (
     <div className="stats-card">
@@ -506,6 +554,7 @@ export function ResponseTimeChart({
             })}
 
             {timeSeries.map((point, index) => {
+              if (!visibleTickIndices.has(index)) return null;
               const colWidth = innerWidth / Math.max(timeSeries.length - 1, 1);
               const x = padding.left + (timeSeries.length === 1 ? innerWidth / 2 : index * colWidth);
               return (
@@ -600,6 +649,10 @@ export function TokensPerSecondChart({
   const padding = { top: 24, right: 30, bottom: 44, left: 65 };
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
+
+  const visibleTickIndices = useMemo(() => {
+    return getSampledTickIndices(series.length, innerWidth, 85);
+  }, [series.length, innerWidth]);
 
   const pointPositions = useMemo(() => {
     const map = new Map<string, { x: number; y: number }>();
@@ -752,8 +805,7 @@ export function TokensPerSecondChart({
 
             {/* X-axis labels */}
             {series.map((pt, idx) => {
-              const skipInterval = series.length > 30 ? Math.ceil(series.length / 15) : 1;
-              if (idx % skipInterval !== 0 && idx !== series.length - 1) return null;
+              if (!visibleTickIndices.has(idx)) return null;
 
               const pos = pointPositions.get(pt.turnId);
               if (!pos) return null;
@@ -811,6 +863,10 @@ export function CodeActivityChart({ timeSeries }: { timeSeries: StatsTimeSeriesP
   const padding = { top: 20, right: 30, bottom: 40, left: 55 };
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
+
+  const visibleTickIndices = useMemo(() => {
+    return getSampledTickIndices(timeSeries.length, innerWidth, 65);
+  }, [timeSeries.length, innerWidth]);
 
   return (
     <div className="stats-card">
@@ -880,14 +936,16 @@ export function CodeActivityChart({ timeSeries }: { timeSeries: StatsTimeSeriesP
                       <title>{`-${point.linesDeleted} Zeilen (${point.label})`}</title>
                     </rect>
                   )}
-                  <text
-                    x={x + barWidth / 2}
-                    y={height - padding.bottom + 16}
-                    textAnchor="middle"
-                    className="stats-axis-text"
-                  >
-                    {point.label}
-                  </text>
+                  {visibleTickIndices.has(index) && (
+                    <text
+                      x={x + barWidth / 2}
+                      y={height - padding.bottom + 16}
+                      textAnchor="middle"
+                      className="stats-axis-text"
+                    >
+                      {point.label}
+                    </text>
+                  )}
                 </g>
               );
             })}
@@ -929,6 +987,10 @@ export function FileActivityChart({ timeSeries }: { timeSeries: StatsTimeSeriesP
   const padding = { top: 20, right: 30, bottom: 40, left: 55 };
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
+
+  const visibleTickIndices = useMemo(() => {
+    return getSampledTickIndices(timeSeries.length, innerWidth, 65);
+  }, [timeSeries.length, innerWidth]);
 
   return (
     <div className="stats-card">
@@ -1015,14 +1077,16 @@ export function FileActivityChart({ timeSeries }: { timeSeries: StatsTimeSeriesP
                       <title>{`-${point.filesDeleted} Dateien gelöscht (${point.label})`}</title>
                     </rect>
                   )}
-                  <text
-                    x={x + barWidth / 2}
-                    y={height - padding.bottom + 16}
-                    textAnchor="middle"
-                    className="stats-axis-text"
-                  >
-                    {point.label}
-                  </text>
+                  {visibleTickIndices.has(index) && (
+                    <text
+                      x={x + barWidth / 2}
+                      y={height - padding.bottom + 16}
+                      textAnchor="middle"
+                      className="stats-axis-text"
+                    >
+                      {point.label}
+                    </text>
+                  )}
                 </g>
               );
             })}
@@ -1070,6 +1134,10 @@ export function PlanModeStatsChart({
   const padding = { top: 20, right: 30, bottom: 40, left: 45 };
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
+
+  const visibleTickIndices = useMemo(() => {
+    return getSampledTickIndices(timeSeries.length, innerWidth, 65);
+  }, [timeSeries.length, innerWidth]);
 
   return (
     <div className="stats-card">
@@ -1142,14 +1210,16 @@ export function PlanModeStatsChart({
                       <title>{`${point.planRejected} Pläne abgelehnt (${point.label})`}</title>
                     </rect>
                   )}
-                  <text
-                    x={x + barWidth / 2}
-                    y={height - padding.bottom + 16}
-                    textAnchor="middle"
-                    className="stats-axis-text"
-                  >
-                    {point.label}
-                  </text>
+                  {visibleTickIndices.has(index) && (
+                    <text
+                      x={x + barWidth / 2}
+                      y={height - padding.bottom + 16}
+                      textAnchor="middle"
+                      className="stats-axis-text"
+                    >
+                      {point.label}
+                    </text>
+                  )}
                 </g>
               );
             })}
