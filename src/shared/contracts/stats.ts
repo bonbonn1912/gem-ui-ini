@@ -37,6 +37,7 @@ export const StatsSummarySchema = z
     outputPercentage: z.number().min(0).max(100).default(0),
     avgDurationMs: z.number().nonnegative(),
     totalDurationMs: z.number().int().nonnegative(),
+    avgTokensPerSecond: z.number().nonnegative().default(0),
     totalLinesAdded: z.number().int().nonnegative(),
     totalLinesDeleted: z.number().int().nonnegative(),
     filesCreated: z.number().int().nonnegative().default(0),
@@ -104,6 +105,19 @@ export const StatsTimeSeriesPointSchema = z
   .strict();
 export type StatsTimeSeriesPoint = z.infer<typeof StatsTimeSeriesPointSchema>;
 
+export const TokensPerSecondPointSchema = z
+  .object({
+    turnId: z.string().min(1),
+    sessionId: z.string().min(1),
+    model: z.string().min(1),
+    tokensPerSecond: z.number().nonnegative(),
+    outputTokens: z.number().int().nonnegative(),
+    durationMs: z.number().nonnegative(),
+    createdAt: IsoTimestampSchema,
+  })
+  .strict();
+export type TokensPerSecondPoint = z.infer<typeof TokensPerSecondPointSchema>;
+
 export const ModelComparisonItemSchema = z
   .object({
     model: z.string().min(1),
@@ -118,6 +132,7 @@ export const ModelComparisonItemSchema = z
     outputPercentage: z.number().min(0).max(100).default(0),
     avgDurationMs: z.number().nonnegative(),
     totalDurationMs: z.number().int().nonnegative(),
+    tokensPerSecond: z.number().nonnegative().default(0),
     turnCount: z.number().int().nonnegative(),
     linesAdded: z.number().int().nonnegative(),
     linesDeleted: z.number().int().nonnegative(),
@@ -134,6 +149,7 @@ export const AppStatsSchema = z
     granularity: StatsGranularitySchema,
     summary: StatsSummarySchema,
     timeSeries: z.array(StatsTimeSeriesPointSchema),
+    tokensPerSecondSeries: z.array(TokensPerSecondPointSchema).default([]),
     modelComparison: z.array(ModelComparisonItemSchema),
     availableModels: z.array(z.string()),
     generatedAt: IsoTimestampSchema,

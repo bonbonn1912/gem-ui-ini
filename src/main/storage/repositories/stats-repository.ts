@@ -6,6 +6,7 @@ import type {
   StatsGranularity,
   StatsSummary,
   StatsTimeSeriesPoint,
+  TokensPerSecondPoint,
 } from "../../../shared/contracts";
 import type { SqliteDatabase } from "../database";
 
@@ -304,6 +305,13 @@ export class StatsRepository {
     const sumRec = (rec: Record<string, number>) =>
       Object.values(rec).reduce((a, b) => a + b, 0);
 
+    const totalOut = summaryRow.output_tokens || 0;
+    const totalDur = summaryRow.total_duration_ms || 0;
+    const avgTokensPerSecond =
+      totalDur > 0 && totalOut > 0
+        ? Math.round((totalOut / (totalDur / 1000)) * 10) / 10
+        : 0;
+
     const summary: StatsSummary = {
       totalTokens: summaryRow.total_tokens || 0,
       inputTokens: inTokens,
@@ -315,6 +323,7 @@ export class StatsRepository {
       outputPercentage,
       avgDurationMs: Math.round(summaryRow.avg_duration_ms || 0),
       totalDurationMs: summaryRow.total_duration_ms || 0,
+      avgTokensPerSecond,
       totalLinesAdded: summaryRow.lines_added || 0,
       totalLinesDeleted: summaryRow.lines_deleted || 0,
       filesCreated: summaryRow.files_created || 0,
@@ -393,6 +402,12 @@ export class StatsRepository {
           ? Math.round((mCached / (mInput + mCached)) * 1000) / 10
           : 0;
 
+      const mTotalDur = row.total_duration_ms || 0;
+      const mTokensPerSecond =
+        mTotalDur > 0 && mOutput > 0
+          ? Math.round((mOutput / (mTotalDur / 1000)) * 10) / 10
+          : 0;
+
       return {
         model: row.model,
         displayName: formatModelDisplayName(row.model),
@@ -405,7 +420,8 @@ export class StatsRepository {
         inputPercentage: mInputPercentage,
         outputPercentage: mOutputPercentage,
         avgDurationMs: Math.round(row.avg_duration_ms || 0),
-        totalDurationMs: row.total_duration_ms || 0,
+        totalDurationMs: mTotalDur,
+        tokensPerSecond: mTokensPerSecond,
         turnCount,
         linesAdded: row.lines_added || 0,
         linesDeleted: row.lines_deleted || 0,
@@ -603,11 +619,54 @@ export class StatsRepository {
       startDate,
     );
 
+    // 4. Individual Response Tokens Per Second Points
+    const turnResponseRows = this.database
+      .prepare(
+        `SELECT
+           m.turn_id,
+           m.session_id,
+           m.model,
+           m.output_tokens,
+           m.duration_ms,
+           m.created_at
+         FROM turn_metrics m
+         ${whereClause}
+         ORDER BY m.created_at ASC`,
+      )
+      .all(...params) as Array<{
+        turn_id: string;
+        session_id: string;
+        model: string;
+        output_tokens: number | null;
+        duration_ms: number | null;
+        created_at: string;
+      }>;
+
+    const tokensPerSecondSeries: TokensPerSecondPoint[] = turnResponseRows.map((r) => {
+      const outputTokens = r.output_tokens || 0;
+      const durationMs = r.duration_ms || 0;
+      const tokensPerSecond =
+        durationMs > 0 && outputTokens > 0
+          ? Math.round((outputTokens / (durationMs / 1000)) * 10) / 10
+          : 0;
+
+      return {
+        turnId: r.turn_id,
+        sessionId: r.session_id,
+        model: r.model || "unknown",
+        tokensPerSecond,
+        outputTokens,
+        durationMs,
+        createdAt: r.created_at,
+      };
+    });
+
     return {
       timeRange,
       granularity,
       summary,
       timeSeries,
+      tokensPerSecondSeries,
       modelComparison,
       availableModels,
       generatedAt: new Date().toISOString(),

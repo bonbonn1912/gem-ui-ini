@@ -280,6 +280,7 @@ function createApi(options: {
           thoughtTokens: 0,
           avgDurationMs: 0,
           totalDurationMs: 0,
+          avgTokensPerSecond: 0,
           totalTurns: 0,
           totalLinesAdded: 0,
           totalLinesDeleted: 0,
@@ -306,6 +307,7 @@ function createApi(options: {
           activeSessionsCount: 0,
         },
         timeSeries: [],
+        tokensPerSecondSeries: [],
         modelComparison: [],
         availableModels: [],
       }),
@@ -2040,6 +2042,7 @@ describe("Renderer UI", () => {
         activeSessionsCount: 1,
       },
       timeSeries: [],
+      tokensPerSecondSeries: [],
       modelComparison: [],
       availableModels: ["gemini-2.5-pro", "gemini-2.5-flash"],
     });

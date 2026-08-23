@@ -154,6 +154,7 @@ describe("StatsRepository", () => {
     expect(stats.summary.planTotal).toBe(2);
     expect(stats.summary.planAcceptanceRate).toBe(50);
     expect(stats.summary.avgDurationMs).toBeCloseTo((1200 + 400 + 600) / 3, 0);
+    expect(stats.summary.avgTokensPerSecond).toBe(772.7);
 
     // Verify model comparisons
     expect(stats.modelComparison).toHaveLength(2);
@@ -163,6 +164,7 @@ describe("StatsRepository", () => {
     expect(pro.totalTokens).toBe(5000);
     expect(pro.turnCount).toBe(1);
     expect(pro.avgDurationMs).toBe(1200);
+    expect(pro.tokensPerSecond).toBe(833.3);
     expect(pro.linesAdded).toBe(50);
     expect(pro.errorRate).toBe(0);
     expect(pro.sharePercentage).toBe(62.5);
@@ -172,9 +174,40 @@ describe("StatsRepository", () => {
     expect(flash.totalTokens).toBe(3000);
     expect(flash.turnCount).toBe(2);
     expect(flash.avgDurationMs).toBe(500);
+    expect(flash.tokensPerSecond).toBe(700);
     expect(flash.linesAdded).toBe(20);
     expect(flash.errorRate).toBe(50); // 1 out of 2 failed
     expect(flash.sharePercentage).toBe(37.5);
+
+    // Verify individual response tokensPerSecond points
+    expect(stats.tokensPerSecondSeries).toHaveLength(3);
+    expect(stats.tokensPerSecondSeries[0]).toEqual({
+      turnId: turn1,
+      sessionId: session.id,
+      model: "gemini-2.5-pro",
+      tokensPerSecond: 833.3,
+      outputTokens: 1000,
+      durationMs: 1200,
+      createdAt: expect.any(String),
+    });
+    expect(stats.tokensPerSecondSeries[1]).toEqual({
+      turnId: turn2,
+      sessionId: session.id,
+      model: "gemini-2.5-flash",
+      tokensPerSecond: 1250,
+      outputTokens: 500,
+      durationMs: 400,
+      createdAt: expect.any(String),
+    });
+    expect(stats.tokensPerSecondSeries[2]).toEqual({
+      turnId: turn3,
+      sessionId: session.id,
+      model: "gemini-2.5-flash",
+      tokensPerSecond: 333.3,
+      outputTokens: 200,
+      durationMs: 600,
+      createdAt: expect.any(String),
+    });
 
     // Verify time series
     expect(stats.timeSeries.length).toBeGreaterThan(0);
@@ -676,5 +709,123 @@ describe("StatsRepository", () => {
     expect(stats.summary.shellCommandsTotal).toBe(2);
     expect(stats.summary.topSkills).toEqual([{ name: "agy-customizations", count: 1 }]);
     expect(stats.summary.topShellCommands).toEqual([{ name: "npm test", count: 2 }]);
+  });
+
+  it("computes tokens per second (t/s) per individual response and per model, capturing outliers", async () => {
+    const { session, project, statsRepository } = await createFixture();
+
+    const normalTurnPro = randomUUID();
+    const outlierFastPro = randomUUID();
+    const normalTurnFlash = randomUUID();
+    const outlierSlowFlash = randomUUID();
+
+    // 1. Pro normal: 500 output tokens in 5000 ms = 100 t/s
+    statsRepository.recordTurnMetric({
+      turnId: normalTurnPro,
+      sessionId: session.id,
+      projectId: project.id,
+      model: "gemini-2.5-pro",
+      durationMs: 5000,
+      inputTokens: 1000,
+      outputTokens: 500,
+      totalTokens: 1500,
+      createdAt: "2026-08-23T10:00:00.000Z",
+    });
+
+    // 2. Pro outlier fast: 1000 output tokens in 2000 ms = 500 t/s
+    statsRepository.recordTurnMetric({
+      turnId: outlierFastPro,
+      sessionId: session.id,
+      projectId: project.id,
+      model: "gemini-2.5-pro",
+      durationMs: 2000,
+      inputTokens: 1000,
+      outputTokens: 1000,
+      totalTokens: 2000,
+      createdAt: "2026-08-23T11:00:00.000Z",
+    });
+
+    // 3. Flash normal: 800 output tokens in 2000 ms = 400 t/s
+    statsRepository.recordTurnMetric({
+      turnId: normalTurnFlash,
+      sessionId: session.id,
+      projectId: project.id,
+      model: "gemini-2.5-flash",
+      durationMs: 2000,
+      inputTokens: 500,
+      outputTokens: 800,
+      totalTokens: 1300,
+      createdAt: "2026-08-23T12:00:00.000Z",
+    });
+
+    // 4. Flash outlier slow: 100 output tokens in 4000 ms = 25 t/s
+    statsRepository.recordTurnMetric({
+      turnId: outlierSlowFlash,
+      sessionId: session.id,
+      projectId: project.id,
+      model: "gemini-2.5-flash",
+      durationMs: 4000,
+      inputTokens: 500,
+      outputTokens: 100,
+      totalTokens: 600,
+      createdAt: "2026-08-23T13:00:00.000Z",
+    });
+
+    const stats = statsRepository.getAggregatedStats({ timeRange: "all", granularity: "day" });
+
+    // Each individual response is present as its own data point
+    expect(stats.tokensPerSecondSeries).toHaveLength(4);
+
+    expect(stats.tokensPerSecondSeries[0]).toEqual({
+      turnId: normalTurnPro,
+      sessionId: session.id,
+      model: "gemini-2.5-pro",
+      tokensPerSecond: 100,
+      outputTokens: 500,
+      durationMs: 5000,
+      createdAt: "2026-08-23T10:00:00.000Z",
+    });
+
+    expect(stats.tokensPerSecondSeries[1]).toEqual({
+      turnId: outlierFastPro,
+      sessionId: session.id,
+      model: "gemini-2.5-pro",
+      tokensPerSecond: 500,
+      outputTokens: 1000,
+      durationMs: 2000,
+      createdAt: "2026-08-23T11:00:00.000Z",
+    });
+
+    expect(stats.tokensPerSecondSeries[2]).toEqual({
+      turnId: normalTurnFlash,
+      sessionId: session.id,
+      model: "gemini-2.5-flash",
+      tokensPerSecond: 400,
+      outputTokens: 800,
+      durationMs: 2000,
+      createdAt: "2026-08-23T12:00:00.000Z",
+    });
+
+    expect(stats.tokensPerSecondSeries[3]).toEqual({
+      turnId: outlierSlowFlash,
+      sessionId: session.id,
+      model: "gemini-2.5-flash",
+      tokensPerSecond: 25,
+      outputTokens: 100,
+      durationMs: 4000,
+      createdAt: "2026-08-23T13:00:00.000Z",
+    });
+
+    // Model comparison throughput:
+    // Pro: (500 + 1000) / (5 + 2) = 1500 / 7s = 214.3 t/s
+    const pro = stats.modelComparison.find((m) => m.model === "gemini-2.5-pro")!;
+    expect(pro.tokensPerSecond).toBe(214.3);
+
+    // Flash: (800 + 100) / (2 + 4) = 900 / 6s = 150 t/s
+    const flash = stats.modelComparison.find((m) => m.model === "gemini-2.5-flash")!;
+    expect(flash.tokensPerSecond).toBe(150);
+
+    // Summary avg tps: (500 + 1000 + 800 + 100) / (5 + 2 + 2 + 4) = 2400 / 13s = 184.6 t/s
+    expect(stats.summary.avgTokensPerSecond).toBe(184.6);
   });
 });

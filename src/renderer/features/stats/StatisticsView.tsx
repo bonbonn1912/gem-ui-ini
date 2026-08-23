@@ -11,6 +11,7 @@ import {
   PlanModeStatsChart,
   ResponseTimeChart,
   TokenUsageChart,
+  TokensPerSecondChart,
   ToolUsageRankingSection,
 } from "./StatsCharts";
 
@@ -292,6 +293,13 @@ export function StatisticsView({
 
               <div className="stats-grid-half">
                 <CodeActivityChart timeSeries={stats.timeSeries} />
+              </div>
+
+              <div className="stats-grid-full">
+                <TokensPerSecondChart
+                  series={stats.tokensPerSecondSeries}
+                  models={stats.availableModels.length > 0 ? stats.availableModels : ["gemini"]}
+                />
               </div>
 
               <div className="stats-grid-full">

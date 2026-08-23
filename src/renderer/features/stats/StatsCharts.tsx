@@ -4,6 +4,7 @@ import type {
   AppStats,
   ModelComparisonItem,
   StatsTimeSeriesPoint,
+  TokensPerSecondPoint,
 } from "../../../shared/contracts";
 
 // Categorical chart palette — CSS custom properties, not hardcoded hex, so
@@ -537,7 +538,265 @@ export function ResponseTimeChart({
 }
 
 /**
- * 3. Code Activity Chart (Lines of Code Added / Deleted)
+ * 3. Tokens Per Second (t/s) Line Chart
+ * Visualizes individual response throughput per model to clearly highlight latency performance and outliers.
+ */
+export function TokensPerSecondChart({
+  series = [],
+  models = [],
+}: {
+  series?: TokensPerSecondPoint[];
+  models?: string[];
+}) {
+  const [hoveredPoint, setHoveredPoint] = useState<TokensPerSecondPoint | null>(null);
+  const scrollRef = useAutoScrollToEnd([series]);
+
+  const modelColorMap = useMemo(() => {
+    const map = new Map<string, string>();
+    models.forEach((m, idx) => {
+      map.set(m, getModelColor(m, idx));
+    });
+    return map;
+  }, [models]);
+
+  const pointsByModel = useMemo(() => {
+    const map = new Map<string, TokensPerSecondPoint[]>();
+    for (const m of models) {
+      map.set(m, []);
+    }
+    for (const pt of series) {
+      const list = map.get(pt.model);
+      if (list) {
+        list.push(pt);
+      } else {
+        map.set(pt.model, [pt]);
+      }
+    }
+    return map;
+  }, [series, models]);
+
+  const { maxTps, avgTps, peakTps } = useMemo(() => {
+    if (series.length === 0) {
+      return { maxTps: 50, avgTps: 0, peakTps: 0 };
+    }
+    let max = 0;
+    let sum = 0;
+    for (const pt of series) {
+      sum += pt.tokensPerSecond;
+      if (pt.tokensPerSecond > max) {
+        max = pt.tokensPerSecond;
+      }
+    }
+    return {
+      maxTps: Math.max(Math.ceil(max * 1.15), 20),
+      avgTps: Math.round((sum / series.length) * 10) / 10,
+      peakTps: max,
+    };
+  }, [series]);
+
+  const height = 240;
+  const isOverflowing = series.length > 14;
+  const width = isOverflowing ? Math.max(series.length * 40, 600) : 600;
+  const padding = { top: 24, right: 30, bottom: 44, left: 65 };
+  const innerWidth = width - padding.left - padding.right;
+  const innerHeight = height - padding.top - padding.bottom;
+
+  const pointPositions = useMemo(() => {
+    const map = new Map<string, { x: number; y: number }>();
+    if (series.length === 0) return map;
+    const step = series.length === 1 ? 0 : innerWidth / (series.length - 1);
+    series.forEach((pt, idx) => {
+      const x = series.length === 1 ? padding.left + innerWidth / 2 : padding.left + idx * step;
+      const y = padding.top + innerHeight - (pt.tokensPerSecond / maxTps) * innerHeight;
+      map.set(pt.turnId, { x, y });
+    });
+    return map;
+  }, [series, innerWidth, innerHeight, maxTps, padding.left, padding.top]);
+
+  return (
+    <div className="stats-card">
+      <div className="stats-card-header">
+        <div className="stats-card-title">
+          <Icon name="zap" size={18} />
+          <span>Tokens pro Sekunde (t/s) je Antwort & Modell</span>
+        </div>
+        <div className="stats-header-pills">
+          {series.length > 0 && (
+            <>
+              <span className="stats-pill-metric" title="Durchschnittliche Generierungsgeschwindigkeit aller Antworten">
+                Ø <b>{avgTps} t/s</b>
+              </span>
+              <span className="stats-pill-metric" title={`Maximaler Spitzenwert (Ausreißer): ${peakTps} t/s`}>
+                Peak: <b>{peakTps} t/s</b>
+              </span>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Floating Tooltip */}
+      {hoveredPoint && (
+        <div className="stats-chart-tooltip">
+          <strong>
+            {new Intl.DateTimeFormat("de-DE", {
+              day: "2-digit",
+              month: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            }).format(new Date(hoveredPoint.createdAt))}
+          </strong>
+          <div className="stats-tooltip-row">
+            <span
+              className="stats-legend-dot"
+              style={{ backgroundColor: modelColorMap.get(hoveredPoint.model) || DEFAULT_SERIES_COLOR }}
+            />
+            <span>{formatModelDisplayName(hoveredPoint.model)}:</span>
+            <b>{hoveredPoint.tokensPerSecond} t/s</b>
+          </div>
+          <div className="stats-tooltip-subdetail">
+            <span>↑ Out: {formatNumber(hoveredPoint.outputTokens)} Tokens</span>
+            <span>•</span>
+            <span>Dauer: {formatDuration(hoveredPoint.durationMs)}</span>
+          </div>
+        </div>
+      )}
+
+      {series.length === 0 ? (
+        <div className="stats-empty-chart">Keine Antwort-Daten im gewählten Zeitraum vorhanden.</div>
+      ) : (
+        <div ref={scrollRef} className="stats-chart-scrollable">
+          <svg
+            viewBox={`0 0 ${width} ${height}`}
+            className="stats-chart-svg"
+            style={{ minWidth: isOverflowing ? `${width}px` : "100%" }}
+          >
+            {/* Horizontal Grid lines */}
+            {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+              const y = padding.top + innerHeight * (1 - ratio);
+              const value = Math.round(maxTps * ratio);
+              return (
+                <g key={ratio} className="stats-grid-line">
+                  <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} />
+                  <text x={padding.left - 8} y={y + 3} textAnchor="end" className="stats-axis-text">
+                    {value} t/s
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* Model lines & data points */}
+            {models.map((model) => {
+              const modelPoints = pointsByModel.get(model) || [];
+              if (modelPoints.length === 0) return null;
+              const color = modelColorMap.get(model) || DEFAULT_SERIES_COLOR;
+
+              const pathCoords = modelPoints
+                .map((pt) => pointPositions.get(pt.turnId))
+                .filter((pos): pos is { x: number; y: number } => Boolean(pos));
+
+              const d = pathCoords.reduce(
+                (acc, p, idx) => `${acc} ${idx === 0 ? "M" : "L"} ${p.x} ${p.y}`,
+                "",
+              );
+
+              return (
+                <g key={model} className="stats-line-series">
+                  {pathCoords.length > 1 && (
+                    <path
+                      d={d}
+                      fill="none"
+                      stroke={color}
+                      strokeWidth={2.2}
+                      opacity={0.85}
+                    />
+                  )}
+                  {modelPoints.map((pt) => {
+                    const pos = pointPositions.get(pt.turnId);
+                    if (!pos) return null;
+                    const isHovered = hoveredPoint?.turnId === pt.turnId;
+                    const isPeak = pt.tokensPerSecond > 0 && pt.tokensPerSecond === peakTps;
+
+                    return (
+                      <g key={pt.turnId}>
+                        {isPeak && (
+                          <circle
+                            cx={pos.x}
+                            cy={pos.y}
+                            r={isHovered ? 9 : 7}
+                            fill="none"
+                            stroke={color}
+                            strokeWidth={1.5}
+                            strokeDasharray="2 2"
+                            opacity={0.7}
+                          />
+                        )}
+                        <circle
+                          cx={pos.x}
+                          cy={pos.y}
+                          r={isHovered ? 6 : 4}
+                          fill={color}
+                          stroke="var(--surface)"
+                          strokeWidth={1.5}
+                          onMouseEnter={() => setHoveredPoint(pt)}
+                          onMouseLeave={() => setHoveredPoint(null)}
+                        >
+                          <title>{`${formatModelDisplayName(pt.model)}: ${pt.tokensPerSecond} t/s (${pt.outputTokens} Tokens in ${formatDuration(pt.durationMs)})`}</title>
+                        </circle>
+                      </g>
+                    );
+                  })}
+                </g>
+              );
+            })}
+
+            {/* X-axis labels */}
+            {series.map((pt, idx) => {
+              const skipInterval = series.length > 30 ? Math.ceil(series.length / 15) : 1;
+              if (idx % skipInterval !== 0 && idx !== series.length - 1) return null;
+
+              const pos = pointPositions.get(pt.turnId);
+              if (!pos) return null;
+
+              const dateObj = new Date(pt.createdAt);
+              const label = new Intl.DateTimeFormat("de-DE", {
+                day: "2-digit",
+                month: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+              }).format(dateObj);
+
+              return (
+                <text
+                  key={pt.turnId}
+                  x={pos.x}
+                  y={height - padding.bottom + 16}
+                  textAnchor="middle"
+                  className="stats-axis-text"
+                >
+                  {label}
+                </text>
+              );
+            })}
+          </svg>
+        </div>
+      )}
+
+      {/* Legend */}
+      <div className="stats-legend stats-legend--bottom">
+        {models.map((model) => (
+          <div key={model} className="stats-legend-item">
+            <span className="stats-legend-dot" style={{ backgroundColor: modelColorMap.get(model) }} />
+            <span className="stats-legend-name">{formatModelDisplayName(model)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 4. Code Activity Chart (Lines of Code Added / Deleted)
  */
 export function CodeActivityChart({ timeSeries }: { timeSeries: StatsTimeSeriesPoint[] }) {
   const scrollRef = useAutoScrollToEnd([timeSeries]);
@@ -1116,6 +1375,7 @@ export function ModelComparisonTable({ models }: { models: ModelComparisonItem[]
               <th>Input / Output (%)</th>
               <th>Cache-Rate (%)</th>
               <th>Antwortzeit (Ø)</th>
+              <th>Tokens / s (Ø)</th>
               <th>Code-Zeilen (+)</th>
               <th>Anfragen</th>
               <th>Fehlerquote</th>
@@ -1174,6 +1434,11 @@ export function ModelComparisonTable({ models }: { models: ModelComparisonItem[]
                     <span className={`stats-table-latency ${isFastest ? "stats-table-latency--fastest" : ""}`}>
                       {formatDuration(item.avgDurationMs)}
                       {isFastest && <Icon name="zap" size={11} />}
+                    </span>
+                  </td>
+                  <td>
+                    <span className="stats-table-tps">
+                      <strong>{item.tokensPerSecond > 0 ? `${item.tokensPerSecond} t/s` : "–"}</strong>
                     </span>
                   </td>
                   <td>

@@ -74,6 +74,14 @@ export function StatsSummaryCards({ summary }: { summary: StatsSummary }) {
         <div className="stats-kpi-value">{formatDuration(summary.avgDurationMs)}</div>
         <div className="stats-kpi-subtext">
           <span>Gesamtzeit: {formatDuration(summary.totalDurationMs)}</span>
+          {summary.avgTokensPerSecond > 0 && (
+            <>
+              <span>•</span>
+              <span title="Durchschnittliche Ausgabegeschwindigkeit">
+                <Icon name="zap" size={10} /> Ø <strong>{summary.avgTokensPerSecond} t/s</strong>
+              </span>
+            </>
+          )}
         </div>
       </div>
 
