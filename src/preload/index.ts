@@ -177,6 +177,10 @@ const desktopApi: GemUiDesktopApi = {
 
   projectFiles: {
     search: (input) => ipcRenderer.invoke(IPC_CHANNELS.searchProjectFiles, input),
+    listDirectory: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.listProjectDirectory, input),
+    readFile: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.readProjectFile, input),
   },
 
   sessions: {

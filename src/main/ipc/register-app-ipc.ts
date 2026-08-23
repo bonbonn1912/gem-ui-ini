@@ -52,6 +52,8 @@ import {
   type SetProjectStatsEnabledInput,
   type SetProjectLiveTokensEnabledInput,
   type SearchProjectFilesInput,
+  type ListProjectDirectoryInput,
+  type ReadProjectFileInput,
   type SearchSessionsInput,
   type SetSessionModeInput,
   type SetSessionModelInput,
@@ -170,6 +172,12 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
   );
   register(IPC_CHANNELS.searchProjectFiles, (input) =>
     options.projectFiles.search(input as SearchProjectFilesInput),
+  );
+  register(IPC_CHANNELS.listProjectDirectory, (input) =>
+    options.projectFiles.listChildren(input as ListProjectDirectoryInput),
+  );
+  register(IPC_CHANNELS.readProjectFile, (input) =>
+    options.projectFiles.readFile(input as ReadProjectFileInput),
   );
   register(IPC_CHANNELS.reauthorizeProjectRoot, async (input) => {
     const value = input as ReauthorizeProjectRootInput;

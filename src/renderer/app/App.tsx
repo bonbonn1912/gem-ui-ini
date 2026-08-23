@@ -33,6 +33,7 @@ import { useTodos } from "../features/todos/useTodos";
 import { GitLabPanel, type ReviewDelivery } from "../features/gitlab/GitLabPanel";
 import { JiraIssueView } from "../features/jira/JiraIssueView";
 import { useJiraIssue } from "../features/jira/useJiraIssue";
+import { ExplorerPanel, FileViewer } from "../features/explorer";
 import { McpPanel } from "../features/mcp/McpPanel";
 import { SkillsPanel } from "../features/skills/SkillsPanel";
 import { StatisticsView } from "../features/stats/StatisticsView";
@@ -232,6 +233,7 @@ function RootChangeBanner() {
  */
 type RightPanel =
   | "none"
+  | "explorer"
   | "changes"
   | "attachments"
   | "todos"
@@ -241,6 +243,7 @@ type RightPanel =
   | "mcp";
 
 const RESTORABLE_RIGHT_PANELS = [
+  "explorer",
   "changes",
   "attachments",
   "todos",
@@ -409,6 +412,7 @@ export function App() {
   const [reconnectedSessions, setReconnectedSessions] = useState<Record<string, boolean>>({});
   const [sessionHistoryModes, setSessionHistoryModes] = useState<Record<string, "compressed" | "fresh">>({});
   const [composerDraft, setComposerDraft] = useState<ComposerDraft | null>(null);
+  const [pendingProjectFileRefs, setPendingProjectFileRefs] = useState<ProjectFileSearchEntry[] | null>(null);
   const [pendingExternalContexts, setPendingExternalContexts] = useState<PreparedExternalContext[]>([]);
   const [pendingPrompt, setPendingPrompt] = useState<{
     text: string;
@@ -450,8 +454,14 @@ export function App() {
     trigger: gitPreviewTrigger,
   });
   const changesCount = gitState.status?.changes.length ?? 0;
+  const [viewingProjectFile, setViewingProjectFile] =
+    useState<ProjectFileSearchEntry | null>(null);
   const [gitlabCandidates, setGitlabCandidates] = useState<GitLabRepositoryCandidate[]>([]);
   const [gitlabCandidatesLoaded, setGitlabCandidatesLoaded] = useState(false);
+
+  useEffect(() => {
+    setViewingProjectFile(null);
+  }, [activeProject?.id, activeProject?.rootRevision]);
 
   useEffect(() => {
     // Cleared before the request, not after it: keeping the previous project's
@@ -1212,6 +1222,11 @@ export function App() {
     const includedCount = contextAttachments.included.length;
     const items: PanelRailItem[] = [
       {
+        id: "explorer",
+        icon: "folder",
+        label: "Explorer",
+      },
+      {
         id: "attachments",
         icon: "paperclip",
         label: "Anhänge",
@@ -1426,14 +1441,25 @@ export function App() {
             className={`chat-workspace ${rightPanelOpen ? "chat-workspace--panel" : ""}`}
             style={{ "--right-panel-width": `${rightPanelWidth}px` } as CSSProperties}
           >
-            <div className="project-empty-host">
-              <button type="button" className="icon-button mobile-empty-menu" onClick={() => setSidebarOpen(true)} aria-label="Seitenleiste öffnen"><Icon name="menu" size={19} /></button>
-              <EmptyProject
+            {viewingProjectFile ? (
+              <FileViewer
                 project={activeProject}
-                creatingSession={creatingSession}
-                onCreateSession={() => void createSession()}
+                file={viewingProjectFile}
+                onClose={() => setViewingProjectFile(null)}
+                onAddToContext={(entry) => {
+                  setPendingProjectFileRefs((cur) => [...(cur ?? []), entry]);
+                }}
               />
-            </div>
+            ) : (
+              <div className="project-empty-host">
+                <button type="button" className="icon-button mobile-empty-menu" onClick={() => setSidebarOpen(true)} aria-label="Seitenleiste öffnen"><Icon name="menu" size={19} /></button>
+                <EmptyProject
+                  project={activeProject}
+                  creatingSession={creatingSession}
+                  onCreateSession={() => void createSession()}
+                />
+              </div>
+            )}
             {changesOpen ? (
               <ChangesPanel
                 key={`${activeProject.id}:${activeProject.rootRevision}`}
@@ -1449,6 +1475,16 @@ export function App() {
                 onSelectionChange={setGitSelection}
                 onRefresh={() => void gitState.refresh()}
                 onChooseGit={() => void gitState.chooseGit()}
+              />
+            ) : rightPanel === "explorer" ? (
+              <ExplorerPanel
+                open={rightPanel === "explorer"}
+                project={activeProject}
+                onClose={() => setRightPanel("none")}
+                onOpenFile={(entry) => setViewingProjectFile(entry)}
+                onAddProjectFileReferences={(entries) => {
+                  setPendingProjectFileRefs(entries);
+                }}
               />
             ) : attachmentsOpen ? (
               <AttachmentsPanel
@@ -1513,7 +1549,10 @@ export function App() {
             className={`chat-workspace ${rightPanelOpen ? "chat-workspace--panel" : ""}`}
             style={{ "--right-panel-width": `${rightPanelWidth}px` } as CSSProperties}
           >
-            <div className="chat-view">
+            <div
+              className="chat-view"
+              style={viewingProjectFile ? { display: "none" } : undefined}
+            >
               <ChatHeader
                 project={activeProject}
                 session={activeSession}
@@ -1551,10 +1590,12 @@ export function App() {
                 contextOverBudget={contextAttachments.list?.overBudget ?? false}
                 liveEstimatedTokens={activeProject?.liveTokensEnabled ? liveEstimatedTokens : null}
                 draft={composerDraft}
+                pendingProjectFileRefs={pendingProjectFileRefs}
                 externalContexts={pendingExternalContexts}
                 sessionMode={activeSession.mode}
                 hasPendingPlan={hasPendingPlan}
                 onDraftApplied={() => setComposerDraft(null)}
+                onProjectFileRefsApplied={() => setPendingProjectFileRefs(null)}
                 onRemoveExternalContext={(refId) =>
                   setPendingExternalContexts((current) =>
                     current.filter((context) => context.ref.id !== refId),
@@ -1566,7 +1607,27 @@ export function App() {
                 onError={(error) => showError("Anhang konnte nicht verarbeitet werden", new Error(error))}
               />
             </div>
-            {changesOpen ? (
+            {viewingProjectFile && (
+              <FileViewer
+                project={activeProject}
+                file={viewingProjectFile}
+                onClose={() => setViewingProjectFile(null)}
+                onAddToContext={(entry) => {
+                  setPendingProjectFileRefs((cur) => [...(cur ?? []), entry]);
+                }}
+              />
+            )}
+            {rightPanel === "explorer" ? (
+              <ExplorerPanel
+                open={rightPanel === "explorer"}
+                project={activeProject}
+                onClose={() => setRightPanel("none")}
+                onOpenFile={(entry) => setViewingProjectFile(entry)}
+                onAddProjectFileReferences={(entries) => {
+                  setPendingProjectFileRefs(entries);
+                }}
+              />
+            ) : changesOpen ? (
               <ChangesPanel
                 key={`${activeProject.id}:${activeProject.rootRevision}`}
                 open={changesOpen}

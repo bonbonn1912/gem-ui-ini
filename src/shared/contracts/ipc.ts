@@ -123,9 +123,17 @@ import {
   type SetProjectLiveTokensEnabledInput,
 } from "./projects";
 import {
+  ListProjectDirectoryInputSchema,
+  ProjectFileListDirectoryResultSchema,
   ProjectFileSearchResultSchema,
+  ReadProjectFileInputSchema,
+  ReadProjectFileResultSchema,
   SearchProjectFilesInputSchema,
+  type ListProjectDirectoryInput,
+  type ProjectFileListDirectoryResult,
   type ProjectFileSearchResult,
+  type ReadProjectFileInput,
+  type ReadProjectFileResult,
   type SearchProjectFilesInput,
 } from "./project-files";
 import {
@@ -419,6 +427,8 @@ export const IPC_CHANNELS = {
   reauthorizeProjectRoot: "projects:reauthorize-root",
   getProjectApprovalPolicy: "projects:get-approval-policy",
   searchProjectFiles: "project-files:search",
+  listProjectDirectory: "project-files:list-directory",
+  readProjectFile: "project-files:read-file",
   pickProjectFolders: "projects:pick-folders",
   createProject: "projects:create",
   renameProject: "projects:rename",
@@ -531,6 +541,8 @@ export const IpcRequestSchemas = {
   [IPC_CHANNELS.reauthorizeProjectRoot]: ReauthorizeProjectRootInputSchema,
   [IPC_CHANNELS.getProjectApprovalPolicy]: GetProjectApprovalPolicyInputSchema,
   [IPC_CHANNELS.searchProjectFiles]: SearchProjectFilesInputSchema,
+  [IPC_CHANNELS.listProjectDirectory]: ListProjectDirectoryInputSchema,
+  [IPC_CHANNELS.readProjectFile]: ReadProjectFileInputSchema,
   [IPC_CHANNELS.pickProjectFolders]: PickProjectFoldersInputSchema,
   [IPC_CHANNELS.createProject]: CreateProjectInputSchema,
   [IPC_CHANNELS.renameProject]: RenameProjectInputSchema,
@@ -631,6 +643,8 @@ export const IpcResponseSchemas = {
   [IPC_CHANNELS.reauthorizeProjectRoot]: ProjectRootReauthorizationResultSchema,
   [IPC_CHANNELS.getProjectApprovalPolicy]: ProjectApprovalPolicySchema,
   [IPC_CHANNELS.searchProjectFiles]: ProjectFileSearchResultSchema,
+  [IPC_CHANNELS.listProjectDirectory]: ProjectFileListDirectoryResultSchema,
+  [IPC_CHANNELS.readProjectFile]: ReadProjectFileResultSchema,
   [IPC_CHANNELS.pickProjectFolders]: z.array(ProjectRootCandidateSchema).max(6),
   [IPC_CHANNELS.createProject]: ProjectWithRootsSchema,
   [IPC_CHANNELS.renameProject]: ProjectWithRootsSchema,
@@ -774,6 +788,10 @@ export interface GemUiDesktopApi {
   };
   projectFiles: {
     search(input: SearchProjectFilesInput): Promise<ProjectFileSearchResult>;
+    listDirectory(
+      input: ListProjectDirectoryInput,
+    ): Promise<ProjectFileListDirectoryResult>;
+    readFile(input: ReadProjectFileInput): Promise<ReadProjectFileResult>;
   };
   sessions: {
     list(input: ListSessionsInput): Promise<AppSession[]>;

@@ -75,6 +75,25 @@ export const ProjectFileSearchResultSchema = z
   })
   .strict();
 
+export const ListProjectDirectoryInputSchema = z
+  .object({
+    projectId: EntityIdSchema,
+    expectedRootRevision: RootRevisionSchema,
+    rootId: EntityIdSchema,
+    /** "" adressiert die Wurzel des Roots. */
+    relativePath: z.string().max(32_768).default(""),
+  })
+  .strict();
+
+export const ProjectFileListDirectoryResultSchema = z
+  .object({
+    projectId: EntityIdSchema,
+    rootRevision: RootRevisionSchema,
+    entries: z.array(ProjectFileSearchEntrySchema).max(50_000),
+    truncated: z.boolean(),
+  })
+  .strict();
+
 export const ProjectFilePromptSnapshotSchema = z
   .object({
     rootId: EntityIdSchema,
@@ -84,6 +103,32 @@ export const ProjectFilePromptSnapshotSchema = z
     kind: ProjectEntryKindSchema.default("file"),
     /** Nur bei Ordnern: wie viele Dateien tatsächlich mitgegangen sind. */
     fileCount: z.int().nonnegative().optional(),
+  })
+  .strict();
+
+export const ReadProjectFileInputSchema = z
+  .object({
+    projectId: EntityIdSchema,
+    expectedRootRevision: RootRevisionSchema,
+    rootId: EntityIdSchema,
+    relativePath: ProjectRelativePathSchema,
+  })
+  .strict();
+
+export const ReadProjectFileResultSchema = z
+  .object({
+    projectId: EntityIdSchema,
+    rootRevision: RootRevisionSchema,
+    rootId: EntityIdSchema,
+    relativePath: ProjectRelativePathSchema,
+    displayName: DisplayNameSchema,
+    size: z.number().int().nonnegative(),
+    mimeType: z.string().min(1),
+    binary: z.boolean(),
+    content: z.string().nullable(),
+    truncated: z.boolean(),
+    lineCount: z.number().int().nonnegative(),
+    language: z.string().nullable(),
   })
   .strict();
 
@@ -100,6 +145,19 @@ export type SearchProjectFilesInput = z.input<
 export type ProjectFileSearchResult = z.infer<
   typeof ProjectFileSearchResultSchema
 >;
+export type ListProjectDirectoryInput = z.input<
+  typeof ListProjectDirectoryInputSchema
+>;
+export type ProjectFileListDirectoryResult = z.infer<
+  typeof ProjectFileListDirectoryResultSchema
+>;
+export type ReadProjectFileInput = z.input<
+  typeof ReadProjectFileInputSchema
+>;
+export type ReadProjectFileResult = z.infer<
+  typeof ReadProjectFileResultSchema
+>;
 export type ProjectFilePromptSnapshot = z.infer<
   typeof ProjectFilePromptSnapshotSchema
 >;
+
