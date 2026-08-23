@@ -668,9 +668,19 @@ export function App() {
           }
         }
         const status = sessionStatusFromEvents(events);
-        if (status) {
+        const readyEnvelope = [...events].reverse().find((e) => e.event.type === "session.ready");
+        const latestPid = readyEnvelope && readyEnvelope.event.type === "session.ready"
+          ? readyEnvelope.event.providerSessionId
+          : undefined;
+        if (status || latestPid) {
           setSessions((currentSessions) => currentSessions.map((session) =>
-            session.id === activeSessionId ? { ...session, status } : session,
+            session.id === activeSessionId
+              ? {
+                  ...session,
+                  ...(status ? { status } : {}),
+                  ...(latestPid ? { providerSessionId: latestPid } : {}),
+                }
+              : session,
           ));
         }
         if (events.some(({ event }) => [

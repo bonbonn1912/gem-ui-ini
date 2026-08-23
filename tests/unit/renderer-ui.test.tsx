@@ -1907,6 +1907,51 @@ describe("Renderer UI", () => {
     expect(screen.getByText("Kontext übergeben")).toBeInTheDocument();
   });
 
+  it("zeigt in der Leiste die Gemini-Session-Historie über session.ready Events an", async () => {
+    const user = userEvent.setup();
+    const { api, emit } = createApi();
+    window.gemUi = api;
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Login reparieren" });
+
+    // Emit initial and reconnected session.ready
+    await emit([
+      {
+        seq: 1,
+        sessionId: session.id,
+        turnId: null,
+        timestamp: "2026-08-22T10:00:00.000Z",
+        event: {
+          type: "session.ready",
+          providerSessionId: "gemini-ready-initial",
+          modes: ["default"],
+          models: ["gemini-2.5-flash"],
+        },
+      },
+      {
+        seq: 2,
+        sessionId: session.id,
+        turnId: null,
+        timestamp: "2026-08-22T11:00:00.000Z",
+        event: {
+          type: "session.ready",
+          providerSessionId: "gemini-ready-reconnected",
+          modes: ["default"],
+          models: ["gemini-2.5-flash"],
+        },
+      },
+    ]);
+
+    const historyBtn = screen.getByRole("button", { name: "Gemini-Sitzungsverlauf anzeigen" });
+    await user.hover(historyBtn);
+
+    expect(await screen.findByRole("dialog", { name: "Gemini-Sitzungshistorie" })).toBeVisible();
+    expect(screen.getByText(/gemini-ready-initial/i)).toBeInTheDocument();
+    expect(screen.getByText(/gemini-ready-reconnected/i)).toBeInTheDocument();
+    expect(screen.getByText("Kontext übergeben")).toBeInTheDocument();
+  });
+
   it("lässt das Info-Icon pulsieren wenn ein Update verfügbar ist", async () => {
     const { api } = createApi();
     api.app.checkForUpdates = vi.fn().mockResolvedValue({

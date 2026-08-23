@@ -52,13 +52,13 @@ export class GeminiSessionManager {
   }
 
   async createSession(input: CreateManagedSessionInput): Promise<GeminiSessionSnapshot> {
-    return this.open(input.appSessionId, "new", async () =>
+    return this.open(input.appSessionId, "new", null, async () =>
       GeminiAcpSession.createNew(this.sessionInput(input)),
     );
   }
 
   async loadSession(input: LoadManagedSessionInput): Promise<GeminiSessionSnapshot> {
-    return this.open(input.appSessionId, "load", async () =>
+    return this.open(input.appSessionId, "load", input.providerSessionId, async () =>
       GeminiAcpSession.load({
         ...this.sessionInput(input),
         providerSessionId: input.providerSessionId,
@@ -123,6 +123,7 @@ export class GeminiSessionManager {
   private async open(
     appSessionId: string,
     operation: "new" | "load",
+    initialProviderSessionId: string | null,
     factory: () => Promise<GeminiAcpSession>,
   ): Promise<GeminiSessionSnapshot> {
     this.assertNotDisposed();
@@ -137,7 +138,7 @@ export class GeminiSessionManager {
     this.emit({
       type: "session.started",
       appSessionId,
-      providerSessionId: null,
+      providerSessionId: initialProviderSessionId,
       occurredAt: new Date().toISOString(),
       payload: { operation },
     });
