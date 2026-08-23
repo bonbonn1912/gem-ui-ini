@@ -371,8 +371,8 @@ export function ProjectSettingsDialog({
           <div className="approval-policy-field stats-tracking-field">
             <div className="field-heading">
               <div>
-                <span>Statistik- & Nutzungsverfolgung</span>
-                <small>Erfasst Tokenverbrauch, Latenzen und Aktivitätsdaten für dieses Projekt</small>
+                <span>Insights & Tracking</span>
+                <small>Optionale Datenerfassung für dieses Projekt — beides standardmäßig aus</small>
               </div>
             </div>
             <label className="stats-toggle-label">
@@ -381,24 +381,21 @@ export function ProjectSettingsDialog({
                 checked={statsEnabled}
                 onChange={(event) => setStatsEnabled(event.target.checked)}
               />
-              <span>Statistiken für dieses Projekt erfassen (Standard: Aus)</span>
+              <span>
+                <strong>Statistiken erfassen</strong>
+                <small>Tokenverbrauch, Latenzen und Aktivitätsdaten für dieses Projekt</small>
+              </span>
             </label>
-          </div>
-
-          <div className="approval-policy-field stats-tracking-field">
-            <div className="field-heading">
-              <div>
-                <span>Live-Token-Schätzung</span>
-                <small>Zeigt während Gemini antwortet eine fortlaufende Schätzung der generierten Tokens über der Chat-Eingabe an</small>
-              </div>
-            </div>
             <label className="stats-toggle-label">
               <input
                 type="checkbox"
                 checked={liveTokensEnabled}
                 onChange={(event) => setLiveTokensEnabled(event.target.checked)}
               />
-              <span>Live-Token-Schätzung während des Runs anzeigen (Standard: Aus)</span>
+              <span>
+                <strong>Live-Token-Schätzung</strong>
+                <small>Fortlaufende Schätzung der generierten Tokens über der Chat-Eingabe, während Gemini antwortet</small>
+              </span>
             </label>
           </div>
 

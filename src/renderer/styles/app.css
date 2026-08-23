@@ -2943,13 +2943,40 @@ button:disabled, .primary-button:disabled, .secondary-button:disabled { cursor: 
 
 .stats-toggle-label {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 9px;
   cursor: pointer;
-  font-size: 13px;
   color: var(--text);
-  margin-top: 6px;
   user-select: none;
+}
+
+.stats-toggle-label input[type="checkbox"] {
+  margin-top: 2px;
+  accent-color: var(--accent);
+  flex: 0 0 auto;
+}
+
+.stats-toggle-label span {
+  display: grid;
+  gap: 1px;
+}
+
+.stats-toggle-label strong {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
+.stats-toggle-label small {
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.stats-tracking-field .stats-toggle-label + .stats-toggle-label {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-soft);
 }
 
 /* KPI Summary Cards */
@@ -3736,46 +3763,53 @@ button:disabled, .primary-button:disabled, .secondary-button:disabled { cursor: 
   line-height: 1.35;
 }
 
-/* Smiley Scale */
+/* Session rating — a quiet 1-5 scale, single accent, no emoji/rainbow */
+.export-rating-scale {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .export-smiley-bar {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 6px;
+  display: inline-flex;
+  gap: 4px;
 }
 
 .export-smiley-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  padding: 7px 3px;
-  border-radius: var(--r-md);
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-full);
   border: 1px solid var(--border);
   background: var(--surface);
-  color: var(--text);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), color var(--fast) var(--ease);
 }
 
 .export-smiley-btn:hover {
-  transform: translateY(-1px);
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  color: var(--text-soft);
+}
+
+.export-smiley-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .export-smiley-btn--active {
-  box-shadow: 0 0 0 1px currentColor;
-}
-
-.export-smiley-emoji {
-  font-size: 20px;
-  line-height: 1;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
 }
 
 .export-smiley-label {
-  font-size: 9px;
-  font-weight: 600;
+  font-size: 10.5px;
   color: var(--muted);
-  text-align: center;
   line-height: 1.2;
 }
 
