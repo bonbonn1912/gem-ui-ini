@@ -48,7 +48,9 @@ export type IconName =
   | "trending-up"
   | "warning"
   | "x"
-  | "zap";
+  | "zap"
+  | "terminal"
+  | "bug";
 
 export interface IconProps extends SVGProps<SVGSVGElement> {
   name: IconName;
@@ -394,6 +396,20 @@ export function Icon({ name, size = 18, ...props }: IconProps) {
       return (
         <svg {...common}>
           <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+        </svg>
+      );
+    case "terminal":
+      return (
+        <svg {...common}>
+          <polyline points="4 17 10 11 4 5" />
+          <line x1="12" y1="19" x2="20" y2="19" />
+        </svg>
+      );
+    case "bug":
+      return (
+        <svg {...common}>
+          <rect width="8" height="14" x="8" y="6" rx="4" />
+          <path d="m19 7-3 2M5 7l3 2M19 19l-3-2M5 19l3-2M20 13h-4M4 13h4M10 4.168a3 3 0 0 1 4 0" />
         </svg>
       );
   }

@@ -28,9 +28,13 @@ type PanelRailProps = {
   activeId: string;
   theme?: "light" | "dark";
   statsOpen?: boolean;
+  logsOpen?: boolean;
+  debugMode?: boolean;
+  errorCount?: number;
   onToggle: (id: string) => void;
   onToggleTheme?: () => void;
   onToggleStats?: () => void;
+  onToggleLogs?: () => void;
 };
 
 function cap(value: number, limit: number): string {
@@ -42,15 +46,19 @@ export function PanelRail({
   activeId,
   theme = "light",
   statsOpen = false,
+  logsOpen = false,
+  debugMode = false,
+  errorCount = 0,
   onToggle,
   onToggleTheme,
   onToggleStats,
+  onToggleLogs,
 }: PanelRailProps) {
   return (
     <nav className="panel-rail" aria-label="Panels">
       <div className="panel-rail-items">
         {items.map((item) => {
-          const open = !statsOpen && activeId === item.id;
+          const open = !statsOpen && !logsOpen && activeId === item.id;
           const name = item.name ?? item.label;
           return (
             <button
@@ -84,6 +92,22 @@ export function PanelRail({
             <Icon name="chart" size={18} />
             <span className="panel-rail-label" aria-hidden="true">
               Stats
+            </span>
+          </button>
+        )}
+
+        {debugMode && onToggleLogs && (
+          <button
+            className={`panel-rail-button panel-rail-logs-toggle ${logsOpen ? "panel-rail-button--active" : ""}`}
+            type="button"
+            aria-pressed={logsOpen}
+            aria-label={logsOpen ? "Debug-Logs schließen" : "Debug-Logs öffnen"}
+            title="Debug-Logs"
+            onClick={onToggleLogs}
+          >
+            <Icon name="terminal" size={18} />
+            <span className="panel-rail-label" aria-hidden="true">
+              Logs
             </span>
           </button>
         )}

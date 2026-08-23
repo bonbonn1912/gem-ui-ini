@@ -13,6 +13,7 @@ type ProjectSettingsDialogProps = {
   open: boolean;
   project: AppProject | null;
   maxAdditionalRoots: number;
+  debugMode?: boolean;
   onClose: () => void;
   onSave: (input: {
     name: string;
@@ -21,6 +22,7 @@ type ProjectSettingsDialogProps = {
     liveTokensEnabled?: boolean;
   }) => Promise<void>;
   onDelete: () => Promise<void>;
+  onToggleDebugMode?: (enabled: boolean) => void;
 };
 
 function displayName(candidate: ProjectRootCandidate): string {
@@ -41,9 +43,11 @@ export function ProjectSettingsDialog({
   open,
   project,
   maxAdditionalRoots,
+  debugMode,
   onClose,
   onSave,
   onDelete,
+  onToggleDebugMode,
 }: ProjectSettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<"general" | "integrations">("general");
   const [name, setName] = useState("");
@@ -371,10 +375,23 @@ export function ProjectSettingsDialog({
           <div className="approval-policy-field stats-tracking-field">
             <div className="field-heading">
               <div>
-                <span>Insights & Tracking</span>
-                <small>Optionale Datenerfassung für dieses Projekt — beides standardmäßig aus</small>
+                <span>Insights, Debugging & Tracking</span>
+                <small>Optionale Analyse- und Diagnosewerkzeuge</small>
               </div>
             </div>
+            {onToggleDebugMode && (
+              <label className="stats-toggle-label">
+                <input
+                  type="checkbox"
+                  checked={Boolean(debugMode)}
+                  onChange={(event) => onToggleDebugMode(event.target.checked)}
+                />
+                <span>
+                  <strong>Debug-Modus & Live-Logkonsole</strong>
+                  <small>Zeigt das Log-Symbol unten rechts an und erfasst Stream-Events, IPC-Nachrichten, Werkzeugaufrufe und Fehler</small>
+                </span>
+              </label>
+            )}
             <label className="stats-toggle-label">
               <input
                 type="checkbox"

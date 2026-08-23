@@ -37,6 +37,8 @@ import { ExplorerPanel, FileViewer } from "../features/explorer";
 import { McpPanel } from "../features/mcp/McpPanel";
 import { SkillsPanel } from "../features/skills/SkillsPanel";
 import { StatisticsView } from "../features/stats/StatisticsView";
+import { debugLogger } from "../features/debug/debug-logger";
+import { DebugLogModal } from "../features/debug/DebugLogModal";
 import {
   generateSessionTitleFromPrompt,
   type AppCapabilities,
@@ -405,6 +407,31 @@ export function App() {
   const [statsOpen, setStatsOpen] = useState(false);
   const [gitSelection, setGitSelection] = useState<DiffSelection | null>(null);
   const [gitRefreshToken, setGitRefreshToken] = useState(0);
+  const [debugMode, setDebugMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("geminui:debug-mode") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [debugModalOpen, setDebugModalOpen] = useState(false);
+  const [debugErrorCount, setDebugErrorCount] = useState(0);
+
+  useEffect(() => {
+    return debugLogger.subscribe((logs) => {
+      setDebugErrorCount(logs.filter((l) => l.level === "error").length);
+    });
+  }, []);
+
+  const toggleDebugMode = useCallback((enabled: boolean) => {
+    setDebugMode(enabled);
+    try {
+      localStorage.setItem("geminui:debug-mode", enabled ? "true" : "false");
+    } catch {
+      // ignore
+    }
+    debugLogger.info("app", `Debug-Modus ${enabled ? "aktiviert" : "deaktiviert"}`);
+  }, []);
   const [gitPreviewTrigger, setGitPreviewTrigger] = useState<GitPreviewTrigger | null>(null);
   const [uiError, setUiError] = useState<UiError | null>(null);
   const [fatalError, setFatalError] = useState<string | null>(null);
@@ -661,6 +688,13 @@ export function App() {
         dispatch({ type: "events", events });
         for (const envelope of events) {
           const { event } = envelope;
+          if (event.type === "tool.failed" || event.type === "turn.failed") {
+            debugLogger.error("gemini", `Fehler in Gemini: ${event.type}`, event);
+          } else if (event.type === "tool.started" || event.type === "tool.completed") {
+            debugLogger.stream("gemini", `Werkzeugaufruf: ${event.type}`, event);
+          } else if (event.type === "session.ready" || event.type === "session.started" || event.type === "turn.completed") {
+            debugLogger.info("gemini", `Gemini-Status: ${event.type}`, envelope);
+          }
           if (event.type === "tool.started") {
             gitToolBaselinesRef.current.set(
               event.toolCallId,
@@ -1425,12 +1459,16 @@ export function App() {
               activeId={rightPanel}
               theme={theme}
               statsOpen={statsOpen}
+              logsOpen={debugModalOpen}
+              debugMode={debugMode}
+              errorCount={debugErrorCount}
               onToggle={(panel) => {
                 setStatsOpen(false);
                 toggleRightPanel(panel);
               }}
               onToggleTheme={toggleTheme}
               onToggleStats={() => setStatsOpen(false)}
+              onToggleLogs={() => setDebugModalOpen((prev) => !prev)}
             />
           </div>
         ) : !projects.length ? (
@@ -1538,9 +1576,16 @@ export function App() {
               activeId={rightPanel}
               theme={theme}
               statsOpen={statsOpen}
+              logsOpen={debugModalOpen}
+              debugMode={debugMode}
+              errorCount={debugErrorCount}
               onToggle={toggleRightPanel}
               onToggleTheme={toggleTheme}
-              onToggleStats={() => setStatsOpen(true)}
+              onToggleStats={() => {
+                setStatsOpen(true);
+                setDebugModalOpen(false);
+              }}
+              onToggleLogs={() => setDebugModalOpen((prev) => !prev)}
             />
           </div>
         ) : activeProject && activeSession ? (
@@ -1704,9 +1749,16 @@ export function App() {
               activeId={rightPanel}
               theme={theme}
               statsOpen={statsOpen}
+              logsOpen={debugModalOpen}
+              debugMode={debugMode}
+              errorCount={debugErrorCount}
               onToggle={toggleRightPanel}
               onToggleTheme={toggleTheme}
-              onToggleStats={() => setStatsOpen(true)}
+              onToggleStats={() => {
+                setStatsOpen(true);
+                setDebugModalOpen(false);
+              }}
+              onToggleLogs={() => setDebugModalOpen((prev) => !prev)}
             />
           </div>
         ) : null}
@@ -1723,9 +1775,11 @@ export function App() {
         open={projectSettingsOpen}
         project={activeProject}
         maxAdditionalRoots={capabilities.gemini.maxAdditionalRoots || 5}
+        debugMode={debugMode}
         onClose={() => setProjectSettingsOpen(false)}
         onSave={updateProject}
         onDelete={deleteProject}
+        onToggleDebugMode={toggleDebugMode}
       />
 
       <ReconnectHistoryModal
@@ -1746,6 +1800,13 @@ export function App() {
         <SessionExportDialog
           session={exportingSession}
           onClose={() => setExportingSession(null)}
+        />
+      )}
+
+      {debugMode && (
+        <DebugLogModal
+          open={debugModalOpen}
+          onClose={() => setDebugModalOpen(false)}
         />
       )}
 
