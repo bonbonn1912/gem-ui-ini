@@ -40,10 +40,12 @@ type ComposerProps = {
   liveEstimatedTokens?: number | null;
   disabled?: boolean;
   draft?: ComposerDraft | null;
+  pendingProjectFileRefs?: ProjectFileSearchEntry[] | null;
   externalContexts?: PreparedExternalContext[];
   sessionMode?: string | null;
   hasPendingPlan?: boolean;
   onDraftApplied?: () => void;
+  onProjectFileRefsApplied?: () => void;
   onRemoveExternalContext?: (refId: string) => void;
   onOpenContextAttachments: () => void;
   onSend: (
@@ -120,10 +122,12 @@ export function Composer({
   liveEstimatedTokens = null,
   disabled = false,
   draft = null,
+  pendingProjectFileRefs = null,
   externalContexts = [],
   sessionMode = null,
   hasPendingPlan = true,
   onDraftApplied,
+  onProjectFileRefsApplied,
   onRemoveExternalContext,
   onOpenContextAttachments,
   onSend,
@@ -222,30 +226,86 @@ export function Composer({
     }
   }, [addStaged, onError, projectId, sessionId]);
 
+  const addProjectFileReferences = useCallback(
+    (entries: ProjectFileSearchEntry[]) => {
+      const eligible = entries.filter((e) => e.contextEligible);
+      const skipped = entries.length - eligible.length;
+      setProjectFiles((current) => {
+        const seen = new Set(current.map((e) => `${e.rootId}\0${e.relativePath}`));
+        const additions = eligible.filter((e) => !seen.has(`${e.rootId}\0${e.relativePath}`));
+        const room = MAX_PROJECT_FILE_REFERENCES - current.length;
+        if (additions.length > room) {
+          onError(
+            `Pro Nachricht können höchstens ${MAX_PROJECT_FILE_REFERENCES} Projektdateien oder -ordner referenziert werden.`,
+          );
+        }
+        return [...current, ...additions.slice(0, Math.max(0, room))];
+      });
+      if (skipped > 0) {
+        onError(`${skipped} Eintrag/Einträge waren nicht als Kontext geeignet und wurden übersprungen.`);
+      }
+    },
+    [onError],
+  );
+
   useEffect(() => {
-    const hasFiles = (event: DragEvent) => Array.from(event.dataTransfer?.types ?? []).includes("Files");
+    if (!pendingProjectFileRefs || pendingProjectFileRefs.length === 0) return;
+    addProjectFileReferences(pendingProjectFileRefs);
+    onProjectFileRefsApplied?.();
+  }, [pendingProjectFileRefs, addProjectFileReferences, onProjectFileRefsApplied]);
+
+  useEffect(() => {
+    const hasFiles = (event: DragEvent) =>
+      Array.from(event.dataTransfer?.types ?? []).includes("Files");
+    const hasProjectFileRefs = (event: DragEvent) =>
+      Array.from(event.dataTransfer?.types ?? []).includes(
+        "application/x-geminui-project-file-refs",
+      );
+
     const enter = (event: DragEvent) => {
-      if (!hasFiles(event)) return;
+      if (!hasFiles(event) && !hasProjectFileRefs(event)) return;
       event.preventDefault();
       dragDepth.current += 1;
       setDragging(true);
     };
     const over = (event: DragEvent) => {
-      if (!hasFiles(event)) return;
+      if (!hasFiles(event) && !hasProjectFileRefs(event)) return;
       event.preventDefault();
       if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
     };
     const leave = (event: DragEvent) => {
-      if (!hasFiles(event)) return;
+      if (!hasFiles(event) && !hasProjectFileRefs(event)) return;
       dragDepth.current = Math.max(0, dragDepth.current - 1);
       if (dragDepth.current === 0) setDragging(false);
     };
     const drop = (event: DragEvent) => {
-      if (!hasFiles(event)) return;
+      const isFiles = hasFiles(event);
+      const isRefs = hasProjectFileRefs(event);
+      if (!isFiles && !isRefs) return;
       event.preventDefault();
       dragDepth.current = 0;
       setDragging(false);
-      addFiles(Array.from(event.dataTransfer?.files ?? []));
+
+      if (isRefs) {
+        try {
+          const raw = event.dataTransfer?.getData(
+            "application/x-geminui-project-file-refs",
+          );
+          if (raw) {
+            const parsed = JSON.parse(raw) as ProjectFileSearchEntry[];
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              addProjectFileReferences(parsed);
+              return;
+            }
+          }
+        } catch {
+          // ignore JSON parse error
+        }
+      }
+
+      if (isFiles) {
+        addFiles(Array.from(event.dataTransfer?.files ?? []));
+      }
     };
 
     window.addEventListener("dragenter", enter);
@@ -258,7 +318,7 @@ export function Composer({
       window.removeEventListener("dragleave", leave);
       window.removeEventListener("drop", drop);
     };
-  }, [addFiles]);
+  }, [addFiles, addProjectFileReferences]);
 
   useEffect(() => () => {
     for (const attachment of attachmentsRef.current) URL.revokeObjectURL(attachment.previewUrl);

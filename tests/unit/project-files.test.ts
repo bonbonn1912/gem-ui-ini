@@ -208,6 +208,171 @@ describe("ProjectFileService", () => {
       database.close();
     }
   });
+
+  it("listet direkte Kinder eines Ordners auf mit rootId-Isolation und Sortierung", async () => {
+    const fixture = await createFixture();
+    const database = openSqliteDatabase(":memory:");
+    try {
+      const projects = new ProjectService(new ProjectRepository(database));
+      const project = await projects.create({
+        clientRequestId: randomUUID(),
+        name: "Explorer Baum",
+        primaryRootPath: fixture.primary,
+        additionalRootPaths: [fixture.additional],
+      });
+      const service = new ProjectFileService(projects);
+
+      const primaryRootId = project.roots[0]!.id;
+      const additionalRootId = project.roots[1]!.id;
+
+      // 1. Wurzel des primären Roots ("backend"): enthält "src" als Ordner
+      const primaryRootList = await service.listChildren({
+        projectId: project.id,
+        expectedRootRevision: project.rootRevision,
+        rootId: primaryRootId,
+        relativePath: "",
+      });
+
+      expect(primaryRootList.entries).toHaveLength(1);
+      expect(primaryRootList.entries[0]).toMatchObject({
+        kind: "directory",
+        relativePath: "src",
+        displayName: "src",
+        rootId: primaryRootId,
+        childCount: 2,
+      });
+
+      // 2. Unterordner "src" des primären Roots: enthält auth.ts und auth-helper.ts (alphabetisch sortiert)
+      const srcList = await service.listChildren({
+        projectId: project.id,
+        expectedRootRevision: project.rootRevision,
+        rootId: primaryRootId,
+        relativePath: "src",
+      });
+
+      expect(srcList.entries).toHaveLength(2);
+      expect(srcList.entries[0]).toMatchObject({
+        kind: "file",
+        relativePath: "src/auth-helper.ts",
+        displayName: "auth-helper.ts",
+        rootId: primaryRootId,
+      });
+      expect(srcList.entries[1]).toMatchObject({
+        kind: "file",
+        relativePath: "src/auth.ts",
+        displayName: "auth.ts",
+        rootId: primaryRootId,
+      });
+
+      // 3. Wurzel des zusätzlichen Roots ("frontend"): enthält "packages"
+      const additionalRootList = await service.listChildren({
+        projectId: project.id,
+        expectedRootRevision: project.rootRevision,
+        rootId: additionalRootId,
+        relativePath: "",
+      });
+
+      expect(additionalRootList.entries).toHaveLength(1);
+      expect(additionalRootList.entries[0]).toMatchObject({
+        kind: "directory",
+        relativePath: "packages",
+        displayName: "packages",
+        rootId: additionalRootId,
+      });
+
+      // 4. Abweichende Revision wirft Fehler
+      await expect(
+        service.listChildren({
+          projectId: project.id,
+          expectedRootRevision: 999,
+          rootId: primaryRootId,
+          relativePath: "",
+        }),
+      ).rejects.toThrow(/Die Projektordner wurden geändert/);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("liest Dateiinhalt schreibgeschützt ein (Text, Sprache, Zeilen und Bildvorschau)", async () => {
+    const fixture = await createFixture();
+    // Create an image fixture file
+    const samplePng = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+      0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+      0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+      0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+      0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ]);
+    await writeFile(path.join(fixture.primary, "src", "icon.png"), samplePng);
+
+    const database = openSqliteDatabase(":memory:");
+    try {
+      const projects = new ProjectService(new ProjectRepository(database));
+      const project = await projects.create({
+        clientRequestId: randomUUID(),
+        name: "File Viewer Test",
+        primaryRootPath: fixture.primary,
+        additionalRootPaths: [],
+      });
+      const service = new ProjectFileService(projects);
+      const rootId = project.roots[0]!.id;
+
+      // 1. Textdatei lesen
+      const textFile = await service.readFile({
+        projectId: project.id,
+        expectedRootRevision: project.rootRevision,
+        rootId,
+        relativePath: "src/auth.ts",
+      });
+
+      expect(textFile).toMatchObject({
+        projectId: project.id,
+        rootRevision: project.rootRevision,
+        rootId,
+        relativePath: "src/auth.ts",
+        displayName: "auth.ts",
+        binary: false,
+        language: "typescript",
+        lineCount: 2,
+        truncated: false,
+      });
+      expect(textFile.content).toContain("export const auth = true;");
+
+      // 2. Bilddatei lesen (Base64 Data-URL)
+      const imageFile = await service.readFile({
+        projectId: project.id,
+        expectedRootRevision: project.rootRevision,
+        rootId,
+        relativePath: "src/icon.png",
+      });
+
+      expect(imageFile).toMatchObject({
+        projectId: project.id,
+        rootRevision: project.rootRevision,
+        rootId,
+        relativePath: "src/icon.png",
+        displayName: "icon.png",
+        binary: true,
+        mimeType: "image/png",
+        truncated: false,
+      });
+      expect(imageFile.content).toMatch(/^data:image\/png;base64,/);
+
+      // 3. Traversal-Schutz
+      await expect(
+        service.readFile({
+          projectId: project.id,
+          expectedRootRevision: project.rootRevision,
+          rootId,
+          relativePath: "../secret.txt",
+        }),
+      ).rejects.toThrow();
+    } finally {
+      database.close();
+    }
+  });
 });
 
 async function createFixture(): Promise<{ primary: string; additional: string }> {

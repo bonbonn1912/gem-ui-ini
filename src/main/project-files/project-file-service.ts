@@ -12,6 +12,14 @@ import {
   ProjectFileSearchResultSchema,
   ProjectRelativePathSchema,
   SearchProjectFilesInputSchema,
+  ListProjectDirectoryInputSchema,
+  ProjectFileListDirectoryResultSchema,
+  ReadProjectFileInputSchema,
+  ReadProjectFileResultSchema,
+  type ListProjectDirectoryInput,
+  type ProjectFileListDirectoryResult,
+  type ReadProjectFileInput,
+  type ReadProjectFileResult,
   type ProjectAccess,
   type ProjectFilePromptSnapshot,
   type ProjectFileReferenceInput,
@@ -109,6 +117,126 @@ export class ProjectFileService {
       rootRevision: parsed.expectedRootRevision,
       entries,
       truncated: index.truncated,
+    });
+  }
+
+  /**
+   * Liefert alle direkten Kinder (Ordner und Dateien) eines Projektordners
+   * für die Baumansicht im Explorer.
+   */
+  async listChildren(
+    input: ListProjectDirectoryInput,
+  ): Promise<ProjectFileListDirectoryResult> {
+    const parsed = ListProjectDirectoryInputSchema.parse(input);
+    const stored = this.projects.get(parsed.projectId);
+    if (stored.rootRevision !== parsed.expectedRootRevision) {
+      throw new Error("Die Projektordner wurden geändert. Öffne den Explorer erneut.");
+    }
+    const index = await this.#getIndex(parsed.projectId, parsed.expectedRootRevision);
+    const prefix = parsed.relativePath ? `${parsed.relativePath}/` : "";
+
+    const isDirectChild = (relativePath: string): boolean => {
+      if (!relativePath.startsWith(prefix)) return false;
+      const remainder = relativePath.slice(prefix.length);
+      return remainder.length > 0 && !remainder.includes("/");
+    };
+
+    const directories = index.directories
+      .filter((d) => d.rootId === parsed.rootId && isDirectChild(d.relativePath))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, "de"))
+      .map((directory) => toDirectoryEntry(directory));
+
+    const files = index.files
+      .filter((f) => f.rootId === parsed.rootId && isDirectChild(f.relativePath))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, "de"));
+
+    const inspected = (
+      await Promise.all(files.map((file) => inspectSearchEntry(file)))
+    ).filter((entry): entry is ProjectFileSearchEntry => entry !== null);
+
+    return ProjectFileListDirectoryResultSchema.parse({
+      projectId: parsed.projectId,
+      rootRevision: parsed.expectedRootRevision,
+      entries: [...directories, ...inspected],
+      truncated: index.truncated,
+    });
+  }
+
+  /**
+   * Liest eine autorisierte Projektdatei schreibgeschützt ein (z. B. für den File-Viewer).
+   */
+  async readFile(input: ReadProjectFileInput): Promise<ReadProjectFileResult> {
+    const parsed = ReadProjectFileInputSchema.parse(input);
+    const access = await this.projects.getCurrentAccess(parsed.projectId);
+    if (access.rootRevision !== parsed.expectedRootRevision) {
+      throw new Error("Die Projektordner wurden geändert. Öffne die Datei erneut.");
+    }
+    const roots = new Map(
+      [access.primaryRoot, ...access.additionalRoots].map((root) => [root.id, root]),
+    );
+    const root = roots.get(parsed.rootId);
+    if (!root) {
+      throw new Error("Die angeforderte Datei gehört nicht zu diesem Projekt.");
+    }
+
+    const file = await readAuthorizedProjectFile(root.realPath, parsed.relativePath);
+    const mimeType = sniffMime(file.bytes, file.displayName);
+    const isText = isTextualMime(mimeType);
+    const language = syntaxLanguage(mimeType, file.displayName);
+
+    if (isText) {
+      const decoded = new TextDecoder("utf-8", { fatal: false }).decode(file.bytes);
+      const lineCount = decoded.length > 0 ? decoded.split("\n").length : 0;
+      return ReadProjectFileResultSchema.parse({
+        projectId: parsed.projectId,
+        rootRevision: parsed.expectedRootRevision,
+        rootId: parsed.rootId,
+        relativePath: parsed.relativePath,
+        displayName: file.displayName,
+        size: file.bytes.byteLength,
+        mimeType,
+        binary: false,
+        content: decoded,
+        truncated: false,
+        lineCount,
+        language,
+      });
+    }
+
+    // Falls Bild: Vorschau per Data-URL ermöglichen
+    if (mimeType.startsWith("image/")) {
+      const base64 = Buffer.from(file.bytes).toString("base64");
+      const dataUrl = `data:${mimeType};base64,${base64}`;
+      return ReadProjectFileResultSchema.parse({
+        projectId: parsed.projectId,
+        rootRevision: parsed.expectedRootRevision,
+        rootId: parsed.rootId,
+        relativePath: parsed.relativePath,
+        displayName: file.displayName,
+        size: file.bytes.byteLength,
+        mimeType,
+        binary: true,
+        content: dataUrl,
+        truncated: false,
+        lineCount: 0,
+        language: null,
+      });
+    }
+
+    // Nicht lesbare Binärdatei
+    return ReadProjectFileResultSchema.parse({
+      projectId: parsed.projectId,
+      rootRevision: parsed.expectedRootRevision,
+      rootId: parsed.rootId,
+      relativePath: parsed.relativePath,
+      displayName: file.displayName,
+      size: file.bytes.byteLength,
+      mimeType,
+      binary: true,
+      content: null,
+      truncated: false,
+      lineCount: 0,
+      language: null,
     });
   }
 

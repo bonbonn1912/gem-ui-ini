@@ -44,6 +44,10 @@ import type {
   ProjectRootCandidate as ContractProjectRootCandidate,
   ProjectApprovalPolicy as ContractProjectApprovalPolicy,
   ProjectFileSearchEntry as ContractProjectFileSearchEntry,
+  ListProjectDirectoryInput as ContractListProjectDirectoryInput,
+  ProjectFileListDirectoryResult as ContractProjectFileListDirectoryResult,
+  ReadProjectFileInput as ContractReadProjectFileInput,
+  ReadProjectFileResult as ContractReadProjectFileResult,
   ProjectWithRoots,
   StreamEnvelope as ContractStreamEnvelope,
   Todo as ContractTodo,
@@ -87,6 +91,10 @@ export type ProjectRoot = ContractProjectRoot;
 export type ProjectRootCandidate = ContractProjectRootCandidate;
 export type ProjectApprovalPolicy = ContractProjectApprovalPolicy;
 export type ProjectFileSearchEntry = ContractProjectFileSearchEntry;
+export type ListProjectDirectoryInput = ContractListProjectDirectoryInput;
+export type ProjectFileListDirectoryResult = ContractProjectFileListDirectoryResult;
+export type ReadProjectFileInput = ContractReadProjectFileInput;
+export type ReadProjectFileResult = ContractReadProjectFileResult;
 export type Attachment = ContractAttachment;
 export type ContextAttachment = ContractContextAttachment;
 export type ContextAttachmentList = ContractContextAttachmentList;

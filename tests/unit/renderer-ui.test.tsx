@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/renderer/app/App";
@@ -222,6 +222,26 @@ function createApi(options: {
         entries: [],
         truncated: false,
       }),
+      listDirectory: vi.fn().mockResolvedValue({
+        projectId: project.id,
+        rootRevision: project.rootRevision,
+        entries: [],
+        truncated: false,
+      }),
+      readFile: vi.fn().mockImplementation(async (input) => ({
+        projectId: input.projectId,
+        rootRevision: input.expectedRootRevision,
+        rootId: input.rootId,
+        relativePath: input.relativePath,
+        displayName: input.relativePath.split("/").pop() || input.relativePath,
+        size: 120,
+        mimeType: "text/markdown",
+        binary: false,
+        content: "# Test Project\n\nHello world",
+        truncated: false,
+        lineCount: 3,
+        language: "markdown",
+      })),
     },
     todos: {
       list: vi.fn().mockImplementation(async () => options.todos ?? emptyTodoList()),
@@ -2125,5 +2145,155 @@ describe("Renderer UI", () => {
 
     expect(screen.queryByText(/geschätzt/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Tokens/i)).not.toBeInTheDocument();
+  });
+
+  it("öffnet den Projekt-Explorer über die Panel-Leiste, zeigt Dateibaum an und übernimmt Datei in den Composer-Kontext", async () => {
+    const user = userEvent.setup();
+    const { api } = createApi();
+
+    const rootId = project.roots[0]!.id;
+    api.projectFiles.listDirectory = vi.fn().mockImplementation(async (input) => {
+      if (input.rootId === rootId && input.relativePath === "") {
+        return {
+          projectId: project.id,
+          rootRevision: project.rootRevision,
+          entries: [
+            {
+              rootId,
+              rootLabel: project.name,
+              relativePath: "src",
+              displayName: "src",
+              kind: "directory",
+              size: 0,
+              childCount: 1,
+              contextEligible: true,
+              contextUnavailableReason: null,
+            },
+            {
+              rootId,
+              rootLabel: project.name,
+              relativePath: "README.md",
+              displayName: "README.md",
+              kind: "file",
+              size: 120,
+              childCount: 0,
+              contextEligible: true,
+              contextUnavailableReason: null,
+            },
+          ],
+          truncated: false,
+        };
+      }
+      if (input.rootId === rootId && input.relativePath === "src") {
+        return {
+          projectId: project.id,
+          rootRevision: project.rootRevision,
+          entries: [
+            {
+              rootId,
+              rootLabel: project.name,
+              relativePath: "src/index.ts",
+              displayName: "index.ts",
+              kind: "file",
+              size: 240,
+              childCount: 0,
+              contextEligible: true,
+              contextUnavailableReason: null,
+            },
+          ],
+          truncated: false,
+        };
+      }
+      return {
+        projectId: project.id,
+        rootRevision: project.rootRevision,
+        entries: [],
+        truncated: false,
+      };
+    });
+
+    window.gemUi = api;
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Login reparieren" });
+
+    // Open Explorer via rail button
+    const explorerBtn = screen.getByRole("button", { name: /Explorer/i });
+    await user.click(explorerBtn);
+
+    expect(await screen.findByRole("complementary", { name: "Projekt-Explorer" })).toBeInTheDocument();
+    expect(screen.getByRole("tree", { name: "Dateibaum" })).toBeInTheDocument();
+
+    // Verify root files are listed
+    expect(await screen.findByText("src")).toBeInTheDocument();
+    expect(screen.getByText("README.md")).toBeInTheDocument();
+
+    // Expand "src" directory
+    const srcFolder = screen.getByText("src");
+    await user.click(srcFolder);
+
+    // Verify sub-file index.ts is loaded and visible
+    expect(await screen.findByText("index.ts")).toBeInTheDocument();
+
+    // Click README.md to open in FileViewer
+    const readmeFile = screen.getByText("README.md");
+    await user.click(readmeFile);
+
+    // FileViewer is now visible in the center workspace while ExplorerTree remains in the right panel
+    expect(await screen.findByRole("region", { name: /Dateiinhalt: README.md/i })).toBeInTheDocument();
+    expect(screen.getByRole("tree", { name: "Dateibaum" })).toBeInTheDocument();
+    expect(await screen.findByText("# Test Project")).toBeInTheDocument();
+    expect(screen.getByText("3 Zeilen")).toBeInTheDocument();
+    expect(screen.getByText("markdown")).toBeInTheDocument();
+
+    // Click "In Chat" button inside FileViewer
+    const inChatBtn = screen.getByRole("button", { name: "Datei in Chat übernehmen" });
+    await user.click(inChatBtn);
+
+    // Click Close button in FileViewer
+    const closeBtn = screen.getByRole("button", { name: "Dateivorschau schließen" });
+    await user.click(closeBtn);
+
+    // FileViewer is closed, chat-view is active and Composer shows referenced file
+    expect(screen.queryByRole("region", { name: /Dateiinhalt: README.md/i })).toBeNull();
+    const strip = await screen.findByLabelText("Referenzierte Projektdateien und -ordner");
+    expect(within(strip).getByText("README.md")).toBeInTheDocument();
+  });
+
+  it("übernimmt per Drag-and-drop gezogene Projektdateien in den Composer-Kontext", async () => {
+    const { api } = createApi();
+    window.gemUi = api;
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Login reparieren" });
+
+    const rootId = project.roots[0]!.id;
+    const droppedRef = {
+      rootId,
+      rootLabel: project.name,
+      relativePath: "package.json",
+      displayName: "package.json",
+      kind: "file",
+      size: 500,
+      childCount: 0,
+      contextEligible: true,
+      contextUnavailableReason: null,
+    };
+
+    // Simulate drop with application/x-geminui-project-file-refs
+    const dataTransfer = {
+      types: ["application/x-geminui-project-file-refs"],
+      getData: (format: string) =>
+        format === "application/x-geminui-project-file-refs"
+          ? JSON.stringify([droppedRef])
+          : "",
+      files: [],
+    };
+
+    fireEvent.drop(window, { dataTransfer });
+
+    // Verify package.json reference chip appeared in Composer
+    const strip = await screen.findByLabelText("Referenzierte Projektdateien und -ordner");
+    expect(within(strip).getByText("package.json")).toBeInTheDocument();
   });
 });
