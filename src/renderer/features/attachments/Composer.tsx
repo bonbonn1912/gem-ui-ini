@@ -747,17 +747,19 @@ export function Composer({
               </div>
             </div>
           )}
-          {running && liveEstimatedTokens !== null && liveEstimatedTokens > 0 && (
-            <div className="composer-live-token-banner" aria-live="polite">
-              <span className="live-token-pulse-dot" />
-              <span className="live-token-icon">
-                <Icon name="sparkle" size={13} />
-              </span>
-              <span className="live-token-label">Geschätzter Token-Output:</span>
-              <strong className="live-token-value">
-                ~{liveEstimatedTokens.toLocaleString("de-DE")} Tokens
-              </strong>
-              <small className="live-token-hint">(Live-Schätzung)</small>
+          {running && (
+            <div className="composer-status-banner" aria-live="polite">
+              <span className="composer-status-dots" aria-hidden="true"><i /><i /><i /></span>
+              <span className="composer-status-label">Gemini arbeitet gerade …</span>
+              {liveEstimatedTokens !== null && liveEstimatedTokens > 0 && (
+                <span className="composer-status-tokens">
+                  <span className="live-token-icon">
+                    <Icon name="sparkle" size={12} />
+                  </span>
+                  <strong className="live-token-value">~{liveEstimatedTokens.toLocaleString("de-DE")} Tokens</strong>
+                  <small className="live-token-hint">geschätzt</small>
+                </span>
+              )}
             </div>
           )}
           <textarea
@@ -796,7 +798,7 @@ export function Composer({
               </button>
               <span className="composer-context" id={running ? "composer-running-status" : undefined}>
                 <span className={`context-dot ${running ? "context-dot--working" : ""}`} />
-                {running ? "Antwort läuft · Entwurf bleibt erhalten" : "Kontext: alle Projektordner"}
+                {running ? "Entwurf bleibt erhalten" : "Kontext: alle Projektordner"}
               </span>
             </div>
             {contextAttachmentCount > 0 && (

@@ -26,8 +26,9 @@ const SessionStartedEventSchema = z
 const SessionReadyEventSchema = z
   .object({
     type: z.literal("session.ready"),
-    modes: z.array(z.string().trim().min(1).max(100)),
-    models: z.array(z.string().trim().min(1).max(200)),
+    providerSessionId: z.string().trim().min(1).max(500).nullable().optional(),
+    modes: z.array(z.string().trim().min(1).max(100)).optional().default([]),
+    models: z.array(z.string().trim().min(1).max(200)).optional().default([]),
   })
   .strict();
 

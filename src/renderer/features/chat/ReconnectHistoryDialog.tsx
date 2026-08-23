@@ -14,27 +14,37 @@ export function ReconnectHistoryModal({
   if (!open) return null;
 
   return (
-    <div className="modal-backdrop" onClick={onCancel} role="presentation">
-      <div
-        className="modal-card reconnect-modal"
-        onClick={(e) => e.stopPropagation()}
+    <div
+      className="modal-layer"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onCancel();
+      }}
+    >
+      <section
+        className="project-dialog reconnect-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="reconnect-dialog-title"
       >
-        <header className="modal-header">
-          <div className="reconnect-modal-badge">
-            <Icon name="refresh" size={18} />
+        <header>
+          <div className="dialog-title-group">
+            <span className="dialog-icon-badge">
+              <Icon name="refresh" size={18} />
+            </span>
+            <div>
+              <h3 id="reconnect-dialog-title" className="dialog-title-group-title">Gemini-Sitzung neu gestartet</h3>
+              <p className="dialog-title-group-subtitle">
+                Die Hintergrundverbindung zur Gemini CLI wurde neu aufgebaut. Wie möchtest du fortfahren?
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 id="reconnect-dialog-title">Gemini-Sitzung neu gestartet</h3>
-            <p className="modal-subtitle">
-              Die Hintergrundverbindung zur Gemini CLI wurde neu aufgebaut. Wie möchtest du fortfahren?
-            </p>
-          </div>
+          <button className="icon-button" type="button" onClick={onCancel} aria-label="Dialog schließen">
+            <Icon name="x" size={19} />
+          </button>
         </header>
 
-        <div className="reconnect-modal-body">
+        <div className="dialog-body">
           <button
             type="button"
             className="reconnect-option-card reconnect-option-card--primary"
@@ -69,12 +79,12 @@ export function ReconnectHistoryModal({
           </button>
         </div>
 
-        <footer className="modal-footer">
-          <button type="button" className="ghost-button" onClick={onCancel}>
+        <footer>
+          <button type="button" className="secondary-button" onClick={onCancel}>
             Abbrechen
           </button>
         </footer>
-      </div>
+      </section>
     </div>
   );
 }

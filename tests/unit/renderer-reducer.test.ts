@@ -259,6 +259,53 @@ describe("chatReducer", () => {
     expect(restored.usage?.revision).toBe(9);
     expect(chatReducer(restored, { type: "usage-snapshot", snapshot: null }).usage?.revision).toBe(9);
   });
+
+  it("erfasst Provider-Sessions über session.ready und setzt transferredContext bei Folgesessions", () => {
+    const s1 = chatReducer(createChatState("session-1"), {
+      type: "events",
+      events: [
+        envelope(1, {
+          type: "session.ready",
+          providerSessionId: "provider-1",
+          modes: ["default"],
+          models: ["gemini-2.5-pro"],
+        }),
+      ],
+    });
+
+    expect(s1.providerSessions).toEqual([
+      {
+        providerSessionId: "provider-1",
+        startedAt: "2026-08-20T12:00:01.000Z",
+        transferredContext: false,
+      },
+    ]);
+
+    const s2 = chatReducer(s1, {
+      type: "events",
+      events: [
+        envelope(2, {
+          type: "session.ready",
+          providerSessionId: "provider-2",
+          modes: ["default"],
+          models: ["gemini-2.5-pro"],
+        }),
+      ],
+    });
+
+    expect(s2.providerSessions).toEqual([
+      {
+        providerSessionId: "provider-1",
+        startedAt: "2026-08-20T12:00:01.000Z",
+        transferredContext: false,
+      },
+      {
+        providerSessionId: "provider-2",
+        startedAt: "2026-08-20T12:00:02.000Z",
+        transferredContext: true,
+      },
+    ]);
+  });
 });
 
 function counters(overrides: Partial<TokenCounters> = {}): TokenCounters {

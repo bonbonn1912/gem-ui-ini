@@ -52,19 +52,19 @@ export function StatsSummaryCards({ summary }: { summary: StatsSummary }) {
             Out: <strong>{formatNumber(summary.outputTokens)}</strong> ({outPct}%)
           </span>
           <span className="stats-token-chip stats-token-chip--cache" title="Prompt Cache Hit-Rate">
-            ⚡ Cache: <strong>{summary.cacheHitRate}%</strong>
+            <Icon name="zap" size={10} /> Cache: <strong>{summary.cacheHitRate}%</strong>
             {summary.cachedTokens > 0 && ` (${formatNumber(summary.cachedTokens)})`}
           </span>
           {summary.thoughtTokens > 0 && (
             <span className="stats-token-chip" title="Thought Tokens">
-              🧠 Thought: <strong>{formatNumber(summary.thoughtTokens)}</strong>
+              <Icon name="brain" size={10} /> Thought: <strong>{formatNumber(summary.thoughtTokens)}</strong>
             </span>
           )}
         </div>
       </div>
 
       {/* 2. Response Duration Card */}
-      <div className="stats-kpi-card stats-kpi-card--speed">
+      <div className="stats-kpi-card">
         <div className="stats-kpi-header">
           <span className="stats-kpi-icon">
             <Icon name="clock" size={20} />
@@ -78,7 +78,7 @@ export function StatsSummaryCards({ summary }: { summary: StatsSummary }) {
       </div>
 
       {/* 3. Lines of Code Card */}
-      <div className="stats-kpi-card stats-kpi-card--code">
+      <div className="stats-kpi-card">
         <div className="stats-kpi-header">
           <span className="stats-kpi-icon">
             <Icon name="file-text" size={20} />
@@ -92,7 +92,7 @@ export function StatsSummaryCards({ summary }: { summary: StatsSummary }) {
       </div>
 
       {/* 4. File Operations Card */}
-      <div className="stats-kpi-card stats-kpi-card--files">
+      <div className="stats-kpi-card">
         <div className="stats-kpi-header">
           <span className="stats-kpi-icon">
             <Icon name="folder" size={20} />
@@ -111,7 +111,7 @@ export function StatsSummaryCards({ summary }: { summary: StatsSummary }) {
       </div>
 
       {/* 5. Skills & MCP Tools Card */}
-      <div className="stats-kpi-card stats-kpi-card--tools">
+      <div className="stats-kpi-card">
         <div className="stats-kpi-header">
           <span className="stats-kpi-icon">
             <Icon name="skill" size={20} />
@@ -129,7 +129,7 @@ export function StatsSummaryCards({ summary }: { summary: StatsSummary }) {
       </div>
 
       {/* 6. Git & Shell Actions Card */}
-      <div className="stats-kpi-card stats-kpi-card--terminal">
+      <div className="stats-kpi-card">
         <div className="stats-kpi-header">
           <span className="stats-kpi-icon">
             <Icon name="tool" size={20} />
@@ -147,7 +147,7 @@ export function StatsSummaryCards({ summary }: { summary: StatsSummary }) {
       </div>
 
       {/* 7. Plan Mode Acceptance Card */}
-      <div className="stats-kpi-card stats-kpi-card--plan">
+      <div className="stats-kpi-card">
         <div className="stats-kpi-header">
           <span className="stats-kpi-icon">
             <Icon name="brain" size={20} />
@@ -156,14 +156,14 @@ export function StatsSummaryCards({ summary }: { summary: StatsSummary }) {
         </div>
         <div className="stats-kpi-value">{summary.planAcceptanceRate}%</div>
         <div className="stats-kpi-subtext">
-          <span>✓ {summary.planAccepted} Angenommen</span>
+          <span><Icon name="check" size={10} /> {summary.planAccepted} Angenommen</span>
           <span>•</span>
-          <span>✕ {summary.planRejected} Abgelehnt</span>
+          <span><Icon name="x" size={10} /> {summary.planRejected} Abgelehnt</span>
         </div>
       </div>
 
       {/* 8. Total Turns Card */}
-      <div className="stats-kpi-card stats-kpi-card--turns">
+      <div className="stats-kpi-card">
         <div className="stats-kpi-header">
           <span className="stats-kpi-icon">
             <Icon name="chat" size={20} />

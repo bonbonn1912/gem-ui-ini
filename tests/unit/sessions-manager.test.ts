@@ -247,6 +247,20 @@ describe("GeminiSessionManager ACP contract", () => {
     expect(
       events.some(
         (event) =>
+          event.type === "session.started" &&
+          event.providerSessionId === "provider-existing",
+      ),
+    ).toBe(true);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "session.ready" &&
+          event.providerSessionId === "provider-existing",
+      ),
+    ).toBe(true);
+    expect(
+      events.some(
+        (event) =>
           event.type === "message.assistant.delta" &&
           event.providerSessionId === "provider-existing",
       ),

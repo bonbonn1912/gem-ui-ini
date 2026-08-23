@@ -196,7 +196,7 @@ export function GitLabPanel({
                   title="Der Thread wird sofort als Prompt gesendet"
                   onClick={() => chooseDelivery("send")}
                 >
-                  Direkt senden
+                  <span>Direkt senden</span>
                 </button>
                 <button
                   type="button"
@@ -205,7 +205,7 @@ export function GitLabPanel({
                   title="Der Thread landet im Eingabefeld, damit du eigenen Kontext ergänzen kannst"
                   onClick={() => chooseDelivery("draft")}
                 >
-                  Bearbeiten
+                  <span>Bearbeiten</span>
                 </button>
               </div>
             )}
@@ -217,21 +217,21 @@ export function GitLabPanel({
                   className={`filter-tab ${filterTab === "unresolved" ? "filter-tab--active" : ""}`}
                   onClick={() => setFilterTab("unresolved")}
                 >
-                  Offen <i>{reviewState?.unresolvedDiscussionsCount ?? 0}</i>
+                  <span>Offen</span> <i>{reviewState?.unresolvedDiscussionsCount ?? 0}</i>
                 </button>
                 <button
                   type="button"
                   className={`filter-tab ${filterTab === "all" ? "filter-tab--active" : ""}`}
                   onClick={() => setFilterTab("all")}
                 >
-                  Alle <i>{reviewState?.totalDiscussionsCount ?? 0}</i>
+                  <span>Alle</span> <i>{reviewState?.totalDiscussionsCount ?? 0}</i>
                 </button>
                 <button
                   type="button"
                   className={`filter-tab ${filterTab === "mine" ? "filter-tab--active" : ""}`}
                   onClick={() => setFilterTab("mine")}
                 >
-                  Von mir
+                  <span>Von mir</span>
                 </button>
               </div>
             )}

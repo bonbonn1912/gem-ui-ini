@@ -6,26 +6,33 @@ import type {
   StatsTimeSeriesPoint,
 } from "../../../shared/contracts";
 
+// Categorical chart palette — CSS custom properties, not hardcoded hex, so
+// the palette lives in one place (app.css) and follows the light/dark
+// theme automatically. Reserved for genuine multi-series identity (which
+// model produced this line/bar); polarity (added/removed, accepted/
+// rejected) uses --green/--red instead, never these.
 const MODEL_COLORS: Record<string, string> = {
-  "gemini-2.5-pro": "#3b82f6",
-  "gemini-2.5-flash": "#10b981",
-  "gemini-2.0-flash": "#f59e0b",
-  "gemini-1.5-pro": "#8b5cf6",
-  "gemini-1.5-flash": "#ec4899",
-  unknown: "#94a3b8",
+  "gemini-2.5-pro": "var(--chart-1)",
+  "gemini-2.5-flash": "var(--chart-2)",
+  "gemini-2.0-flash": "var(--chart-3)",
+  "gemini-1.5-pro": "var(--chart-4)",
+  "gemini-1.5-flash": "var(--chart-5)",
+  unknown: "var(--chart-neutral)",
 };
 
 const FALLBACK_PALETTE = [
-  "#3b82f6",
-  "#10b981",
-  "#f59e0b",
-  "#8b5cf6",
-  "#ec4899",
-  "#06b6d4",
-  "#f97316",
-  "#6366f1",
-  "#14b8a6",
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
+  "var(--chart-6)",
+  "var(--chart-7)",
+  "var(--chart-8)",
+  "var(--chart-9)",
 ];
+
+const DEFAULT_SERIES_COLOR = "var(--chart-1)";
 
 export function getModelColor(model: string, index = 0): string {
   for (const [key, color] of Object.entries(MODEL_COLORS)) {
@@ -176,7 +183,7 @@ export function TokenUsageChart({
             {timeSeries[hoveredIndex].cachedTokens > 0 && (
               <>
                 <span>•</span>
-                <span>⚡ Cache: {formatNumber(timeSeries[hoveredIndex].cachedTokens)}</span>
+                <span><Icon name="zap" size={10} /> Cache: {formatNumber(timeSeries[hoveredIndex].cachedTokens)}</span>
               </>
             )}
           </div>
@@ -269,7 +276,7 @@ export function TokenUsageChart({
                     model,
                     height: segHeight,
                     y: currentY,
-                    color: modelColorMap.get(model) || "#3b82f6",
+                    color: modelColorMap.get(model) || DEFAULT_SERIES_COLOR,
                     tokens: breakdown.total,
                   });
                 }
@@ -308,7 +315,7 @@ export function TokenUsageChart({
             {chartType === "line" && (
               <>
                 {models.map((model) => {
-                  const color = modelColorMap.get(model) || "#3b82f6";
+                  const color = modelColorMap.get(model) || DEFAULT_SERIES_COLOR;
                   const points = timeSeries.map((point, index) => {
                     const colWidth = innerWidth / Math.max(timeSeries.length - 1, 1);
                     const x = padding.left + (timeSeries.length === 1 ? innerWidth / 2 : index * colWidth);
@@ -466,7 +473,7 @@ export function ResponseTimeChart({
 
             {/* Model lines */}
             {models.map((model) => {
-              const color = modelColorMap.get(model) || "#3b82f6";
+              const color = modelColorMap.get(model) || DEFAULT_SERIES_COLOR;
               const points = timeSeries.map((point, index) => {
                 const colWidth = innerWidth / Math.max(timeSeries.length - 1, 1);
                 const x = padding.left + (timeSeries.length === 1 ? innerWidth / 2 : index * colWidth);
@@ -596,7 +603,7 @@ export function CodeActivityChart({ timeSeries }: { timeSeries: StatsTimeSeriesP
                       y={addedY}
                       width={barWidth}
                       height={Math.max(addedH, 1)}
-                      fill="#10b981"
+                      fill="var(--green)"
                       rx={1.5}
                     >
                       <title>{`+${point.linesAdded} Zeilen (${point.label})`}</title>
@@ -608,7 +615,7 @@ export function CodeActivityChart({ timeSeries }: { timeSeries: StatsTimeSeriesP
                       y={deletedY}
                       width={barWidth}
                       height={Math.max(deletedH, 1)}
-                      fill="#ef4444"
+                      fill="var(--red)"
                       rx={1.5}
                     >
                       <title>{`-${point.linesDeleted} Zeilen (${point.label})`}</title>
@@ -631,11 +638,11 @@ export function CodeActivityChart({ timeSeries }: { timeSeries: StatsTimeSeriesP
 
       <div className="stats-legend stats-legend--bottom">
         <div className="stats-legend-item">
-          <span className="stats-legend-dot" style={{ backgroundColor: "#10b981" }} />
+          <span className="stats-legend-dot" style={{ backgroundColor: "var(--green)" }} />
           <span className="stats-legend-name">Ergänzte Zeilen (+)</span>
         </div>
         <div className="stats-legend-item">
-          <span className="stats-legend-dot" style={{ backgroundColor: "#ef4444" }} />
+          <span className="stats-legend-dot" style={{ backgroundColor: "var(--red)" }} />
           <span className="stats-legend-name">Gelöschte Zeilen (-)</span>
         </div>
       </div>
@@ -719,7 +726,7 @@ export function FileActivityChart({ timeSeries }: { timeSeries: StatsTimeSeriesP
                       y={createdY}
                       width={barWidth}
                       height={Math.max(createdH, 1)}
-                      fill="#3b82f6"
+                      fill="var(--accent)"
                       rx={1.5}
                     >
                       <title>{`+${point.filesCreated} Dateien erstellt (${point.label})`}</title>
@@ -731,7 +738,7 @@ export function FileActivityChart({ timeSeries }: { timeSeries: StatsTimeSeriesP
                       y={modifiedY}
                       width={barWidth}
                       height={Math.max(modifiedH, 1)}
-                      fill="#f59e0b"
+                      fill="var(--amber)"
                       rx={1.5}
                     >
                       <title>{`~${point.filesModified} Dateien bearbeitet (${point.label})`}</title>
@@ -743,7 +750,7 @@ export function FileActivityChart({ timeSeries }: { timeSeries: StatsTimeSeriesP
                       y={deletedY}
                       width={barWidth}
                       height={Math.max(deletedH, 1)}
-                      fill="#ef4444"
+                      fill="var(--red)"
                       rx={1.5}
                     >
                       <title>{`-${point.filesDeleted} Dateien gelöscht (${point.label})`}</title>
@@ -766,15 +773,15 @@ export function FileActivityChart({ timeSeries }: { timeSeries: StatsTimeSeriesP
 
       <div className="stats-legend stats-legend--bottom">
         <div className="stats-legend-item">
-          <span className="stats-legend-dot" style={{ backgroundColor: "#3b82f6" }} />
+          <span className="stats-legend-dot" style={{ backgroundColor: "var(--accent)" }} />
           <span className="stats-legend-name">Erstellt (+{totalCreated})</span>
         </div>
         <div className="stats-legend-item">
-          <span className="stats-legend-dot" style={{ backgroundColor: "#f59e0b" }} />
+          <span className="stats-legend-dot" style={{ backgroundColor: "var(--amber)" }} />
           <span className="stats-legend-name">Bearbeitet (~{totalModified})</span>
         </div>
         <div className="stats-legend-item">
-          <span className="stats-legend-dot" style={{ backgroundColor: "#ef4444" }} />
+          <span className="stats-legend-dot" style={{ backgroundColor: "var(--red)" }} />
           <span className="stats-legend-name">Gelöscht (-{totalDeleted})</span>
         </div>
       </div>
@@ -858,7 +865,7 @@ export function PlanModeStatsChart({
                       y={accY}
                       width={barWidth}
                       height={Math.max(accH, 1)}
-                      fill="#10b981"
+                      fill="var(--green)"
                       rx={1.5}
                     >
                       <title>{`${point.planAccepted} Pläne akzeptiert (${point.label})`}</title>
@@ -870,7 +877,7 @@ export function PlanModeStatsChart({
                       y={rejY}
                       width={barWidth}
                       height={Math.max(rejH, 1)}
-                      fill="#ef4444"
+                      fill="var(--red)"
                       rx={1.5}
                     >
                       <title>{`${point.planRejected} Pläne abgelehnt (${point.label})`}</title>
@@ -893,11 +900,11 @@ export function PlanModeStatsChart({
 
       <div className="stats-legend stats-legend--bottom">
         <div className="stats-legend-item">
-          <span className="stats-legend-dot" style={{ backgroundColor: "#10b981" }} />
+          <span className="stats-legend-dot" style={{ backgroundColor: "var(--green)" }} />
           <span className="stats-legend-name">Angenommen ({summary.planAccepted})</span>
         </div>
         <div className="stats-legend-item">
-          <span className="stats-legend-dot" style={{ backgroundColor: "#ef4444" }} />
+          <span className="stats-legend-dot" style={{ backgroundColor: "var(--red)" }} />
           <span className="stats-legend-name">Abgelehnt ({summary.planRejected})</span>
         </div>
       </div>
@@ -937,7 +944,7 @@ export function ToolUsageRankingSection({ summary }: { summary: AppStats["summar
                     </div>
                     <div className="stats-ranking-bar-bg">
                       <div
-                        className="stats-ranking-bar-fill stats-ranking-bar-fill--skill"
+                        className="stats-ranking-bar-fill"
                         style={{ width: `${pct}%` }}
                       />
                     </div>
@@ -975,7 +982,7 @@ export function ToolUsageRankingSection({ summary }: { summary: AppStats["summar
                     </div>
                     <div className="stats-ranking-bar-bg">
                       <div
-                        className="stats-ranking-bar-fill stats-ranking-bar-fill--mcp"
+                        className="stats-ranking-bar-fill"
                         style={{ width: `${pct}%` }}
                       />
                     </div>
@@ -1015,7 +1022,7 @@ export function ToolUsageRankingSection({ summary }: { summary: AppStats["summar
                     </div>
                     <div className="stats-ranking-bar-bg">
                       <div
-                        className="stats-ranking-bar-fill stats-ranking-bar-fill--git"
+                        className="stats-ranking-bar-fill"
                         style={{ width: `${pct}%` }}
                       />
                     </div>
@@ -1055,7 +1062,7 @@ export function ToolUsageRankingSection({ summary }: { summary: AppStats["summar
                     </div>
                     <div className="stats-ranking-bar-bg">
                       <div
-                        className="stats-ranking-bar-fill stats-ranking-bar-fill--shell"
+                        className="stats-ranking-bar-fill"
                         style={{ width: `${pct}%` }}
                       />
                     </div>
@@ -1155,7 +1162,7 @@ export function ModelComparisonTable({ models }: { models: ModelComparisonItem[]
                   </td>
                   <td>
                     <span className="stats-table-cache">
-                      ⚡ <strong>{item.cacheHitRate}%</strong>
+                      <Icon name="zap" size={10} /> <strong>{item.cacheHitRate}%</strong>
                       {item.cachedTokens > 0 && (
                         <small className="stats-table-cache-tokens">
                           {" "}({formatNumber(item.cachedTokens)})
@@ -1166,7 +1173,7 @@ export function ModelComparisonTable({ models }: { models: ModelComparisonItem[]
                   <td>
                     <span className={`stats-table-latency ${isFastest ? "stats-table-latency--fastest" : ""}`}>
                       {formatDuration(item.avgDurationMs)}
-                      {isFastest && <i title="Schnellstes Modell">⚡</i>}
+                      {isFastest && <Icon name="zap" size={11} />}
                     </span>
                   </td>
                   <td>
@@ -1179,7 +1186,7 @@ export function ModelComparisonTable({ models }: { models: ModelComparisonItem[]
                     </span>
                   </td>
                   <td>
-                    <div className="stats-badge" style={{ borderColor: color }}>
+                    <div className="stats-badge">
                       {item.sharePercentage}%
                     </div>
                   </td>

@@ -1395,6 +1395,7 @@ function toSharedEvent(
     case "session.ready":
       return {
         type: "session.ready",
+        providerSessionId: event.providerSessionId,
         modes:
           event.payload.modes?.availableModes.map((mode) => mode.id) ?? [],
         models:

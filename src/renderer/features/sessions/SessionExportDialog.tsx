@@ -8,11 +8,11 @@ type SessionExportDialogProps = {
 };
 
 const RATING_OPTIONS = [
-  { value: 1, emoji: "😡", label: "Sehr unzufrieden", color: "#ef4444" },
-  { value: 2, emoji: "🙁", label: "Unzufrieden", color: "#f97316" },
-  { value: 3, emoji: "😐", label: "Neutral", color: "#eab308" },
-  { value: 4, emoji: "🙂", label: "Zufrieden", color: "#84cc16" },
-  { value: 5, emoji: "😃", label: "Sehr zufrieden", color: "#10b981" },
+  { value: 1, label: "Sehr unzufrieden" },
+  { value: 2, label: "Unzufrieden" },
+  { value: 3, label: "Neutral" },
+  { value: 4, label: "Zufrieden" },
+  { value: 5, label: "Sehr zufrieden" },
 ] as const;
 
 export function SessionExportDialog({ session, onClose }: SessionExportDialogProps) {
@@ -21,6 +21,7 @@ export function SessionExportDialog({ session, onClose }: SessionExportDialogPro
   const [includeMetadata, setIncludeMetadata] = useState(true);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [rating, setRating] = useState<number | null>(null);
+  const [hoveredRating, setHoveredRating] = useState<number | null>(null);
   const [feedbackNote, setFeedbackNote] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -203,28 +204,32 @@ export function SessionExportDialog({ session, onClose }: SessionExportDialogPro
               )}
             </div>
 
-            <div className="export-smiley-bar">
-              {RATING_OPTIONS.map((opt) => {
-                const isSelected = rating === opt.value;
-                return (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    className={`export-smiley-btn ${isSelected ? "export-smiley-btn--active" : ""}`}
-                    style={{
-                      borderColor: isSelected ? opt.color : undefined,
-                      background: isSelected ? `color-mix(in srgb, ${opt.color} 20%, transparent)` : undefined,
-                    }}
-                    onClick={() => setRating(opt.value)}
-                    title={`${opt.emoji} ${opt.label} (${opt.value}/5)`}
-                  >
-                    <span className="export-smiley-emoji">{opt.emoji}</span>
-                    <span className="export-smiley-label" style={{ color: isSelected ? opt.color : undefined }}>
-                      {opt.label}
-                    </span>
-                  </button>
-                );
-              })}
+            <div className="export-rating-scale">
+              <div className="export-smiley-bar" role="radiogroup" aria-label="Session-Bewertung">
+                {RATING_OPTIONS.map((opt) => {
+                  const isSelected = rating === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={isSelected}
+                      aria-label={`${opt.label} (${opt.value} von 5)`}
+                      className={`export-smiley-btn ${isSelected ? "export-smiley-btn--active" : ""}`}
+                      onClick={() => setRating(opt.value)}
+                      onMouseEnter={() => setHoveredRating(opt.value)}
+                      onMouseLeave={() => setHoveredRating(null)}
+                      onFocus={() => setHoveredRating(opt.value)}
+                      onBlur={() => setHoveredRating(null)}
+                    >
+                      {opt.value}
+                    </button>
+                  );
+                })}
+              </div>
+              <span className="export-smiley-label">
+                {RATING_OPTIONS.find((opt) => opt.value === (hoveredRating ?? rating))?.label ?? "Optional"}
+              </span>
             </div>
 
             {/* Optionales Feedback / Notiz */}

@@ -262,6 +262,26 @@ function mergeTool(
   return { ...state, items };
 }
 
+function recordProviderSession(
+  current: ProviderSessionHistoryEntry[],
+  pid: string | null | undefined,
+  timestamp: string,
+  hasPriorConversation: boolean,
+): ProviderSessionHistoryEntry[] {
+  if (!pid) return current;
+  const isFirst = current.length === 0;
+  const exists = current.some((s) => s.providerSessionId === pid);
+  if (exists) return current;
+  return [
+    ...current,
+    {
+      providerSessionId: pid,
+      startedAt: timestamp,
+      transferredContext: !isFirst || hasPriorConversation,
+    },
+  ];
+}
+
 function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
   if (state.sessionId && envelope.sessionId !== state.sessionId) return state;
 
@@ -273,32 +293,36 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
 
   switch (event.type) {
     case "session.started": {
-      const pid = event.providerSessionId;
-      let providerSessions = next.providerSessions;
-      if (pid) {
-        const isFirst = providerSessions.length === 0;
-        const exists = providerSessions.some((s) => s.providerSessionId === pid);
-        if (!exists) {
-          providerSessions = [
-            ...providerSessions,
-            {
-              providerSessionId: pid,
-              startedAt: envelope.timestamp,
-              transferredContext: !isFirst,
-            },
-          ];
-        }
-      }
+      const hasPriorConversation = next.items.some(
+        (item) => item.kind === "message" && item.role === "user",
+      );
+      const providerSessions = recordProviderSession(
+        next.providerSessions,
+        event.providerSessionId,
+        envelope.timestamp,
+        hasPriorConversation,
+      );
       return { ...next, providerSessions, phase: "running", error: null };
     }
-    case "session.ready":
+    case "session.ready": {
+      const hasPriorConversation = next.items.some(
+        (item) => item.kind === "message" && item.role === "user",
+      );
+      const providerSessions = recordProviderSession(
+        next.providerSessions,
+        event.providerSessionId,
+        envelope.timestamp,
+        hasPriorConversation,
+      );
       return {
         ...next,
+        providerSessions,
         phase: "idle",
         modes: event.modes ?? next.modes,
         models: event.models ?? next.models,
         error: null,
       };
+    }
     case "message.user": {
       const optimisticIndex = next.items.findLastIndex(
         (item) =>
