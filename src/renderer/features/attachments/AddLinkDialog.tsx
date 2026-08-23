@@ -44,7 +44,7 @@ export function AddLinkDialog({ open, scopeLabel, onClose, onSubmit }: AddLinkDi
   };
 
   return (
-    <div className="modal-layer attachment-link-modal" role="presentation" onMouseDown={(event) => {
+    <div className="modal-layer" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose();
     }}>
       <form
