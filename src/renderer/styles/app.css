@@ -4553,6 +4553,9 @@ button:disabled, .primary-button:disabled, .secondary-button:disabled { cursor: 
   background: var(--amber-soft);
   color: var(--amber);
   font-size: 11px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
 /* ==========================================================================
    Debug Mode & Live Log Console (Apple-Grade Developer Tools)
    ========================================================================== */
@@ -4726,6 +4729,15 @@ button:disabled, .primary-button:disabled, .secondary-button:disabled { cursor: 
   color: var(--text);
 }
 
+.debug-segment-btn:active {
+  transform: scale(.96);
+}
+
+.debug-segment-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
 .debug-segment-btn--active {
   background: var(--surface);
   color: var(--text);
@@ -4784,10 +4796,18 @@ button:disabled, .primary-button:disabled, .secondary-button:disabled { cursor: 
   color: var(--text);
 }
 
+.debug-search-clear-btn:focus-visible {
+  outline: none;
+  border-radius: var(--r-xs);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
 .debug-log-actions {
   display: flex;
   align-items: center;
   gap: 10px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border-soft);
 }
 
 .debug-autoscroll-toggle {
@@ -4833,6 +4853,15 @@ button:disabled, .primary-button:disabled, .secondary-button:disabled { cursor: 
   background: var(--red-soft);
 }
 
+.debug-action-btn:active:not(:disabled) {
+  transform: scale(.98);
+}
+
+.debug-action-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
 .debug-action-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -4853,6 +4882,10 @@ button:disabled, .primary-button:disabled, .secondary-button:disabled { cursor: 
   text-transform: uppercase;
   letter-spacing: 0.06em;
   user-select: none;
+}
+
+.debug-col-actions {
+  text-align: right;
 }
 
 /* Log Stream Body */
@@ -4924,13 +4957,18 @@ button:disabled, .primary-button:disabled, .secondary-button:disabled { cursor: 
   background: var(--surface-hover);
 }
 
+.debug-log-card--expanded {
+  border-color: color-mix(in srgb, var(--border) 50%, var(--accent));
+  box-shadow: var(--shadow-xs);
+}
+
 .debug-log-card--error {
-  border-color: color-mix(in srgb, var(--red) 35%, var(--border-soft));
-  background: color-mix(in srgb, var(--red-soft) 22%, var(--surface));
+  background: color-mix(in srgb, var(--red-soft) 16%, var(--surface));
+  box-shadow: inset 2px 0 0 var(--red);
 }
 
 .debug-log-card--warn {
-  border-color: color-mix(in srgb, var(--amber) 30%, var(--border-soft));
+  box-shadow: inset 2px 0 0 var(--amber);
 }
 
 .debug-log-card-main {
@@ -4981,13 +5019,13 @@ button:disabled, .primary-button:disabled, .secondary-button:disabled { cursor: 
 }
 
 .debug-level-pill-badge--stream {
-  background: color-mix(in srgb, #AF52DE 18%, transparent);
-  color: #AF52DE;
+  background: color-mix(in srgb, var(--chart-4) 18%, transparent);
+  color: var(--chart-4);
 }
 
 .debug-level-pill-badge--ipc {
-  background: color-mix(in srgb, #5856D6 18%, transparent);
-  color: #5856D6;
+  background: color-mix(in srgb, var(--chart-6) 18%, transparent);
+  color: var(--chart-6);
 }
 
 .debug-cell-source {
@@ -5048,10 +5086,27 @@ button:disabled, .primary-button:disabled, .secondary-button:disabled { cursor: 
   color: var(--text);
 }
 
+.debug-row-btn:active {
+  transform: scale(.92);
+}
+
+.debug-row-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
 .debug-log-card-details {
   padding: 10px 14px 12px;
   border-top: 1px solid var(--border-soft);
   background: color-mix(in srgb, var(--canvas) 75%, var(--surface));
+  animation: debug-details-in var(--fast) var(--ease-out);
+}
+
+@keyframes debug-details-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
 }
 
 .debug-log-card-details pre {
