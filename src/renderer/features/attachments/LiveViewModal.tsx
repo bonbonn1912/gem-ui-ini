@@ -31,7 +31,7 @@ export function LiveViewModal({ url, onClose, onOpenExternal }: LiveViewModalPro
   }
 
   return (
-    <div className="modal-backdrop live-view-backdrop" onClick={onClose}>
+    <div className="modal-layer live-view-backdrop" onClick={onClose}>
       <div
         className="live-view-dialog"
         role="dialog"
