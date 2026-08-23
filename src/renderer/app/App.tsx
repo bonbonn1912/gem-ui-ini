@@ -621,6 +621,17 @@ export function App() {
     }
   }, [theme]);
 
+  useEffect(() => {
+    const platform =
+      capabilities?.platform ??
+      (typeof navigator !== "undefined" && navigator.userAgent.includes("Win")
+        ? "win32"
+        : typeof navigator !== "undefined" && navigator.userAgent.includes("Mac")
+          ? "darwin"
+          : "linux");
+    document.documentElement.setAttribute("data-platform", platform);
+  }, [capabilities?.platform]);
+
   const toggleTheme = () => {
     setTheme((current) => (current === "dark" ? "light" : "dark"));
   };

@@ -5119,4 +5119,34 @@ button:disabled, .primary-button:disabled, .secondary-button:disabled { cursor: 
   word-break: break-all;
 }
 
+/* ==========================================================================
+   Platform Specific Titlebar & Window Chrome Clearance
+   ========================================================================== */
+
+/* Windows: Overlay controls are top-right (38px height, ~140px width) */
+:root[data-platform="win32"] .sidebar-drag-region {
+  padding-left: var(--s-4);
+}
+
+:root[data-platform="win32"] .panel-rail {
+  padding-top: 44px;
+}
+
+:root[data-platform="win32"] .chat-header {
+  padding-right: 98px;
+}
+
+:root[data-platform="win32"] .changes-panel-header,
+:root[data-platform="win32"] .attachments-panel-header,
+:root[data-platform="win32"] .gitlab-panel-header,
+:root[data-platform="win32"] .extension-panel-header,
+:root[data-platform="win32"] .jira-issue-view header {
+  padding-right: 98px;
+}
+
+:root[data-platform="win32"] .stats-view-header {
+  padding-right: 98px;
+}
+
+
 

@@ -33,6 +33,14 @@ class RendererErrorBoundary extends Component<{ children: ReactNode }, { error: 
 const root = document.getElementById("root");
 if (!root) throw new Error("Renderer root element not found");
 
+const initialPlatform =
+  typeof navigator !== "undefined" && navigator.userAgent.includes("Win")
+    ? "win32"
+    : typeof navigator !== "undefined" && navigator.userAgent.includes("Mac")
+      ? "darwin"
+      : "linux";
+document.documentElement.setAttribute("data-platform", initialPlatform);
+
 createRoot(root).render(
   <StrictMode>
     <RendererErrorBoundary>
