@@ -2089,9 +2089,9 @@ describe("Renderer UI", () => {
       },
     ]);
 
-    expect(screen.getByText(/Geschätzter Token-Output:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Gemini arbeitet gerade/i)).toBeInTheDocument();
     expect(screen.getByText(/Tokens/i)).toBeInTheDocument();
-    expect(screen.getByText(/\(Live-Schätzung\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/geschätzt/i)).toBeInTheDocument();
   });
 
   it("zeigt standardmäßig keine Live-Token-Schätzung wenn liveTokensEnabled deaktiviert ist", async () => {
@@ -2120,6 +2120,7 @@ describe("Renderer UI", () => {
       },
     ]);
 
-    expect(screen.queryByText(/Geschätzter Token-Output:/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/geschätzt/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Tokens/i)).not.toBeInTheDocument();
   });
 });
