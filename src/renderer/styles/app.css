@@ -995,7 +995,7 @@ button:disabled, .primary-button:disabled, .secondary-button:disabled { cursor: 
 
 .discussion-card-footer { padding: 8px 10px; display: grid; gap: 6px; border-top: 1px solid var(--gl-line); background: var(--gl-inset); }
 .prompt-actions-group { display: flex; flex-wrap: wrap; gap: 5px; }
-.prompt-btn { min-height: 28px; padding: 0 8px; flex: 1 1 auto; display: inline-flex; align-items: center; justify-content: center; gap: 5px; border: 1px solid var(--gl-line-strong); border-radius: var(--r-sm); color: var(--text-soft); background: var(--gl-raised); font-size: 9px; font-weight: 600; white-space: nowrap; }
+.prompt-btn { min-height: 28px; padding: 0 8px; flex: 1 1 auto; display: inline-flex; align-items: center; justify-content: center; gap: 5px; overflow: hidden; border: 1px solid var(--gl-line-strong); border-radius: var(--r-sm); color: var(--text-soft); background: var(--gl-raised); font-size: 9px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
 .prompt-btn:hover:not(:disabled) { color: var(--accent-strong); border-color: color-mix(in srgb, var(--accent) 42%, var(--border)); background: var(--accent-soft); }
 .prompt-btn .mini-spinner { width: 11px; height: 11px; }
 .discussion-tools-group { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px; row-gap: 5px; }
@@ -1773,7 +1773,7 @@ button:disabled, .primary-button:disabled, .secondary-button:disabled { cursor: 
 @container gitlab-panel (max-width: 340px) {
   .gitlab-delivery-switch > span { flex: 1 1 100%; }
   .discussion-card-footer .prompt-actions-group { flex-direction: column; }
-  .discussion-card-footer .prompt-btn { flex: 1 1 auto; }
+  .discussion-card-footer .prompt-btn { flex: 1 1 auto; min-height: 30px; padding: 6px 10px; overflow: visible; white-space: normal; text-overflow: clip; text-align: center; line-height: 1.35; }
   .discussion-tools-group { justify-content: flex-start; }
   .gitlab-mr-row { grid-template-columns: auto minmax(0, 1fr); }
   .gitlab-mr-meta { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; margin-left: 39px; }
