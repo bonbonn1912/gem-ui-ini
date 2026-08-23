@@ -602,64 +602,36 @@ button:disabled, .primary-button:disabled, .secondary-button:disabled { cursor: 
 .drop-overlay { position: fixed; inset: 12px; z-index: 200; display: grid; place-items: center; pointer-events: none; border: 2px dashed color-mix(in srgb, var(--accent) 66%, white); border-radius: var(--r-xl); background: color-mix(in srgb, var(--accent-soft) 89%, transparent); backdrop-filter: blur(8px); }
 .drop-overlay > div { padding: 29px 40px; display: grid; place-items: center; gap: 8px; border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border)); border-radius: var(--r-lg); color: var(--accent); background: var(--surface); box-shadow: var(--shadow-lg); }.drop-overlay strong { color: var(--text); font-size: 16px; }.drop-overlay span { color: var(--muted); font-size: 10px; }
 
-/* Live estimated token indicator in composer */
-.composer-live-token-banner {
+/* Arbeits-Status direkt über dem Eingabefeld. Läuft eine Antwort, ist das
+   bislang einzige Signal ein 5px-Punkt im Toolbar-Text (leicht zu übersehen)
+   plus ein leiser Rahmen-Puls um den ganzen Composer — beides reicht nicht,
+   wenn der Blick auf dem Textfeld liegt. Diese Leiste zeigt "Gemini arbeitet"
+   permanent an derselben Stelle, mit der gleichen Punkte-Animation, die auch
+   die wartende Sprechblase im Verlauf benutzt (typing-wave) — ein Motiv,
+   zwei Orte. Der Token-Zusatz hängt sich an dieselbe Leiste an, statt eine
+   zweite Banner-Variante zu duplizieren. */
+.composer-status-banner {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 5px 11px;
+  gap: 8px;
+  padding: 6px 12px;
   margin-bottom: 7px;
   background: color-mix(in srgb, var(--accent) 8%, var(--surface-soft));
   border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
   border-radius: var(--r-md);
   font-size: 11.5px;
   color: var(--text-soft);
-  animation: fadeIn 0.18s ease-in-out;
+  animation: fade-in 0.18s ease-out;
 }
-.live-token-pulse-dot {
-  width: 7px;
-  height: 7px;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  background: var(--green);
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 60%, transparent);
-  animation: live-token-pulse 1.8s infinite;
-}
-@keyframes live-token-pulse {
-  0% {
-    transform: scale(0.95);
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 70%, transparent);
-  }
-  70% {
-    transform: scale(1);
-    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
-  }
-  100% {
-    transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
-  }
-}
-.live-token-icon {
-  display: inline-flex;
-  align-items: center;
-  color: var(--accent);
-}
-.live-token-label {
-  font-size: 11px;
-  color: var(--muted);
-  font-weight: 500;
-}
-.live-token-value {
-  font-size: 11.5px;
-  font-weight: 700;
-  color: var(--text);
-}
-.live-token-hint {
-  font-size: 9.5px;
-  color: var(--faint);
-  font-style: italic;
-  margin-left: auto;
-}
+.composer-status-dots { display: flex; align-items: center; gap: 3px; flex: 0 0 auto; }
+.composer-status-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: typing-wave 1.25s ease-in-out infinite; }
+.composer-status-dots i:nth-child(2) { animation-delay: .16s; }
+.composer-status-dots i:nth-child(3) { animation-delay: .32s; }
+.composer-status-label { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--text-soft); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.composer-status-tokens { flex: 0 0 auto; display: flex; align-items: center; gap: 5px; padding-left: 8px; border-left: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border)); }
+.live-token-icon { display: inline-flex; align-items: center; color: var(--accent); }
+.live-token-value { font-size: 11.5px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.live-token-hint { font-size: 9.5px; color: var(--faint); font-style: italic; white-space: nowrap; }
 
 /* Git changes and unified diff */
 .changes-panel { width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; visibility: hidden; border-left: 1px solid var(--border); background: var(--surface); opacity: 0; transform: translateX(14px); transition: opacity .16s,transform .2s,visibility 0s .2s; }
