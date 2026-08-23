@@ -2015,7 +2015,7 @@ describe("Renderer UI", () => {
     expect(screen.getByText(/Statistik-Erfassung ist für dieses Projekt aktuell deaktiviert/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Jetzt wieder aktivieren/i })).toBeInTheDocument();
     expect(screen.getByText("12.5k")).toBeInTheDocument(); // total tokens rendered in KPI (12500 -> 12.5k)
-    expect(screen.getByText(/⚡ Cache:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Cache:/i)).toBeInTheDocument();
   });
 
   it("blendet während des Antwort-Runs die Live-Token-Schätzung über dem Composer ein wenn in Projekteinstellungen aktiviert", async () => {
