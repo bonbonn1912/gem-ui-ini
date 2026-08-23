@@ -131,6 +131,13 @@
   --primary: var(--accent);
   --primary-strong: var(--accent-strong);
   --primary-soft: var(--accent-soft);
+
+  /* Sendeknopf: bewusst vom allgemeinen Akzent getrennt. Im Lightmode
+     dasselbe Blau/Indigo wie die Zahlen-Badges (Änderungsanzahl,
+     Panel-Rail-Zähler, …) — im Darkmode (unten) ein warmes Orange statt
+     einer Wiederholung des violetten --accent. */
+  --send-accent: var(--accent);
+  --send-accent-hover: var(--accent-strong);
 }
 
 /* Dark mode is its own palette, not an inversion: surfaces step up in
@@ -205,6 +212,11 @@
   --primary: var(--accent);
   --primary-strong: var(--accent-strong);
   --primary-soft: var(--accent-soft);
+
+  /* Sendeknopf: bewusst vom allgemeinen Akzent getrennt. Im Darkmode ein
+     warmes Orange, das sich klar vom violetten --accent absetzt. */
+  --send-accent: #b85e1a;
+  --send-accent-hover: #d0721f;
 }
 
 * { box-sizing: border-box; }
@@ -590,12 +602,11 @@ button:disabled, .primary-button:disabled, .secondary-button:disabled { cursor: 
 .composer-icon-button { width: 31px; height: 31px; padding: 0; display: grid; place-items: center; border: 0; border-radius: var(--r-md); color: var(--muted); background: transparent; cursor: pointer; }.composer-icon-button:hover:not(:disabled) { color: var(--text); background: var(--surface-soft); }
 .composer-context { display: flex; align-items: center; gap: 5px; color: var(--faint); font-size: 9px; }.context-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); }.context-dot--working { background: var(--accent); animation: agent-pulse 1.6s var(--ease) infinite; }
 .composer-context-attachments { min-width: 0; margin-left: auto; padding: 5px 7px; display: inline-flex; align-items: center; gap: 5px; overflow: hidden; border: 0; border-radius: var(--r-sm); color: var(--green); background: var(--green-soft); font-size: 8.8px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }.composer-context-attachments:hover { filter: brightness(.97); }.composer-context-attachments--warning { color: var(--red); background: var(--red-soft); }
-/* Der Pfeil sitzt auf einer mit --text eingefärbten Fläche — im Darkmode ist
-   --text hell, ein fest verdrahtetes weißes Icon verschwand darauf fast
-   unsichtbar (~1:1 Kontrast). --canvas ist in jedem Theme exakt die Farbe,
-   gegen die --text entworfen wurde, daher ergibt sie auf einer --text-Fläche
-   automatisch das richtige Gegenstück — in beiden Modi ein sattes Icon. */
-.send-button { width: 34px; height: 34px; padding: 0; display: grid; place-items: center; border: 0; border-radius: var(--r-md); color: var(--canvas); background: var(--text); cursor: pointer; }.send-button:hover:not(:disabled) { background: var(--accent); }.send-button:disabled { color: var(--muted); background: var(--surface-soft); }
+/* Eigene Farbe statt --text als Fläche: im Lightmode dasselbe Blau/Indigo wie
+   die Zahlen-Badges (Änderungsanzahl, Panel-Rail-Zähler, …), im Darkmode ein
+   warmes, klar unterscheidbares Orange — beides über --send-accent, das pro
+   Theme definiert ist, statt eine feste Farbe zu wiederholen. */
+.send-button { width: 34px; height: 34px; padding: 0; display: grid; place-items: center; border: 0; border-radius: var(--r-md); color: #fff; background: var(--send-accent); cursor: pointer; }.send-button:hover:not(:disabled) { background: var(--send-accent-hover); }.send-button:disabled { color: var(--muted); background: var(--surface-soft); }
 .stop-button { height: 34px; padding: 0 10px; display: flex; align-items: center; gap: 6px; border: 1px solid color-mix(in srgb, var(--red) 22%, var(--border)); border-radius: var(--r-md); color: var(--red); background: var(--red-soft); font-size: 10.5px; font-weight: 600; cursor: pointer; }.stop-button:hover:not(:disabled) { border-color: color-mix(in srgb, var(--red) 40%, var(--border)); }
 .composer-hint { margin: 7px 0 0; color: var(--faint); font-size: 8.8px; text-align: center; }.composer-hint kbd { padding:1px 4px;border:1px solid var(--border);border-radius: var(--r-sm);color:var(--muted);background:var(--surface);font:inherit;box-shadow:0 1px 0 var(--border-soft); }
 .project-file-menu { width:100%; max-height:min(390px,48vh); position:absolute; right:0; bottom:calc(100% + 9px); z-index:45; display:grid; grid-template-rows:auto minmax(0,1fr); overflow:hidden; border:1px solid color-mix(in srgb,var(--accent) 25%,var(--border)); border-radius: var(--r-lg); background:var(--surface); box-shadow:0 18px 54px rgba(25,28,38,.18),0 3px 12px rgba(25,28,38,.1); }
