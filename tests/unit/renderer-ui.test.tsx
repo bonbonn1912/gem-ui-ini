@@ -369,6 +369,7 @@ function createApi(options: {
       attachIssue: vi.fn(),
       fetchIssueDetails: vi.fn(),
       syncAttachments: vi.fn().mockResolvedValue({ syncedCount: 0, attachmentIds: [], skippedCount: 0 }),
+      onLog: vi.fn().mockReturnValue(() => undefined),
     },
     settings: {
       chooseGeminiBinary: vi.fn().mockResolvedValue(capabilities),
@@ -2437,5 +2438,37 @@ describe("Renderer UI", () => {
     const closeBtn = screen.getByRole("button", { name: "Jira-Ansicht schließen" });
     await user.click(closeBtn);
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("zeigt Jira-API-Logs im DebugLogModal an und filtert nach Jira", async () => {
+    const user = userEvent.setup();
+    const { debugLogger } = await import(
+      "../../src/renderer/features/debug/debug-logger"
+    );
+    const { DebugLogModal } = await import(
+      "../../src/renderer/features/debug/DebugLogModal"
+    );
+
+    // Emit Jira log entries with redacted headers and status codes
+    debugLogger.log("info", "jira", "-> GET https://jira.example.com/rest/api/2/issue/AML-1234?fields=*all", {
+      url: "https://jira.example.com/rest/api/2/issue/AML-1234?fields=*all",
+      auth: "Bearer [GESCHÜTZT]",
+    });
+    debugLogger.log("info", "jira", "<- HTTP 200 OK von GET https://jira.example.com/rest/api/2/issue/AML-1234?fields=*all", {
+      status: 200,
+    });
+
+    render(<DebugLogModal open={true} onClose={vi.fn()} />);
+
+    // Verify Jira entries and source badge are visible
+    expect(screen.getByText(/-> GET https:\/\/jira\.example\.com/)).toBeInTheDocument();
+    expect(screen.getByText(/<- HTTP 200 OK/)).toBeInTheDocument();
+    expect(screen.getAllByText("jira").length).toBeGreaterThan(0);
+
+    // Click the Jira segment filter button
+    const jiraFilterBtn = screen.getByRole("button", { name: /Jira \(\d+\)/ });
+    await user.click(jiraFilterBtn);
+
+    expect(screen.getByText(/-> GET https:\/\/jira\.example\.com/)).toBeInTheDocument();
   });
 });

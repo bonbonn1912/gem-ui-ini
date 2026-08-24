@@ -9,7 +9,7 @@ interface DebugLogModalProps {
 
 export function DebugLogModal({ open, onClose }: DebugLogModalProps) {
   const [logs, setLogs] = useState<DebugLogEntry[]>(() => debugLogger.getLogs());
-  const [levelFilter, setLevelFilter] = useState<DebugLogLevel | "all">("all");
+  const [levelFilter, setLevelFilter] = useState<DebugLogLevel | "all" | "jira">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [autoScroll, setAutoScroll] = useState(true);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -37,7 +37,11 @@ export function DebugLogModal({ open, onClose }: DebugLogModalProps) {
   const filteredLogs = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return logs.filter((log) => {
-      if (levelFilter !== "all" && log.level !== levelFilter) return false;
+      if (levelFilter === "jira") {
+        if (log.source !== "jira") return false;
+      } else if (levelFilter !== "all" && log.level !== levelFilter) {
+        return false;
+      }
       if (!q) return true;
       const msgMatch = log.message.toLowerCase().includes(q);
       const srcMatch = log.source.toLowerCase().includes(q);
@@ -60,6 +64,7 @@ export function DebugLogModal({ open, onClose }: DebugLogModalProps) {
   const streamCount = logs.filter((l) => l.level === "stream").length;
   const ipcCount = logs.filter((l) => l.level === "ipc").length;
   const infoCount = logs.filter((l) => l.level === "info").length;
+  const jiraCount = logs.filter((l) => l.source === "jira").length;
 
   const toggleExpand = (id: string) => {
     setExpandedIds((prev) => {
@@ -190,6 +195,13 @@ export function DebugLogModal({ open, onClose }: DebugLogModalProps) {
               onClick={() => setLevelFilter("info")}
             >
               Info ({infoCount})
+            </button>
+            <button
+              type="button"
+              className={`debug-segment-btn ${levelFilter === "jira" ? "debug-segment-btn--active" : ""}`}
+              onClick={() => setLevelFilter("jira")}
+            >
+              Jira ({jiraCount})
             </button>
           </div>
 

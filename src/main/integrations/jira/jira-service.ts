@@ -35,6 +35,7 @@ export type JiraServiceOptions = {
   projects?: ProjectService;
   contextAttachments: ContextAttachmentService;
   tokenVault?: JiraTokenVault;
+  logger?: (level: "info" | "warn" | "error", message: string, details?: unknown) => void;
 };
 
 /**
@@ -51,12 +52,14 @@ export class JiraService {
   readonly #projects?: ProjectService;
   readonly #contextAttachments: ContextAttachmentService;
   readonly #tokenVault: JiraTokenVault;
+  readonly #logger?: (level: "info" | "warn" | "error", message: string, details?: unknown) => void;
 
   constructor(options: JiraServiceOptions) {
     this.#repository = options.repository;
     this.#projects = options.projects;
     this.#contextAttachments = options.contextAttachments;
     this.#tokenVault = options.tokenVault ?? new JiraTokenVault();
+    this.#logger = options.logger;
   }
 
   listConfigs(): JiraConfig[] {
@@ -171,6 +174,7 @@ export class JiraService {
           baseUrl: config.baseUrl,
           token,
           email: config.email,
+          logger: this.#logger,
         });
         return await client.getIssue(parsed.issueKey);
       },
@@ -202,6 +206,7 @@ export class JiraService {
           baseUrl: config.baseUrl,
           token,
           email: config.email,
+          logger: this.#logger,
         });
 
         const issue = await client.getIssue(parsed.issueKey);
@@ -287,6 +292,7 @@ export class JiraService {
               baseUrl: config.baseUrl,
               token,
               email: config.email,
+              logger: this.#logger,
             });
             return await client.getIssue(parsed.issueKey);
           },

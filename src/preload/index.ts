@@ -361,6 +361,17 @@ const desktopApi: GemUiDesktopApi = {
       ipcRenderer.invoke(IPC_CHANNELS.fetchJiraIssueDetails, input),
     syncAttachments: (input) =>
       ipcRenderer.invoke(IPC_CHANNELS.syncJiraAttachments, input),
+    onLog: (callback) => {
+      const listener = (_event: unknown, payload: unknown) => {
+        if (payload && typeof payload === "object") {
+          callback(payload as { level: "info" | "warn" | "error"; message: string; details?: unknown });
+        }
+      };
+      ipcRenderer.on(IPC_CHANNELS.jiraLog, listener);
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.jiraLog, listener);
+      };
+    },
   },
 
   agentExtensions: {

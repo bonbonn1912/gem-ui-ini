@@ -423,6 +423,15 @@ export function App() {
     });
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = window.gemUi?.jira?.onLog?.((entry) => {
+      debugLogger.log(entry.level, "jira", entry.message, entry.details);
+    });
+    return () => {
+      unsubscribe?.();
+    };
+  }, []);
+
   const toggleDebugMode = useCallback((enabled: boolean) => {
     setDebugMode(enabled);
     try {

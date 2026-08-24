@@ -530,6 +530,7 @@ export const IPC_CHANNELS = {
   attachJiraIssue: "jira:attach-issue",
   fetchJiraIssueDetails: "jira:fetch-issue-details",
   syncJiraAttachments: "jira:sync-attachments",
+  jiraLog: "jira:log",
   listGeminiSkills: "agent-extensions:list-skills",
   listMcpServers: "agent-extensions:list-mcp-servers",
   openExternalHttpsUrl: "external:open-https-url",
@@ -957,6 +958,13 @@ export interface GemUiDesktopApi {
     syncAttachments(
       input: SyncJiraAttachmentsInput,
     ): Promise<SyncJiraAttachmentsResult>;
+    onLog?(
+      callback: (entry: {
+        level: "info" | "warn" | "error";
+        message: string;
+        details?: unknown;
+      }) => void,
+    ): () => void;
   };
   agentExtensions: {
     listSkills(input: ListAgentExtensionsInput): Promise<GeminiSkillList>;

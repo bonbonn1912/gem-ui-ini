@@ -1,5 +1,5 @@
 export type DebugLogLevel = "info" | "warn" | "error" | "stream" | "ipc";
-export type DebugLogSource = "app" | "gemini" | "git" | "ipc" | "renderer" | "system";
+export type DebugLogSource = "app" | "gemini" | "git" | "ipc" | "renderer" | "system" | "jira";
 
 export interface DebugLogEntry {
   id: string;

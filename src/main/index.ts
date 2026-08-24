@@ -188,6 +188,15 @@ async function bootstrap(): Promise<void> {
     repository: jiraRepository,
     projects: projectService,
     contextAttachments: contextAttachmentService,
+    logger: (level, message, details) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IPC_CHANNELS.jiraLog, {
+          level,
+          message,
+          details,
+        });
+      }
+    },
   });
 
   const integrationRegistry = new IntegrationRegistry(

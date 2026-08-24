@@ -4,6 +4,7 @@ export type JiraAuthOptions = {
   baseUrl: string;
   token: string;
   email?: string | null;
+  logger?: (level: "info" | "warn" | "error", message: string, details?: unknown) => void;
 };
 
 export type JiraRawIssueResponse = {
@@ -41,52 +42,71 @@ export function isJiraCloudUrl(baseUrl: string): boolean {
 export function buildJiraAuthHeader(options: JiraAuthOptions): string {
   const token = options.token.trim();
   const email = options.email?.trim() || "";
+  const isCloud = isJiraCloudUrl(options.baseUrl);
 
   if (token.startsWith("Basic ") || token.startsWith("Bearer ")) {
     return token;
   }
 
-  // If token contains colon or email is provided, use Basic Auth (standard for Jira Cloud)
-  if (email) {
-    const credentials = Buffer.from(`${email}:${token}`).toString("base64");
-    return `Basic ${credentials}`;
+  // Jira Cloud: Uses Basic Auth with base64(email:api_token)
+  if (isCloud) {
+    if (email) {
+      const credentials = Buffer.from(`${email}:${token}`).toString("base64");
+      return `Basic ${credentials}`;
+    }
+    if (token.includes(":")) {
+      const credentials = Buffer.from(token).toString("base64");
+      return `Basic ${credentials}`;
+    }
+    return `Bearer ${token}`;
   }
 
-  if (token.includes(":")) {
+  // Self-Hosted Jira (Server / Data Center):
+  // 1. If token is explicitly in "username:password" format, use Basic Auth
+  if (token.includes(":") && !email) {
     const credentials = Buffer.from(token).toString("base64");
     return `Basic ${credentials}`;
   }
 
-  // If it's a Jira Cloud URL without an explicit email, Basic auth with token or Bearer
-  if (isJiraCloudUrl(options.baseUrl)) {
-    // If user provided an API token without email, try Bearer first or Basic with empty username
-    return `Bearer ${token}`;
-  }
-
-  // Self-hosted Jira Server / Data Center default is Personal Access Token (PAT)
+  // 2. In Jira Server / Data Center (8.14+), Personal Access Tokens (PATs) MUST be sent as `Bearer <token>`.
+  // Even if an email or username was configured in the settings dialog, PATs must NOT be sent as Basic Auth.
   return `Bearer ${token}`;
 }
 
 export class JiraApiClient {
   readonly #baseUrl: string;
   readonly #authHeader: string;
+  readonly #options: JiraAuthOptions;
 
   constructor(options: JiraAuthOptions) {
     this.#baseUrl = options.baseUrl.trim().replace(/\/+$/, "");
+    this.#options = options;
     this.#authHeader = buildJiraAuthHeader(options);
   }
 
   async getIssue(issueKey: string): Promise<JiraIssueDetails> {
     const normalizedKey = issueKey.trim().toUpperCase();
-    const endpoint = `${this.#baseUrl}/rest/api/2/issue/${encodeURIComponent(normalizedKey)}`;
+    const encodedKey = encodeURIComponent(normalizedKey);
 
-    const response = await fetch(endpoint, {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        Authorization: this.#authHeader,
-      },
-    });
+    // Primary endpoint requests all fields including attachments
+    const primaryEndpoint = `${this.#baseUrl}/rest/api/2/issue/${encodedKey}?fields=*all`;
+    const fallbackEndpoint = `${this.#baseUrl}/rest/api/2/issue/${encodedKey}`;
+
+    let response = await this.#fetchIssue(primaryEndpoint, this.#authHeader);
+
+    // Fallback: If ?fields=*all returned 400 (unsupported on very old Jira Server), try simple endpoint
+    if (!response.ok && response.status === 400) {
+      response = await this.#fetchIssue(fallbackEndpoint, this.#authHeader);
+    }
+
+    // Fallback: If 401 Unauthorized on Self-Hosted Jira and email is present, retry with Basic Auth (for legacy username+password)
+    if (!response.ok && response.status === 401 && this.#options.email && !this.#authHeader.startsWith("Basic ")) {
+      const basicAuthHeader = `Basic ${Buffer.from(`${this.#options.email}:${this.#options.token}`).toString("base64")}`;
+      const retryResponse = await this.#fetchIssue(primaryEndpoint, basicAuthHeader);
+      if (retryResponse.ok) {
+        response = retryResponse;
+      }
+    }
 
     if (!response.ok) {
       const errorBody = await response.text().catch(() => "");
@@ -101,11 +121,63 @@ export class JiraApiClient {
       } catch {
         if (errorBody) errorMsg += `: ${errorBody.slice(0, 200)}`;
       }
+      this.#log("error", `Fehler beim Abrufen von Jira-Issue ${normalizedKey}: ${errorMsg}`, {
+        issueKey: normalizedKey,
+        status: response.status,
+        statusText: response.statusText,
+        errorBody: errorBody.slice(0, 2000),
+      });
       throw new Error(`Fehler beim Abrufen von Jira-Issue ${normalizedKey}: ${errorMsg}`);
     }
 
     const data = (await response.json()) as JiraRawIssueResponse;
+    this.#log("info", `Jira-Issue ${normalizedKey} erfolgreich abgerufen`, {
+      issueKey: normalizedKey,
+      summary: data.fields?.summary,
+      status: data.fields?.status?.name,
+      attachmentsCount: Array.isArray(data.fields?.attachment) ? data.fields.attachment.length : 0,
+    });
     return parseRawJiraIssue(data, this.#baseUrl);
+  }
+
+  #log(level: "info" | "warn" | "error", message: string, details?: unknown) {
+    if (level === "error") {
+      console.error(`[Jira API] ${message}`, details ?? "");
+    } else if (level === "warn") {
+      console.warn(`[Jira API] ${message}`, details ?? "");
+    } else {
+      console.info(`[Jira API] ${message}`, details ?? "");
+    }
+    this.#options.logger?.(level, message, details);
+  }
+
+  async #fetchIssue(endpoint: string, authHeader: string): Promise<Response> {
+    const sanitizedUrl = sanitizeUrl(endpoint);
+    this.#log("info", `-> GET ${sanitizedUrl}`, {
+      url: sanitizedUrl,
+      auth: redactAuthHeader(authHeader),
+    });
+    try {
+      const response = await fetch(endpoint, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: authHeader,
+        },
+      });
+      this.#log("info", `<- HTTP ${response.status} ${response.statusText} von GET ${sanitizedUrl}`, {
+        url: sanitizedUrl,
+        status: response.status,
+        statusText: response.statusText,
+      });
+      return response;
+    } catch (fetchErr) {
+      this.#log("error", `Netzwerkausnahme bei GET ${sanitizedUrl}`, {
+        url: sanitizedUrl,
+        error: fetchErr instanceof Error ? fetchErr.message : String(fetchErr),
+      });
+      throw fetchErr;
+    }
   }
 
   /**
@@ -143,6 +215,10 @@ export class JiraApiClient {
         return await this.#fetchWithAuthRedirects(url);
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
+        this.#log("warn", `Download-Versuch fehlgeschlagen für ${sanitizeUrl(url)}`, {
+          url: sanitizeUrl(url),
+          error: lastError.message,
+        });
       }
     }
 
@@ -170,10 +246,21 @@ export class JiraApiClient {
         headers["Authorization"] = this.#authHeader;
       }
 
+      const sanitizedUrl = sanitizeUrl(parsedCurrent.toString());
+      this.#log("info", `-> Download GET ${sanitizedUrl}`, {
+        url: sanitizedUrl,
+        auth: redactAuthHeader(headers["Authorization"]),
+      });
+
       const response = await fetch(parsedCurrent.toString(), {
         method: "GET",
         headers,
         redirect: "manual",
+      });
+
+      this.#log("info", `<- HTTP ${response.status} ${response.statusText} für Download ${sanitizedUrl}`, {
+        url: sanitizedUrl,
+        status: response.status,
       });
 
       if (response.status >= 300 && response.status < 400) {
@@ -182,20 +269,54 @@ export class JiraApiClient {
           throw new Error(`HTTP ${response.status} Weiterleitung ohne Location Header von ${currentUrl}`);
         }
         const nextUrl = new URL(location, currentUrl).toString();
+        this.#log("info", `Redirect (${response.status}) nach: ${sanitizeUrl(nextUrl)}`, {
+          from: sanitizedUrl,
+          to: sanitizeUrl(nextUrl),
+          status: response.status,
+        });
         currentUrl = nextUrl;
         redirectsCount++;
         continue;
       }
 
       if (!response.ok) {
+        const errorText = await response.text().catch(() => "");
+        this.#log("warn", `Download Fehler-Body (HTTP ${response.status}) von ${sanitizedUrl}`, {
+          url: sanitizedUrl,
+          status: response.status,
+          errorBody: errorText.slice(0, 1000),
+        });
         throw new Error(`HTTP ${response.status} (${response.statusText}) von ${currentUrl}`);
       }
 
       const arrayBuffer = await response.arrayBuffer();
+      this.#log("info", `Anhang erfolgreich empfangen (${arrayBuffer.byteLength} Bytes) von ${sanitizedUrl}`, {
+        url: sanitizedUrl,
+        bytes: arrayBuffer.byteLength,
+      });
       return Buffer.from(arrayBuffer);
     }
 
     throw new Error(`Zu viele Weiterleitungen beim Herunterladen von ${initialUrl}`);
+  }
+}
+
+function redactAuthHeader(headerValue?: string): string {
+  if (!headerValue) return "[kein Auth-Header]";
+  if (headerValue.startsWith("Bearer ")) return "Bearer [GESCHÜTZT]";
+  if (headerValue.startsWith("Basic ")) return "Basic [GESCHÜTZT]";
+  return "[GESCHÜTZT]";
+}
+
+function sanitizeUrl(urlStr: string): string {
+  try {
+    const parsed = new URL(urlStr);
+    if (parsed.password) {
+      parsed.password = "[GESCHÜTZT]";
+    }
+    return parsed.toString();
+  } catch {
+    return urlStr;
   }
 }
 
