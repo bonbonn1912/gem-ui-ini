@@ -1,3 +1,4 @@
+import { Agent } from "undici";
 import type { JiraIssueAttachment, JiraIssueDetails } from "../../../shared/contracts";
 
 export type JiraAuthOptions = {
@@ -77,11 +78,17 @@ export class JiraApiClient {
   readonly #baseUrl: string;
   readonly #authHeader: string;
   readonly #options: JiraAuthOptions;
+  readonly #dispatcher: Agent;
 
   constructor(options: JiraAuthOptions) {
     this.#baseUrl = options.baseUrl.trim().replace(/\/+$/, "");
     this.#options = options;
     this.#authHeader = buildJiraAuthHeader(options);
+    this.#dispatcher = new Agent({
+      connect: {
+        rejectUnauthorized: false,
+      },
+    });
   }
 
   async getIssue(issueKey: string): Promise<JiraIssueDetails> {
@@ -92,19 +99,44 @@ export class JiraApiClient {
     const primaryEndpoint = `${this.#baseUrl}/rest/api/2/issue/${encodedKey}?fields=*all`;
     const fallbackEndpoint = `${this.#baseUrl}/rest/api/2/issue/${encodedKey}`;
 
-    let response = await this.#fetchIssue(primaryEndpoint, this.#authHeader);
+    let response: Response;
+    try {
+      response = await this.#fetchIssue(primaryEndpoint, this.#authHeader);
+    } catch (err) {
+      const errorInfo = formatErrorDetails(err);
+      this.#log("error", `Netzwerkfehler beim Abrufen von Jira-Issue ${normalizedKey}: ${errorInfo.formatted}`, {
+        issueKey: normalizedKey,
+        endpoint: primaryEndpoint,
+        ...errorInfo,
+      });
+      throw new Error(`Netzwerkfehler beim Verbinden zu Jira (${this.#baseUrl}): ${errorInfo.formatted}`);
+    }
 
     // Fallback: If ?fields=*all returned 400 (unsupported on very old Jira Server), try simple endpoint
     if (!response.ok && response.status === 400) {
-      response = await this.#fetchIssue(fallbackEndpoint, this.#authHeader);
+      try {
+        response = await this.#fetchIssue(fallbackEndpoint, this.#authHeader);
+      } catch (err) {
+        const errorInfo = formatErrorDetails(err);
+        this.#log("error", `Netzwerkfehler beim Fallback-Abrufen von Jira-Issue ${normalizedKey}: ${errorInfo.formatted}`, {
+          issueKey: normalizedKey,
+          endpoint: fallbackEndpoint,
+          ...errorInfo,
+        });
+        throw new Error(`Netzwerkfehler beim Verbinden zu Jira (${this.#baseUrl}): ${errorInfo.formatted}`);
+      }
     }
 
     // Fallback: If 401 Unauthorized on Self-Hosted Jira and email is present, retry with Basic Auth (for legacy username+password)
     if (!response.ok && response.status === 401 && this.#options.email && !this.#authHeader.startsWith("Basic ")) {
       const basicAuthHeader = `Basic ${Buffer.from(`${this.#options.email}:${this.#options.token}`).toString("base64")}`;
-      const retryResponse = await this.#fetchIssue(primaryEndpoint, basicAuthHeader);
-      if (retryResponse.ok) {
-        response = retryResponse;
+      try {
+        const retryResponse = await this.#fetchIssue(primaryEndpoint, basicAuthHeader);
+        if (retryResponse.ok) {
+          response = retryResponse;
+        }
+      } catch {
+        // Keep original response if retry fails
       }
     }
 
@@ -116,15 +148,18 @@ export class JiraApiClient {
         if (Array.isArray(parsed.errorMessages) && parsed.errorMessages.length > 0) {
           errorMsg = parsed.errorMessages.join(", ");
         } else if (parsed.errors && typeof parsed.errors === "object") {
-          errorMsg = Object.values(parsed.errors).join(", ");
+          errorMsg = Object.entries(parsed.errors)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join(", ");
         }
       } catch {
-        if (errorBody) errorMsg += `: ${errorBody.slice(0, 200)}`;
+        if (errorBody) errorMsg += `: ${errorBody.slice(0, 500)}`;
       }
-      this.#log("error", `Fehler beim Abrufen von Jira-Issue ${normalizedKey}: ${errorMsg}`, {
+      this.#log("error", `Fehler beim Abrufen von Jira-Issue ${normalizedKey} (HTTP ${response.status}): ${errorMsg}`, {
         issueKey: normalizedKey,
         status: response.status,
         statusText: response.statusText,
+        errorDetail: errorMsg,
         errorBody: errorBody.slice(0, 2000),
       });
       throw new Error(`Fehler beim Abrufen von Jira-Issue ${normalizedKey}: ${errorMsg}`);
@@ -164,7 +199,8 @@ export class JiraApiClient {
           Accept: "application/json",
           Authorization: authHeader,
         },
-      });
+        dispatcher: this.#dispatcher,
+      } as RequestInit);
       this.#log("info", `<- HTTP ${response.status} ${response.statusText} von GET ${sanitizedUrl}`, {
         url: sanitizedUrl,
         status: response.status,
@@ -172,9 +208,10 @@ export class JiraApiClient {
       });
       return response;
     } catch (fetchErr) {
-      this.#log("error", `Netzwerkausnahme bei GET ${sanitizedUrl}`, {
+      const errorInfo = formatErrorDetails(fetchErr);
+      this.#log("error", `Netzwerkausnahme bei GET ${sanitizedUrl}: ${errorInfo.formatted}`, {
         url: sanitizedUrl,
-        error: fetchErr instanceof Error ? fetchErr.message : String(fetchErr),
+        ...errorInfo,
       });
       throw fetchErr;
     }
@@ -215,9 +252,10 @@ export class JiraApiClient {
         return await this.#fetchWithAuthRedirects(url);
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
-        this.#log("warn", `Download-Versuch fehlgeschlagen für ${sanitizeUrl(url)}`, {
+        const errorInfo = formatErrorDetails(err);
+        this.#log("warn", `Download-Versuch fehlgeschlagen für ${sanitizeUrl(url)}: ${errorInfo.formatted}`, {
           url: sanitizeUrl(url),
-          error: lastError.message,
+          ...errorInfo,
         });
       }
     }
@@ -252,11 +290,22 @@ export class JiraApiClient {
         auth: redactAuthHeader(headers["Authorization"]),
       });
 
-      const response = await fetch(parsedCurrent.toString(), {
-        method: "GET",
-        headers,
-        redirect: "manual",
-      });
+      let response: Response;
+      try {
+        response = await fetch(parsedCurrent.toString(), {
+          method: "GET",
+          headers,
+          redirect: "manual",
+          dispatcher: this.#dispatcher,
+        } as RequestInit);
+      } catch (fetchErr) {
+        const errorInfo = formatErrorDetails(fetchErr);
+        this.#log("error", `Netzwerkfehler beim Download von ${sanitizedUrl}: ${errorInfo.formatted}`, {
+          url: sanitizedUrl,
+          ...errorInfo,
+        });
+        throw new Error(`Netzwerkfehler beim Download von ${sanitizedUrl}: ${errorInfo.formatted}`);
+      }
 
       this.#log("info", `<- HTTP ${response.status} ${response.statusText} für Download ${sanitizedUrl}`, {
         url: sanitizedUrl,
@@ -299,6 +348,46 @@ export class JiraApiClient {
 
     throw new Error(`Zu viele Weiterleitungen beim Herunterladen von ${initialUrl}`);
   }
+}
+
+function formatErrorDetails(err: unknown): {
+  message: string;
+  code?: string;
+  cause?: string;
+  formatted: string;
+  stack?: string;
+} {
+  if (!(err instanceof Error)) {
+    return { message: String(err), formatted: String(err) };
+  }
+
+  const causeObj = (err as { cause?: unknown })?.cause;
+  let causeStr: string | undefined = undefined;
+  let code: string | undefined = (err as { code?: string })?.code || (causeObj as { code?: string })?.code;
+
+  if (causeObj) {
+    if (causeObj instanceof Error) {
+      causeStr = `${causeObj.name ? `${causeObj.name}: ` : ""}${causeObj.message}`;
+    } else {
+      causeStr = String(causeObj);
+    }
+  }
+
+  const formattedParts: string[] = [err.message];
+  if (causeStr && causeStr !== err.message) {
+    formattedParts.push(`(Ursache: ${causeStr})`);
+  }
+  if (code) {
+    formattedParts.push(`[Code: ${code}]`);
+  }
+
+  return {
+    message: err.message,
+    code,
+    cause: causeStr,
+    formatted: formattedParts.join(" "),
+    stack: err.stack,
+  };
 }
 
 function redactAuthHeader(headerValue?: string): string {

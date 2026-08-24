@@ -520,4 +520,51 @@ describe("JiraService with token & story.md attachment", () => {
       database.close();
     }
   });
+
+  it("gibt detaillierte Node.js-Netzwerkfehler inklusive Ursache und Code zurück", async () => {
+    const { JiraApiClient } = await import(
+      "../../src/main/integrations/jira/jira-client"
+    );
+    const logs: Array<{ level: string; message: string; details?: unknown }> = [];
+    const client = new JiraApiClient({
+      baseUrl: "https://jira.internal.local",
+      token: "secret-pat",
+      logger: (level, message, details) => logs.push({ level, message, details }),
+    });
+
+    const mockError = new Error("fetch failed");
+    (mockError as any).cause = new Error("unable to verify the first certificate");
+    (mockError as any).cause.code = "UNABLE_TO_VERIFY_LEAF_SIGNATURE";
+
+    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(mockError);
+
+    await expect(client.getIssue("AML-123")).rejects.toThrow(
+      /unable to verify the first certificate/,
+    );
+    expect(logs.some((l) => l.level === "error" && l.message.includes("UNABLE_TO_VERIFY_LEAF_SIGNATURE"))).toBe(true);
+  });
+
+  it("gibt detaillierte HTTP-Fehler mit Response-Body zurück", async () => {
+    const { JiraApiClient } = await import(
+      "../../src/main/integrations/jira/jira-client"
+    );
+    const logs: Array<{ level: string; message: string; details?: unknown }> = [];
+    const client = new JiraApiClient({
+      baseUrl: "https://jira.internal.local",
+      token: "secret-pat",
+      logger: (level, message, details) => logs.push({ level, message, details }),
+    });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      text: async () => JSON.stringify({ errorMessages: ["Der angegebene Personal Access Token ist abgelaufen."] }),
+    } as unknown as Response);
+
+    await expect(client.getIssue("AML-123")).rejects.toThrow(
+      /Der angegebene Personal Access Token ist abgelaufen/,
+    );
+    expect(logs.some((l) => l.level === "error" && l.message.includes("401"))).toBe(true);
+  });
 });
