@@ -108,23 +108,94 @@ export class JiraApiClient {
     return parseRawJiraIssue(data, this.#baseUrl);
   }
 
-  async downloadAttachment(contentUrl: string): Promise<Buffer> {
-    const response = await fetch(contentUrl, {
-      method: "GET",
-      headers: {
-        Authorization: this.#authHeader,
-      },
-      redirect: "follow",
-    });
+  /**
+   * Downloads an attachment from Jira.
+   *
+   * Handles Self-Hosted Jira & Jira Cloud specifics:
+   * 1. Tries the official REST API endpoint (`/rest/api/2/attachment/content/{id}`) which works with Bearer PATs.
+   * 2. Tries the provided `contentUrl` (often `/secure/attachment/...`).
+   * 3. Follows HTTP 301/302/303/307 redirects manually so the Authorization header is not lost on internal redirects.
+   */
+  async downloadAttachment(contentUrl: string, attachmentId?: string): Promise<Buffer> {
+    const candidateUrls: string[] = [];
 
-    if (!response.ok) {
-      throw new Error(
-        `Fehler beim Herunterladen des Anhangs (${contentUrl}): HTTP ${response.status} (${response.statusText})`,
-      );
+    if (attachmentId) {
+      candidateUrls.push(`${this.#baseUrl}/rest/api/2/attachment/content/${encodeURIComponent(attachmentId)}`);
     }
 
-    const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer);
+    if (contentUrl) {
+      try {
+        const resolved = new URL(contentUrl, this.#baseUrl).toString();
+        if (!candidateUrls.includes(resolved)) {
+          candidateUrls.push(resolved);
+        }
+      } catch {
+        if (!candidateUrls.includes(contentUrl)) {
+          candidateUrls.push(contentUrl);
+        }
+      }
+    }
+
+    let lastError: Error | null = null;
+
+    for (const url of candidateUrls) {
+      try {
+        return await this.#fetchWithAuthRedirects(url);
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+      }
+    }
+
+    throw lastError ?? new Error(`Fehler beim Herunterladen des Anhangs (${contentUrl})`);
+  }
+
+  async #fetchWithAuthRedirects(initialUrl: string, maxRedirects = 5): Promise<Buffer> {
+    let currentUrl = initialUrl;
+    let redirectsCount = 0;
+
+    while (redirectsCount < maxRedirects) {
+      const parsedCurrent = new URL(currentUrl, this.#baseUrl);
+      let isSameHost = false;
+      try {
+        isSameHost = parsedCurrent.origin.toLowerCase() === new URL(this.#baseUrl).origin.toLowerCase();
+      } catch {
+        isSameHost = false;
+      }
+
+      const headers: Record<string, string> = {
+        Accept: "*/*",
+      };
+
+      if (isSameHost) {
+        headers["Authorization"] = this.#authHeader;
+      }
+
+      const response = await fetch(parsedCurrent.toString(), {
+        method: "GET",
+        headers,
+        redirect: "manual",
+      });
+
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get("location");
+        if (!location) {
+          throw new Error(`HTTP ${response.status} Weiterleitung ohne Location Header von ${currentUrl}`);
+        }
+        const nextUrl = new URL(location, currentUrl).toString();
+        currentUrl = nextUrl;
+        redirectsCount++;
+        continue;
+      }
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} (${response.statusText}) von ${currentUrl}`);
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      return Buffer.from(arrayBuffer);
+    }
+
+    throw new Error(`Zu viele Weiterleitungen beim Herunterladen von ${initialUrl}`);
   }
 }
 

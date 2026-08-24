@@ -213,7 +213,7 @@ export class JiraService {
         const syncedAttachmentIds: string[] = [];
         for (const att of toSync) {
           try {
-            const buffer = await client.downloadAttachment(att.contentUrl);
+            const buffer = await client.downloadAttachment(att.contentUrl, att.id);
             const contextAttachment = await this.#contextAttachments.ingestBuffer({
               clientRequestId: `${parsed.clientRequestId}-${att.id}`,
               projectId: parsed.projectId,
