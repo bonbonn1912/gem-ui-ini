@@ -5,6 +5,7 @@ import type {
   ProjectFileSearchEntry,
   ReadProjectFileResult,
 } from "../../types";
+import { detectLanguage, highlightCode } from "./syntax-highlighter";
 
 type FileViewerProps = {
   project: AppProject;
@@ -82,10 +83,11 @@ export function FileViewer({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleClose]);
 
-  const lines = useMemo(() => {
+  const highlightedLines = useMemo(() => {
     if (!data?.content || data.binary) return [];
-    return data.content.split("\n");
-  }, [data]);
+    const language = data.language || detectLanguage(file.displayName || file.relativePath);
+    return highlightCode(data.content, language);
+  }, [data, file.displayName, file.relativePath]);
 
   const handleCopy = async () => {
     if (!data?.content || data.binary) return;
@@ -267,13 +269,23 @@ export function FileViewer({
               </div>
             )}
             <div className="file-viewer-lines">
-              {lines.map((line, index) => (
+              {highlightedLines.map((lineTokens, index) => (
                 <div key={index} className="file-viewer-line">
                   <span className="file-viewer-line-number" aria-hidden="true">
                     {index + 1}
                   </span>
                   <span className="file-viewer-line-content">
-                    <code>{line || " "}</code>
+                    <code>
+                      {lineTokens.length === 0 ? (
+                        " "
+                      ) : (
+                        lineTokens.map((token, tIdx) => (
+                          <span key={tIdx} className={`tok tok-${token.type}`}>
+                            {token.text}
+                          </span>
+                        ))
+                      )}
+                    </code>
                   </span>
                 </div>
               ))}

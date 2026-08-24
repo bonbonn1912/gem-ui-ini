@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState, type ClipboardEvent, type DragEvent } from "react";
 
+import type { JiraIssueAttachment } from "../../../shared/contracts";
 import { Icon } from "../../components/Icon";
 import { useDismissOnOutsideClick } from "../../hooks/useDismissOnOutsideClick";
 import type { AppProject, ContextAttachment, ContextAttachmentList } from "../../types";
 import { createClientRequestId } from "../../utils/client-request-id";
+import type { JiraSessionIssue } from "../jira/useJiraIssue";
 import { AddLinkDialog } from "./AddLinkDialog";
 import { AttachmentDetail } from "./AttachmentDetail";
 import { AttachmentRow } from "./AttachmentRow";
@@ -28,12 +30,34 @@ type AttachmentsPanelProps = {
   loading: boolean;
   refreshing: boolean;
   error: string | null;
+  jiraIssue?: JiraSessionIssue | null;
   onClose: () => void;
   onRefresh: () => Promise<void>;
   onApply: (list: ContextAttachmentList) => void;
   onError: (error: unknown) => void;
   onOpenExternal: (url: string) => void;
 };
+
+function readableSize(bytes: number): string {
+  if (bytes < 1_024) return `${bytes} B`;
+  if (bytes < 1_048_576) return `${Math.round(bytes / 1_024)} KB`;
+  return `${(bytes / 1_048_576).toFixed(1)} MB`;
+}
+
+function formatDate(dateStr?: string): string {
+  if (!dateStr) return "";
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleDateString("de-DE", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  } catch {
+    return dateStr;
+  }
+}
 
 function target(projectId: string, sessionId: string | null, scope: AttachmentScope) {
   return {
@@ -82,6 +106,7 @@ export function AttachmentsPanel({
   loading,
   refreshing,
   error,
+  jiraIssue,
   onClose,
   onRefresh,
   onApply,
@@ -96,6 +121,8 @@ export function AttachmentsPanel({
   const [previewHeight, setPreviewHeight] = useState<number>(480);
   const [detailHeight, setDetailHeight] = useState<number>(DEFAULT_DETAIL_HEIGHT);
   const [originFilter, setOriginFilter] = useState<OriginFilter>("all");
+  const [syncingJiraId, setSyncingJiraId] = useState<string | null>(null);
+  const [syncingAllJira, setSyncingAllJira] = useState(false);
 
   const all = useMemo(() => list ? [...list.projectAttachments, ...list.sessionAttachments] : [], [list]);
   const selected = all.find((attachment) => attachment.id === selectedId) ?? null;
@@ -197,9 +224,126 @@ export function AttachmentsPanel({
     }
   };
 
+  const syncJira = async (attachmentId?: string) => {
+    if (!sessionId || !jiraIssue?.issueKey) return;
+    if (attachmentId) setSyncingJiraId(attachmentId);
+    else setSyncingAllJira(true);
+
+    try {
+      await window.gemUi.jira.syncAttachments({
+        clientRequestId: createClientRequestId(),
+        projectId: project.id,
+        sessionId,
+        issueKey: jiraIssue.issueKey,
+        attachmentIds: attachmentId ? [attachmentId] : undefined,
+      });
+      await onRefresh();
+    } catch (reason) {
+      onError(reason);
+    } finally {
+      setSyncingJiraId(null);
+      setSyncingAllJira(false);
+    }
+  };
+
+  const renderJiraGroup = () => {
+    if (!jiraIssue) return null;
+    const jiraAttachments = jiraIssue.attachments || [];
+    const sessionFiles = list?.sessionAttachments || [];
+
+    const isSynced = (att: JiraIssueAttachment) =>
+      sessionFiles.some(
+        (sa) =>
+          sa.file?.displayName === att.filename ||
+          sa.title === `${jiraIssue.issueKey}: ${att.filename}` ||
+          (sa.file?.size === att.size && sa.file?.displayName === att.filename),
+      );
+
+    const unsyncedCount = jiraAttachments.filter((att) => !isSynced(att)).length;
+
+    return (
+      <section className="attachment-group attachment-group--jira" key="jira">
+        <header>
+          <div>
+            <span className="jira-icon-color"><Icon name="jira" size={14} /></span>
+            <strong>Jira ({jiraIssue.issueKey})</strong>
+            <span>{jiraAttachments.length}</span>
+          </div>
+          {jiraAttachments.length > 0 && sessionId && unsyncedCount > 0 && (
+            <button
+              type="button"
+              className="jira-group-sync-all-btn"
+              disabled={syncingAllJira || syncingJiraId !== null}
+              onClick={() => void syncJira()}
+              title="Alle noch nicht synchronisierten Anhänge in diese Session laden"
+            >
+              {syncingAllJira ? <span className="mini-spinner" /> : <Icon name="download" size={12} />}
+              <span>{syncingAllJira ? "Synchronisiere …" : `Alle syncen (${unsyncedCount})`}</span>
+            </button>
+          )}
+        </header>
+
+        {jiraAttachments.length > 0 ? (
+          <div className="context-attachment-list">
+            {jiraAttachments.map((att) => {
+              const synced = isSynced(att);
+              const isSyncing = syncingJiraId === att.id || syncingAllJira;
+              const isImage =
+                /\.(png|jpe?g|gif|webp|svg)$/i.test(att.filename) ||
+                att.mimeType?.startsWith("image/");
+              const iconName = isImage ? "image" : "file-text";
+
+              return (
+                <div key={att.id} className="jira-attachment-row">
+                  <span className="jira-attachment-icon">
+                    <Icon name={iconName} size={15} />
+                  </span>
+                  <div className="jira-attachment-info">
+                    <strong title={att.filename}>{att.filename}</strong>
+                    <span className="jira-attachment-meta">
+                      {readableSize(att.size)}
+                      {att.created ? ` · ${formatDate(att.created)}` : ""}
+                    </span>
+                  </div>
+                  <div className="jira-attachment-actions">
+                    {synced ? (
+                      <span
+                        className="status-pill status-pill--active"
+                        title="Bereits in den Session-Anhängen vorhanden"
+                      >
+                        <Icon name="check" size={11} /> In Session
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="secondary-button jira-item-sync-btn"
+                        disabled={isSyncing || !sessionId}
+                        onClick={() => void syncJira(att.id)}
+                        title="Diesen Anhang in die Session laden"
+                      >
+                        {syncingJiraId === att.id ? (
+                          <span className="mini-spinner" />
+                        ) : (
+                          <Icon name="download" size={12} />
+                        )}
+                        <span>Syncen</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="attachment-group-empty">
+            Keine Dateianhänge an {jiraIssue.issueKey} vorhanden
+          </p>
+        )}
+      </section>
+    );
+  };
+
   const renderGroup = (scope: AttachmentScope, title: string, all: ContextAttachment[]) => {
-    // Session-Anhänge lassen sich nach Herkunft filtern: automatisch aus dem
-    // Chat übernommen oder von Hand im Panel hinzugefügt.
     const filtered =
       scope === "session" && originFilter !== "all"
         ? all.filter((attachment) => attachment.origin === originFilter)
@@ -212,73 +356,76 @@ export function AttachmentsPanel({
     };
 
     return (
-    <section
-      className={`attachment-group ${dragScope === scope ? "attachment-group--drag" : ""}`}
-      onDragEnter={(event) => { event.preventDefault(); event.stopPropagation(); setDragScope(scope); }}
-      onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "copy"; }}
-      onDragLeave={(event) => {
-        event.stopPropagation();
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragScope(null);
-      }}
-      onDrop={(event) => onDrop(event, scope)}
-      key={scope}
-    >
-      <header>
-        <div><strong>{title}</strong><span>{all.length}</span></div>
-        <GroupCheck
-          label={title}
-          attachments={filtered}
-          disabled={!sessionId}
-          onChange={(included) => void setInclusion(filtered.map(({ id }) => id), included)}
-        />
-      </header>
-      {scope === "session" && (
-        <div className="attachment-origin-tabs" role="tablist" aria-label="Anhänge nach Herkunft filtern">
-          {ORIGIN_FILTERS.map((filter) => (
-            <button
-              key={filter.id}
-              type="button"
-              role="tab"
-              aria-selected={originFilter === filter.id}
-              className={`attachment-origin-tab ${originFilter === filter.id ? "attachment-origin-tab--active" : ""}`}
-              onClick={() => setOriginFilter(filter.id)}
-            >
-              {filter.label}
-              <i>{counts[filter.id]}</i>
-            </button>
-          ))}
-        </div>
-      )}
-      {filtered.length ? (
-        <div className="context-attachment-list">
-          {filtered.map((attachment) => (
-            <AttachmentRow
-              key={attachment.id}
-              attachment={attachment}
-              sessionId={sessionId}
-              selected={selectedId === attachment.id}
-              onSelect={() => setSelectedId(attachment.id)}
-              onToggle={(item, included) => setInclusion([item.id], included).then(() => undefined)}
-              onUpdate={(item, patch) => update(item, patch).then(() => undefined)}
-              onRemove={(item) => run(() => window.gemUi.contextAttachments.remove({ attachmentId: item.id, clientRequestId: createClientRequestId() })).then(() => undefined)}
-              onRefresh={(item) => run(() => window.gemUi.contextAttachments.refreshLinkPreview({ attachmentId: item.id, clientRequestId: createClientRequestId() })).then(() => undefined)}
-              onOpenExternal={onOpenExternal}
-              onOpenFile={(attachmentId) => window.gemUi.contextAttachments.openFile({ attachmentId }).then(() => undefined)}
-            />
-          ))}
-        </div>
-      ) : (
-        <p className="attachment-group-empty">
-          {scope === "session" && originFilter === "chat"
-            ? "Noch nichts aus dem Chat angehängt"
-            : scope === "session" && originFilter === "manual"
-              ? "Noch nichts manuell hinzugefügt"
-              : "Dateien hier ablegen"}
-        </p>
-      )}
-    </section>
+      <section
+        className={`attachment-group ${dragScope === scope ? "attachment-group--drag" : ""}`}
+        onDragEnter={(event) => { event.preventDefault(); event.stopPropagation(); setDragScope(scope); }}
+        onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "copy"; }}
+        onDragLeave={(event) => {
+          event.stopPropagation();
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragScope(null);
+        }}
+        onDrop={(event) => onDrop(event, scope)}
+        key={scope}
+      >
+        <header>
+          <div><strong>{title}</strong><span>{all.length}</span></div>
+          <GroupCheck
+            label={title}
+            attachments={filtered}
+            disabled={!sessionId}
+            onChange={(included) => void setInclusion(filtered.map(({ id }) => id), included)}
+          />
+        </header>
+        {scope === "session" && (
+          <div className="attachment-origin-tabs" role="tablist" aria-label="Anhänge nach Herkunft filtern">
+            {ORIGIN_FILTERS.map((filter) => (
+              <button
+                key={filter.id}
+                type="button"
+                role="tab"
+                aria-selected={originFilter === filter.id}
+                className={`attachment-origin-tab ${originFilter === filter.id ? "attachment-origin-tab--active" : ""}`}
+                onClick={() => setOriginFilter(filter.id)}
+              >
+                {filter.label}
+                <i>{counts[filter.id]}</i>
+              </button>
+            ))}
+          </div>
+        )}
+        {filtered.length ? (
+          <div className="context-attachment-list">
+            {filtered.map((attachment) => (
+              <AttachmentRow
+                key={attachment.id}
+                attachment={attachment}
+                sessionId={sessionId}
+                selected={selectedId === attachment.id}
+                onSelect={() => setSelectedId(attachment.id)}
+                onToggle={(item, included) => setInclusion([item.id], included).then(() => undefined)}
+                onUpdate={(item, patch) => update(item, patch).then(() => undefined)}
+                onRemove={(item) => run(() => window.gemUi.contextAttachments.remove({ attachmentId: item.id, clientRequestId: createClientRequestId() })).then(() => undefined)}
+                onRefresh={(item) => run(() => window.gemUi.contextAttachments.refreshLinkPreview({ attachmentId: item.id, clientRequestId: createClientRequestId() })).then(() => undefined)}
+                onOpenExternal={onOpenExternal}
+                onOpenFile={(attachmentId) => window.gemUi.contextAttachments.openFile({ attachmentId }).then(() => undefined)}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="attachment-group-empty">
+            {scope === "session" && originFilter === "chat"
+              ? "Noch nichts aus dem Chat angehängt"
+              : scope === "session" && originFilter === "manual"
+                ? "Noch nichts manuell hinzugefügt"
+                : "Dateien hier ablegen"}
+          </p>
+        )}
+      </section>
     );
   };
+
+  const hasAnyAttachments =
+    (list && all.length > 0) || (jiraIssue && (jiraIssue.attachments?.length || 0) > 0);
 
   return (
     <aside
@@ -382,7 +529,7 @@ export function AttachmentsPanel({
           <div className="attachments-list-pane">
             {loading && !list ? <div className="attachments-loading"><span className="mini-spinner" />Anhänge werden geladen …</div> : null}
             {error && <div className="attachments-error"><Icon name="warning" size={17} /><p><strong>Anhänge konnten nicht geladen werden</strong><span>{error}</span></p><button type="button" onClick={() => void onRefresh()}>Erneut</button></div>}
-            {!loading && !error && list && all.length === 0 && (
+            {!loading && !error && list && !hasAnyAttachments && (
               <div className="attachments-empty">
                 <span><Icon name="paperclip" size={23} /></span>
                 <strong>Noch keine Anhänge</strong>
@@ -390,11 +537,12 @@ export function AttachmentsPanel({
                 <div><button type="button" onClick={() => void addFiles("project")}><Icon name="file-text" size={14} />Dateien wählen</button><button type="button" onClick={() => setLinkScope("project")}><Icon name="link" size={14} />Link hinzufügen</button></div>
               </div>
             )}
-            {list && all.length > 0 && (
+            {hasAnyAttachments && list && (
               <>
                 {renderGroup("project", "Projekt", list.projectAttachments)}
                 {sessionId && renderGroup("session", "Diese Session", list.sessionAttachments)}
-                {!sessionId && <p className="attachment-session-hint"><Icon name="clock" size={14} />Die Kontextauswahl wird verfügbar, sobald eine Session aktiv ist.</p>}
+                {jiraIssue && renderJiraGroup()}
+                {!sessionId && !jiraIssue && <p className="attachment-session-hint"><Icon name="clock" size={14} />Die Kontextauswahl wird verfügbar, sobald eine Session aktiv ist.</p>}
               </>
             )}
           </div>

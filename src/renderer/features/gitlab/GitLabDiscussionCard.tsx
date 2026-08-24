@@ -8,6 +8,7 @@ type GitLabDiscussionCardProps = {
   mergeRequest: GitLabMergeRequestSummary;
   isReadOnly: boolean;
   currentUsername?: string | null;
+  currentBranch?: string | null;
   delivery: ReviewDelivery;
   onSendToGemini: (discussionId: string, mode: "affected_lines" | "whole_file") => Promise<void>;
   onResolve: (discussionId: string, resolved: boolean) => Promise<void>;
@@ -38,6 +39,7 @@ export function GitLabDiscussionCard({
   mergeRequest,
   isReadOnly,
   currentUsername,
+  currentBranch,
   delivery,
   onSendToGemini,
   onResolve,
@@ -53,6 +55,15 @@ export function GitLabDiscussionCard({
 
   const mainNote = discussion.notes[0];
   if (!mainNote) return null;
+
+  const normalizedCurrentBranch = currentBranch?.trim().toLowerCase() ?? null;
+  const normalizedSourceBranch = mergeRequest.sourceBranch.trim().toLowerCase();
+  const isOnBranch =
+    normalizedCurrentBranch !== null && normalizedCurrentBranch === normalizedSourceBranch;
+
+  const disabledBranchReason = currentBranch?.trim()
+    ? `Nur verfügbar auf dem Branch »${mergeRequest.sourceBranch}« (aktueller Branch: »${currentBranch.trim()}«)`
+    : `Nur verfügbar auf dem Branch »${mergeRequest.sourceBranch}« (kein passender lokaler Branch ausgecheckt)`;
 
   const drafting = delivery === "draft";
   const busyLabel = drafting ? "Übernehmen …" : "Senden …";
@@ -108,6 +119,7 @@ export function GitLabDiscussionCard({
   };
 
   const handlePromptSend = async (mode: "affected_lines" | "whole_file") => {
+    if (!isOnBranch) return;
     setSendingPromptMode(mode);
     setError(null);
     try {
@@ -210,10 +222,14 @@ export function GitLabDiscussionCard({
             type="button"
             className="secondary-button prompt-btn"
             onClick={() => handlePromptSend("affected_lines")}
-            disabled={sendingPromptMode !== null}
-            title={drafting
-              ? "Betroffene Zeilen dieses Threads in das Eingabefeld übernehmen"
-              : "Betroffene Zeilen dieses Threads sofort als Prompt an Gemini senden"}
+            disabled={!isOnBranch || sendingPromptMode !== null}
+            title={
+              !isOnBranch
+                ? disabledBranchReason
+                : drafting
+                  ? "Betroffene Zeilen dieses Threads in das Eingabefeld übernehmen"
+                  : "Betroffene Zeilen dieses Threads sofort als Prompt an Gemini senden"
+            }
           >
             {sendingPromptMode === "affected_lines" ? (
               <><span className="mini-spinner" /> {busyLabel}</>
@@ -227,10 +243,14 @@ export function GitLabDiscussionCard({
               type="button"
               className="secondary-button prompt-btn"
               onClick={() => handlePromptSend("whole_file")}
-              disabled={sendingPromptMode !== null}
-              title={drafting
-                ? "Vollständige Datei am Review-Stand in das Eingabefeld übernehmen"
-                : "Vollständige Datei am Review-Stand sofort als Prompt an Gemini senden"}
+              disabled={!isOnBranch || sendingPromptMode !== null}
+              title={
+                !isOnBranch
+                  ? disabledBranchReason
+                  : drafting
+                    ? "Vollständige Datei am Review-Stand in das Eingabefeld übernehmen"
+                    : "Vollständige Datei am Review-Stand sofort als Prompt an Gemini senden"
+              }
             >
               {sendingPromptMode === "whole_file" ? (
                 <><span className="mini-spinner" /> {busyLabel}</>

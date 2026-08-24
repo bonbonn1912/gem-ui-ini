@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Icon } from "../../components/Icon";
-import type { AppSession, PreparedExternalContext } from "../../types";
+import type { AppSession, GitProjectStatus, PreparedExternalContext } from "../../types";
 import { GitLabDiscussionCard } from "./GitLabDiscussionCard";
 import { GitLabMergeRequestList } from "./GitLabMergeRequestList";
 import { GitLabMergeRequestPicker } from "./GitLabMergeRequestPicker";
@@ -30,6 +30,8 @@ type GitLabPanelProps = {
   projectId: string;
   rootRevision: number;
   activeSession: AppSession | null;
+  gitStatus?: GitProjectStatus | null;
+  currentBranch?: string | null;
   onClose: () => void;
   onSendExternalContextPrompt: (
     prepared: PreparedExternalContext,
@@ -43,6 +45,8 @@ export function GitLabPanel({
   projectId,
   rootRevision,
   activeSession,
+  gitStatus,
+  currentBranch: currentBranchProp,
   onClose,
   onSendExternalContextPrompt,
   onOpenExternal,
@@ -82,6 +86,17 @@ export function GitLabPanel({
     () => candidates.find((c) => c.binding?.id === selectedBindingId) ?? null,
     [candidates, selectedBindingId],
   );
+
+  const liveBranch = useMemo(() => {
+    if (currentBranchProp !== undefined) return currentBranchProp;
+    if (gitStatus && selectedCandidate) {
+      const matchingRepo = gitStatus.repositories.find((r) =>
+        r.rootIds.some((id) => selectedCandidate.rootIds.includes(id)),
+      );
+      if (matchingRepo?.branch) return matchingRepo.branch;
+    }
+    return selectedCandidate?.branch ?? null;
+  }, [currentBranchProp, gitStatus, selectedCandidate]);
 
   const filteredDiscussions = useMemo(() => {
     if (!reviewState) return [];
@@ -279,7 +294,7 @@ export function GitLabPanel({
             <GitLabMergeRequestList
               mergeRequests={mergeRequests}
               loading={mergeRequestsLoading}
-              currentBranch={selectedCandidate?.branch ?? null}
+              currentBranch={liveBranch}
               onSelectMr={selectMergeRequest}
               onReload={() => void loadMergeRequests()}
             />
@@ -309,6 +324,7 @@ export function GitLabPanel({
                     mergeRequest={mergeRequest}
                     isReadOnly={isReadOnly}
                     currentUsername={reviewState.connection.user.username}
+                    currentBranch={liveBranch}
                     onSendToGemini={handleSendToGemini}
                     delivery={delivery}
                     onResolve={(id, resolved) =>

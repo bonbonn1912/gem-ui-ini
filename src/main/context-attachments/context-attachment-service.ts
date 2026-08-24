@@ -15,6 +15,8 @@ import {
   type AddContextLinkInput,
   type ContextAttachmentBytesInput,
   type ContextAttachmentList,
+  type ContextAttachmentOrigin,
+  type ContextAttachmentScope,
   type ListContextAttachmentsInput,
   type RemoveContextAttachmentInput,
   type SetContextInclusionInput,
@@ -132,6 +134,65 @@ export class ContextAttachmentService {
     }
     this.#emit(parsed.projectId);
     return attachments;
+  }
+
+  async ingestBuffer(input: {
+    clientRequestId?: string;
+    projectId: string;
+    sessionId?: string | null;
+    scope?: ContextAttachmentScope;
+    buffer: Buffer;
+    fileName: string;
+    title?: string;
+    origin?: ContextAttachmentOrigin;
+    defaultInclude?: boolean;
+  }): Promise<StoredContextAttachment> {
+    const scope = input.scope ?? "session";
+    const sessionId = input.sessionId ?? null;
+    this.#assertTarget(input.projectId, sessionId, scope);
+    const blob = await this.blobs.ingestBuffer(input.buffer);
+    const duplicate = this.repository.findDuplicate(input.projectId, sessionId, blob.sha256);
+    if (duplicate) {
+      return duplicate;
+    }
+    const displayName = safeDisplayName(input.fileName);
+    const mimeType = sniffMime(blob.sniffBytes, displayName);
+    const attachment = this.repository.insertFile({
+      id: randomUUID(),
+      projectId: input.projectId,
+      scope,
+      sessionId,
+      title: input.title ?? displayName,
+      origin: input.origin ?? "manual",
+      displayName,
+      mimeType,
+      size: blob.size,
+      sha256: blob.sha256,
+      storageDir: blob.storageDir,
+      fileName: blob.fileName,
+      defaultInclude: input.defaultInclude ?? true,
+      createdAt: new Date().toISOString(),
+    });
+    this.#extractor.enqueue(attachment.id);
+    this.#emit(input.projectId);
+    return attachment;
+  }
+
+  async ingestText(input: {
+    clientRequestId?: string;
+    projectId: string;
+    sessionId?: string | null;
+    scope?: ContextAttachmentScope;
+    text: string;
+    fileName: string;
+    title?: string;
+    origin?: ContextAttachmentOrigin;
+    defaultInclude?: boolean;
+  }): Promise<StoredContextAttachment> {
+    return this.ingestBuffer({
+      ...input,
+      buffer: Buffer.from(input.text, "utf8"),
+    });
   }
 
   async addLink(input: AddContextLinkInput): Promise<ContextAttachmentList> {

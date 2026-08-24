@@ -115,8 +115,8 @@ export class LinkPreviewViewHost {
     if (!view) return;
     try {
       this.mainWindow.contentView.removeChildView(view);
-    } finally {
-      if (!view.webContents.isDestroyed()) view.webContents.close();
+    } catch {
+      // Ignore if view was already removed or destroyed
     }
   }
 

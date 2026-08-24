@@ -357,6 +357,10 @@ const desktopApi: GemUiDesktopApi = {
     deactivate: (input) =>
       ipcRenderer.invoke(IPC_CHANNELS.deactivateJiraProjectIntegration, input),
     attachIssue: (input) => ipcRenderer.invoke(IPC_CHANNELS.attachJiraIssue, input),
+    fetchIssueDetails: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.fetchJiraIssueDetails, input),
+    syncAttachments: (input) =>
+      ipcRenderer.invoke(IPC_CHANNELS.syncJiraAttachments, input),
   },
 
   agentExtensions: {

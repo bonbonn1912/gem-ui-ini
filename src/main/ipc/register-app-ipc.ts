@@ -9,8 +9,10 @@ import {
   type AddContextFilesInput,
   type DeactivateJiraProjectIntegrationInput,
   type DeleteJiraConfigInput,
+  type FetchJiraIssueDetailsInput,
   type GetJiraProjectIntegrationInput,
   type SaveJiraConfigInput,
+  type SyncJiraAttachmentsInput,
   type AddContextLinkInput,
   type AddTodoFilesInput,
   type AddTodoLinkInput,
@@ -941,6 +943,19 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
         input as AttachJiraIssueInput & { clientRequestId: string },
         "jira.attach-issue",
         () => jira.attachIssue(input as AttachJiraIssueInput),
+      ),
+    );
+
+    register(IPC_CHANNELS.fetchJiraIssueDetails, (input) =>
+      jira.fetchIssueDetails(input as FetchJiraIssueDetailsInput),
+    );
+
+    register(IPC_CHANNELS.syncJiraAttachments, (input) =>
+      idempotent(
+        options.clientRequests,
+        input as SyncJiraAttachmentsInput & { clientRequestId: string },
+        "jira.sync-attachments",
+        () => jira.syncAttachments(input as SyncJiraAttachmentsInput),
       ),
     );
   }

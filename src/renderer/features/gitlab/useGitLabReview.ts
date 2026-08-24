@@ -116,6 +116,7 @@ export function useGitLabReview(projectId: string | null, rootRevision = 1) {
     setLoading(true);
     setError(null);
     try {
+      await loadCandidates();
       const state = await window.gemUi.gitlab.getReviewState({
         projectId,
         expectedRootRevision: rootRevision,
@@ -128,7 +129,7 @@ export function useGitLabReview(projectId: string | null, rootRevision = 1) {
     } finally {
       setLoading(false);
     }
-  }, [projectId, selectedBindingId, rootRevision, loadMergeRequests]);
+  }, [projectId, selectedBindingId, rootRevision, loadCandidates, loadMergeRequests]);
 
   const selectMergeRequest = useCallback(
     async (targetProjectId: number, targetProjectPath: string, mergeRequestIid: number) => {

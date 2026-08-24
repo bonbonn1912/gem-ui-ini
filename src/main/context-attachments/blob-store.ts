@@ -100,6 +100,42 @@ export class ContextBlobStore {
     }
   }
 
+  async ingestBuffer(buffer: Buffer): Promise<StoredBlob> {
+    if (buffer.length < 1 || buffer.length > MAX_CONTEXT_FILE_BYTES) {
+      throw new Error(`Dateien müssen zwischen 1 Byte und ${MAX_CONTEXT_FILE_BYTES / 1024 / 1024} MiB groß sein.`);
+    }
+    const hash = createHash("sha256");
+    hash.update(buffer);
+    const sha256 = hash.digest("hex");
+    const storageDir = path.join(this.blobsDirectory, sha256.slice(0, 2));
+    const destination = path.join(storageDir, sha256);
+    await mkdir(storageDir, { recursive: true, mode: 0o700 });
+    const temporaryPath = path.join(this.blobsDirectory, `.incoming-${randomUUID()}`);
+    const target = await open(temporaryPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+    try {
+      await target.write(buffer);
+      await target.sync();
+      try {
+        await rename(temporaryPath, destination);
+      } catch (error) {
+        if (!isDestinationExists(error)) throw error;
+        await rm(temporaryPath, { force: true });
+      }
+    } finally {
+      await target.close().catch(() => undefined);
+      await rm(temporaryPath, { force: true }).catch(() => undefined);
+    }
+    const sniff = Buffer.alloc(Math.min(SNIFF_BYTES, buffer.length));
+    buffer.copy(sniff, 0, 0, Math.min(SNIFF_BYTES, buffer.length));
+    return {
+      sha256,
+      size: buffer.length,
+      storageDir,
+      fileName: sha256,
+      sniffBytes: sniff,
+    };
+  }
+
   blobPath(sha256: string): string {
     assertSha256(sha256);
     return this.assertInside(this.blobsDirectory, path.join(this.blobsDirectory, sha256.slice(0, 2), sha256));

@@ -552,6 +552,14 @@ const migrations: readonly Migration[] = [
       ALTER TABLE projects ADD COLUMN live_tokens_enabled INTEGER NOT NULL DEFAULT 0 CHECK(live_tokens_enabled IN (0, 1));
     `,
   },
+  {
+    version: 17,
+    name: "017_jira_access_tokens",
+    sql: `
+      ALTER TABLE jira_configs ADD COLUMN token_cipher BLOB;
+      ALTER TABLE jira_configs ADD COLUMN email TEXT;
+    `,
+  },
 ];
 
 export function runMigrations(database: SqliteDatabase): void {

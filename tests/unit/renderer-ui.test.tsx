@@ -367,6 +367,8 @@ function createApi(options: {
       activate: vi.fn(),
       deactivate: vi.fn(),
       attachIssue: vi.fn(),
+      fetchIssueDetails: vi.fn(),
+      syncAttachments: vi.fn().mockResolvedValue({ syncedCount: 0, attachmentIds: [], skippedCount: 0 }),
     },
     settings: {
       chooseGeminiBinary: vi.fn().mockResolvedValue(capabilities),
@@ -2295,5 +2297,145 @@ describe("Renderer UI", () => {
     // Verify package.json reference chip appeared in Composer
     const strip = await screen.findByLabelText("Referenzierte Projektdateien und -ordner");
     expect(within(strip).getByText("package.json")).toBeInTheDocument();
+  });
+
+  it("zeigt Jira-Anhänge im Anhänge-Panel und erlaubt 1-Klick-Sync in die Session", async () => {
+    const user = userEvent.setup();
+    const { api } = createApi();
+    api.jira.syncAttachments = vi.fn().mockResolvedValue({
+      syncedCount: 1,
+      attachmentIds: ["att-1"],
+      skippedCount: 0,
+    });
+    window.gemUi = api;
+
+    const jiraIssue = {
+      issueKey: "AML-456",
+      prefix: "AML",
+      url: "https://jira.example.com/browse/AML-456",
+      configName: "Firmen-Jira",
+      hasAccessToken: true,
+      summary: "Zahlungsschnittstelle implementieren",
+      storyMarkdown: "# AML-456",
+      attachments: [
+        {
+          id: "att-100",
+          filename: "spec.pdf",
+          size: 1048576,
+          mimeType: "application/pdf",
+          created: "2026-08-24T12:00:00.000Z",
+          contentUrl: "https://jira.example.com/attachment/100",
+        },
+      ],
+    };
+
+    const onRefresh = vi.fn().mockResolvedValue(undefined);
+    const onApply = vi.fn();
+    const onError = vi.fn();
+
+    const { AttachmentsPanel } = await import(
+      "../../src/renderer/features/attachments/AttachmentsPanel"
+    );
+
+    render(
+      <AttachmentsPanel
+        open={true}
+        project={project}
+        sessionId="session-1"
+        list={{
+          projectId: project.id,
+          sessionId: "session-1",
+          projectAttachments: [],
+          sessionAttachments: [],
+          includedCount: 0,
+          estimatedTotalTokens: 0,
+          overBudget: false,
+        }}
+        loading={false}
+        refreshing={false}
+        error={null}
+        jiraIssue={jiraIssue}
+        onClose={vi.fn()}
+        onRefresh={onRefresh}
+        onApply={onApply}
+        onError={onError}
+        onOpenExternal={vi.fn()}
+      />,
+    );
+
+    // Verify Jira section is rendered with issue key and attachment info
+    expect(screen.getByText("Jira (AML-456)")).toBeInTheDocument();
+    expect(screen.getByText("spec.pdf")).toBeInTheDocument();
+    expect(screen.getByText(/1\.0 MB/)).toBeInTheDocument();
+
+    // Click "Syncen" button for this attachment
+    const syncBtn = screen.getByRole("button", { name: /^Syncen$/i });
+    await user.click(syncBtn);
+
+    expect(api.jira.syncAttachments).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: project.id,
+        sessionId: "session-1",
+        issueKey: "AML-456",
+        attachmentIds: ["att-100"],
+      }),
+    );
+    expect(onRefresh).toHaveBeenCalled();
+  });
+
+  it("rendert JiraIssueView mit In-Chat-Einfügen und Browser-Aktionen", async () => {
+    const user = userEvent.setup();
+    const { api } = createApi();
+    window.gemUi = api;
+
+    const onInsertIntoChat = vi.fn();
+    const onOpenExternal = vi.fn();
+    const onClose = vi.fn();
+
+    const jiraIssue = {
+      issueKey: "AML-789",
+      prefix: "AML",
+      url: "https://jira.example.com/browse/AML-789",
+      configName: "Firmen-Jira",
+      hasAccessToken: true,
+      summary: "Story Test",
+      storyMarkdown: "# [AML-789] Story Test\n\n## Beschreibung\nAusführlicher Text.",
+      attachments: [],
+    };
+
+    const { JiraIssueView } = await import(
+      "../../src/renderer/features/jira/JiraIssueView"
+    );
+
+    render(
+      <JiraIssueView
+        issue={jiraIssue}
+        projectId="project-1"
+        sessionId="session-1"
+        attachError={null}
+        onClose={onClose}
+        onOpenExternal={onOpenExternal}
+        onInsertIntoChat={onInsertIntoChat}
+      />,
+    );
+
+    // Verify issue key and summary in header
+    expect(screen.getByText("AML-789")).toBeInTheDocument();
+    expect(screen.getByText("Story Test")).toBeInTheDocument();
+
+    // Click "In Chat einfügen" button
+    const insertBtn = screen.getByRole("button", { name: /In Chat einfügen/i });
+    await user.click(insertBtn);
+    expect(onInsertIntoChat).toHaveBeenCalledWith(jiraIssue.storyMarkdown);
+
+    // Click "Im Browser öffnen"
+    const openBtn = screen.getByRole("button", { name: /Im Browser öffnen/i });
+    await user.click(openBtn);
+    expect(onOpenExternal).toHaveBeenCalledWith(jiraIssue.url);
+
+    // Click Close button
+    const closeBtn = screen.getByRole("button", { name: "Jira-Ansicht schließen" });
+    await user.click(closeBtn);
+    expect(onClose).toHaveBeenCalled();
   });
 });

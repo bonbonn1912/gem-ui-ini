@@ -1573,6 +1573,7 @@ export function App() {
                 projectId={activeProject.id}
                 rootRevision={activeProject.rootRevision}
                 activeSession={null}
+                gitStatus={gitState.status}
                 onClose={() => setRightPanel("none")}
                 onSendExternalContextPrompt={async () => {
                   showError("Keine aktive Session", new Error("Bitte starte zuerst eine Session, um Review-Kontext zu senden."));
@@ -1708,6 +1709,7 @@ export function App() {
                 loading={contextAttachments.loading}
                 refreshing={contextAttachments.refreshing}
                 error={contextAttachments.error}
+                jiraIssue={jiraIssue}
                 onClose={() => setRightPanel("none")}
                 onRefresh={contextAttachments.refresh}
                 onApply={contextAttachments.apply}
@@ -1737,6 +1739,7 @@ export function App() {
                 projectId={activeProject.id}
                 rootRevision={activeProject.rootRevision}
                 activeSession={activeSession}
+                gitStatus={gitState.status}
                 onClose={() => setRightPanel("none")}
                 onSendExternalContextPrompt={deliverReviewContext}
                 onOpenExternal={openExternal}
@@ -1749,9 +1752,15 @@ export function App() {
             {rightPanel === "jira" && jiraIssue && (
               <JiraIssueView
                 issue={jiraIssue}
+                projectId={activeProject?.id}
+                sessionId={activeSessionId}
                 attachError={jira.attachError}
                 onClose={() => setRightPanel("none")}
                 onOpenExternal={openInExternalBrowser}
+                onInsertIntoChat={(text) => {
+                  handToComposer(text);
+                  setRightPanel("none");
+                }}
               />
             )}
             {rightPanelOpen && <RightPanelResizeHandle width={rightPanelWidth} onChange={setRightPanelWidth} />}

@@ -14,6 +14,10 @@ type EditorState = {
   name: string;
   baseUrl: string;
   prefixes: string;
+  accessToken: string;
+  email: string;
+  hasExistingToken?: boolean;
+  clearAccessToken?: boolean;
 };
 
 const EMPTY_EDITOR: EditorState = {
@@ -21,6 +25,10 @@ const EMPTY_EDITOR: EditorState = {
   name: "",
   baseUrl: "",
   prefixes: "",
+  accessToken: "",
+  email: "",
+  hasExistingToken: false,
+  clearAccessToken: false,
 };
 
 function parsePrefixes(value: string): string[] {
@@ -62,6 +70,7 @@ export function JiraSettings({ projectId, onChanged }: JiraSettingsProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
+  const [showToken, setShowToken] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -175,12 +184,12 @@ export function JiraSettings({ projectId, onChanged }: JiraSettingsProps) {
         name: editor.name.trim(),
         baseUrl: editor.baseUrl.trim().replace(/\/+$/, ""),
         issuePrefixes: prefixes,
+        accessToken: editor.accessToken.trim() ? editor.accessToken.trim() : undefined,
+        email: editor.email.trim() ? editor.email.trim() : undefined,
+        clearAccessToken: editor.clearAccessToken,
       });
       setEditor(null);
       await load();
-      // A freshly created configuration is what the person just described, so
-      // activating it here saves the extra click the list would otherwise ask
-      // for. Editing an existing one leaves the activation untouched.
       if (editor.configId === null) await activate(saved.id);
       else onChanged?.();
     } catch (saveError) {
@@ -200,8 +209,8 @@ export function JiraSettings({ projectId, onChanged }: JiraSettingsProps) {
           <div>
             <h4>Jira</h4>
             <p>
-              Issues aus dem Session-Namen erkennen, im Fenster öffnen und an die Session
-              anhängen (optional)
+              Issues aus dem Session-Namen erkennen, als <code>story.md</code> an die Session anhängen,
+              im Fenster öffnen und in den Chat übernehmen (optional)
             </p>
           </div>
         </div>
@@ -258,6 +267,11 @@ export function JiraSettings({ projectId, onChanged }: JiraSettingsProps) {
                         >
                           {isActive ? "Aktiviert" : "Nicht aktiviert"}
                         </span>
+                        {config.hasAccessToken && (
+                          <span className="status-pill status-pill--active" title="API-Zugriff aktiviert">
+                            API aktiv
+                          </span>
+                        )}
                       </div>
                       <p className="remote-summary">{config.baseUrl}</p>
                       <div className="jira-prefix-tags">
@@ -281,6 +295,10 @@ export function JiraSettings({ projectId, onChanged }: JiraSettingsProps) {
                             name: config.name,
                             baseUrl: config.baseUrl,
                             prefixes: config.issuePrefixes.join(", "),
+                            accessToken: "",
+                            email: config.email || "",
+                            hasExistingToken: config.hasAccessToken,
+                            clearAccessToken: false,
                           })
                         }
                       >
@@ -328,7 +346,7 @@ export function JiraSettings({ projectId, onChanged }: JiraSettingsProps) {
             <div className="field-heading">
               <div>
                 <span>{editor.configId ? "Jira-Integration bearbeiten" : "Neue Jira-Integration"}</span>
-                <small>Name, Base URL und die Issue-Prefixe dieser Instanz</small>
+                <small>Name, Base URL, Issue-Prefixe und optionaler API-Zugriff</small>
               </div>
             </div>
 
@@ -350,7 +368,7 @@ export function JiraSettings({ projectId, onChanged }: JiraSettingsProps) {
               <input
                 value={editor.baseUrl}
                 maxLength={2048}
-                placeholder="https://jira.example.com"
+                placeholder="https://jira.example.com oder https://firma.atlassian.net"
                 spellCheck={false}
                 onChange={(event) =>
                   setEditor((current) => (current ? { ...current, baseUrl: event.target.value } : current))
@@ -372,9 +390,96 @@ export function JiraSettings({ projectId, onChanged }: JiraSettingsProps) {
             </label>
             <p className="jira-editor-hint">
               Mehrere durch Komma oder Leerzeichen trennen. Enthält ein Session-Name einen
-              Key wie <code>AML-1234</code>, erscheint das Jira-Symbol in der rechten Leiste
-              — bei mehreren Treffern zählt der erste im Namen.
+              Key wie <code>AML-1234</code>, wird das Issue automatisch erkannt.
             </p>
+
+            <div className="jira-api-section">
+              <span className="jira-api-section-title">
+                API-Zugriff &amp; story.md (optional)
+              </span>
+              <p className="jira-editor-hint">
+                Wenn ein Access Token hinterlegt ist, wird die Aufgabenbeschreibung automatisch über die
+                Jira-API abgerufen, als <code>story.md</code> an die Session angehängt und kann per Klick
+                in den Chat übergeben werden.
+              </p>
+
+              <label className="field-label">
+                <span>E-Mail (erforderlich für Jira Cloud)</span>
+                <input
+                  value={editor.email}
+                  maxLength={255}
+                  placeholder="name@firma.com"
+                  spellCheck={false}
+                  onChange={(event) =>
+                    setEditor((current) => (current ? { ...current, email: event.target.value } : current))
+                  }
+                />
+              </label>
+
+              <label className="field-label">
+                <span>Access Token / Personal Access Token (PAT)</span>
+                <div className="jira-token-input-group">
+                  <input
+                    type={showToken ? "text" : "password"}
+                    value={editor.accessToken}
+                    maxLength={1024}
+                    placeholder={
+                      editor.hasExistingToken && !editor.clearAccessToken
+                        ? "•••••••• (gespeichert – leer lassen, um ihn beizubehalten)"
+                        : "API-Token (Cloud) oder Personal Access Token (Self-Hosted)"
+                    }
+                    spellCheck={false}
+                    disabled={editor.clearAccessToken}
+                    onChange={(event) =>
+                      setEditor((current) =>
+                        current ? { ...current, accessToken: event.target.value } : current,
+                      )
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="icon-button"
+                    title={showToken ? "Token verbergen" : "Token anzeigen"}
+                    onClick={() => setShowToken((prev) => !prev)}
+                  >
+                    <Icon name={showToken ? "eye-off" : "eye"} size={14} />
+                  </button>
+                </div>
+              </label>
+
+              {editor.hasExistingToken && (
+                <div className="jira-token-manage">
+                  {editor.clearAccessToken ? (
+                    <span className="jira-token-cleared-note">
+                      Token wird beim Speichern entfernt.{" "}
+                      <button
+                        type="button"
+                        className="link-button"
+                        onClick={() =>
+                          setEditor((current) =>
+                            current ? { ...current, clearAccessToken: false } : current,
+                          )
+                        }
+                      >
+                        Rückgängig
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="secondary-button danger-button-text"
+                      onClick={() =>
+                        setEditor((current) =>
+                          current ? { ...current, clearAccessToken: true, accessToken: "" } : current,
+                        )
+                      }
+                    >
+                      Gespeicherten Token entfernen
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
 
             <div className="jira-editor-actions">
               <button
@@ -383,6 +488,7 @@ export function JiraSettings({ projectId, onChanged }: JiraSettingsProps) {
                 onClick={() => {
                   setEditor(null);
                   setError(null);
+                  setShowToken(false);
                 }}
                 disabled={saving}
               >
@@ -405,6 +511,7 @@ export function JiraSettings({ projectId, onChanged }: JiraSettingsProps) {
             onClick={() => {
               setEditor({ ...EMPTY_EDITOR });
               setError(null);
+              setShowToken(false);
             }}
           >
             <Icon name="plus" size={14} /> Jira-Integration hinzufügen

@@ -404,20 +404,28 @@ import {
   AttachJiraIssueResultSchema,
   DeactivateJiraProjectIntegrationInputSchema,
   DeleteJiraConfigInputSchema,
+  FetchJiraIssueDetailsInputSchema,
   GetJiraProjectIntegrationInputSchema,
   JiraConfigSchema,
+  JiraIssueDetailsSchema,
   JiraProjectIntegrationSchema,
   ListJiraConfigsInputSchema,
   SaveJiraConfigInputSchema,
+  SyncJiraAttachmentsInputSchema,
+  SyncJiraAttachmentsResultSchema,
   type ActivateJiraProjectIntegrationInput,
   type AttachJiraIssueInput,
   type AttachJiraIssueResult,
   type DeactivateJiraProjectIntegrationInput,
   type DeleteJiraConfigInput,
+  type FetchJiraIssueDetailsInput,
   type GetJiraProjectIntegrationInput,
   type JiraConfig,
+  type JiraIssueDetails,
   type JiraProjectIntegration,
   type SaveJiraConfigInput,
+  type SyncJiraAttachmentsInput,
+  type SyncJiraAttachmentsResult,
 } from "./jira";
 
 export const IPC_CHANNELS = {
@@ -520,6 +528,8 @@ export const IPC_CHANNELS = {
   activateJiraProjectIntegration: "jira:activate-project-integration",
   deactivateJiraProjectIntegration: "jira:deactivate-project-integration",
   attachJiraIssue: "jira:attach-issue",
+  fetchJiraIssueDetails: "jira:fetch-issue-details",
+  syncJiraAttachments: "jira:sync-attachments",
   listGeminiSkills: "agent-extensions:list-skills",
   listMcpServers: "agent-extensions:list-mcp-servers",
   openExternalHttpsUrl: "external:open-https-url",
@@ -630,6 +640,8 @@ export const IpcRequestSchemas = {
   [IPC_CHANNELS.activateJiraProjectIntegration]: ActivateJiraProjectIntegrationInputSchema,
   [IPC_CHANNELS.deactivateJiraProjectIntegration]: DeactivateJiraProjectIntegrationInputSchema,
   [IPC_CHANNELS.attachJiraIssue]: AttachJiraIssueInputSchema,
+  [IPC_CHANNELS.fetchJiraIssueDetails]: FetchJiraIssueDetailsInputSchema,
+  [IPC_CHANNELS.syncJiraAttachments]: SyncJiraAttachmentsInputSchema,
   [IPC_CHANNELS.listGeminiSkills]: ListAgentExtensionsInputSchema,
   [IPC_CHANNELS.listMcpServers]: ListAgentExtensionsInputSchema,
   [IPC_CHANNELS.openExternalHttpsUrl]: OpenExternalHttpsUrlInputSchema,
@@ -732,6 +744,8 @@ export const IpcResponseSchemas = {
   [IPC_CHANNELS.activateJiraProjectIntegration]: JiraProjectIntegrationSchema,
   [IPC_CHANNELS.deactivateJiraProjectIntegration]: JiraProjectIntegrationSchema,
   [IPC_CHANNELS.attachJiraIssue]: AttachJiraIssueResultSchema,
+  [IPC_CHANNELS.fetchJiraIssueDetails]: JiraIssueDetailsSchema,
+  [IPC_CHANNELS.syncJiraAttachments]: SyncJiraAttachmentsResultSchema,
   [IPC_CHANNELS.listGeminiSkills]: GeminiSkillListSchema,
   [IPC_CHANNELS.listMcpServers]: McpServerListSchema,
   [IPC_CHANNELS.openExternalHttpsUrl]: VoidResultSchema,
@@ -937,6 +951,12 @@ export interface GemUiDesktopApi {
       input: DeactivateJiraProjectIntegrationInput,
     ): Promise<JiraProjectIntegration>;
     attachIssue(input: AttachJiraIssueInput): Promise<AttachJiraIssueResult>;
+    fetchIssueDetails(
+      input: FetchJiraIssueDetailsInput,
+    ): Promise<JiraIssueDetails>;
+    syncAttachments(
+      input: SyncJiraAttachmentsInput,
+    ): Promise<SyncJiraAttachmentsResult>;
   };
   agentExtensions: {
     listSkills(input: ListAgentExtensionsInput): Promise<GeminiSkillList>;

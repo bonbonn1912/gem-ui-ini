@@ -54,6 +54,8 @@ export const JiraConfigSchema = z
       .array(JiraIssuePrefixSchema)
       .min(1)
       .max(MAX_JIRA_ISSUE_PREFIXES),
+    hasAccessToken: z.boolean().default(false),
+    email: z.string().trim().nullable().optional(),
     createdAt: IsoTimestampSchema,
     updatedAt: IsoTimestampSchema,
   })
@@ -91,6 +93,9 @@ export const SaveJiraConfigInputSchema = z
       .array(JiraIssuePrefixSchema)
       .min(1)
       .max(MAX_JIRA_ISSUE_PREFIXES),
+    accessToken: z.string().trim().nullable().optional(),
+    email: z.string().trim().nullable().optional(),
+    clearAccessToken: z.boolean().optional(),
   })
   .strict();
 
@@ -143,6 +148,61 @@ export const AttachJiraIssueResultSchema = z
   .object({
     match: JiraIssueMatchSchema,
     attachmentId: EntityIdSchema,
+    storyAttachmentId: EntityIdSchema.nullable().optional(),
+    storyMarkdown: z.string().nullable().optional(),
+    summary: z.string().nullable().optional(),
+  })
+  .strict();
+
+export const FetchJiraIssueDetailsInputSchema = z
+  .object({
+    projectId: EntityIdSchema,
+    issueKey: JiraIssueKeySchema,
+  })
+  .strict();
+
+export const JiraIssueAttachmentSchema = z
+  .object({
+    id: z.string(),
+    filename: z.string(),
+    size: z.number().int().nonnegative(),
+    mimeType: z.string().optional(),
+    created: z.string().optional(),
+    contentUrl: HttpsUrlSchema,
+  })
+  .strict();
+
+export const JiraIssueDetailsSchema = z
+  .object({
+    issueKey: JiraIssueKeySchema,
+    summary: z.string(),
+    descriptionMarkdown: z.string(),
+    status: z.string().nullable().optional(),
+    issueType: z.string().nullable().optional(),
+    priority: z.string().nullable().optional(),
+    assignee: z.string().nullable().optional(),
+    labels: z.array(z.string()).optional(),
+    attachments: z.array(JiraIssueAttachmentSchema).default([]),
+    storyMarkdown: z.string(),
+    url: HttpsUrlSchema,
+  })
+  .strict();
+
+export const SyncJiraAttachmentsInputSchema = z
+  .object({
+    clientRequestId: ClientRequestIdSchema,
+    projectId: EntityIdSchema,
+    sessionId: EntityIdSchema,
+    issueKey: JiraIssueKeySchema,
+    attachmentIds: z.array(z.string()).optional(),
+  })
+  .strict();
+
+export const SyncJiraAttachmentsResultSchema = z
+  .object({
+    syncedCount: z.number().int().nonnegative(),
+    attachmentIds: z.array(EntityIdSchema),
+    skippedCount: z.number().int().nonnegative(),
   })
   .strict();
 
@@ -163,6 +223,11 @@ export type DeactivateJiraProjectIntegrationInput = z.input<
 export type JiraIssueMatch = z.infer<typeof JiraIssueMatchSchema>;
 export type AttachJiraIssueInput = z.input<typeof AttachJiraIssueInputSchema>;
 export type AttachJiraIssueResult = z.infer<typeof AttachJiraIssueResultSchema>;
+export type FetchJiraIssueDetailsInput = z.input<typeof FetchJiraIssueDetailsInputSchema>;
+export type JiraIssueAttachment = z.infer<typeof JiraIssueAttachmentSchema>;
+export type JiraIssueDetails = z.infer<typeof JiraIssueDetailsSchema>;
+export type SyncJiraAttachmentsInput = z.input<typeof SyncJiraAttachmentsInputSchema>;
+export type SyncJiraAttachmentsResult = z.infer<typeof SyncJiraAttachmentsResultSchema>;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

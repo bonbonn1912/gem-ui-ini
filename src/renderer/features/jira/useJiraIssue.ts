@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   buildJiraIssueUrl,
   matchJiraIssueKey,
+  type JiraIssueAttachment,
 } from "../../../shared/contracts";
 import type { AppProject, JiraProjectIntegration } from "../../types";
 import { createClientRequestId } from "../../utils/client-request-id";
@@ -12,6 +13,11 @@ export type JiraSessionIssue = {
   prefix: string;
   url: string;
   configName: string;
+  summary?: string | null;
+  storyMarkdown?: string | null;
+  storyAttachmentId?: string | null;
+  attachments?: JiraIssueAttachment[];
+  hasAccessToken?: boolean;
 };
 
 type UseJiraIssueInput = {
@@ -38,10 +44,9 @@ type UseJiraIssueResult = {
  * process still owns the URL when the issue is attached, so a renderer that
  * got the key wrong cannot invent a link.
  *
- * The attachment is created as soon as a match appears. It is a session-scoped
- * link attachment, which the context-attachment service deduplicates on the
- * URL, so a rename back and forth does not pile up copies; the ref below only
- * saves the redundant round-trips.
+ * When an access token is configured, `attachIssue` also fetches the story
+ * details from the Jira REST API, attaches `story.md` to the session, and
+ * populates `storyMarkdown` and `summary`.
  */
 export function useJiraIssue({
   project,
@@ -51,16 +56,19 @@ export function useJiraIssue({
 }: UseJiraIssueInput): UseJiraIssueResult {
   const [integration, setIntegration] = useState<JiraProjectIntegration | null>(null);
   const [attachError, setAttachError] = useState<string | null>(null);
+  const [issueDetails, setIssueDetails] = useState<{
+    key: string;
+    summary?: string | null;
+    storyMarkdown?: string | null;
+    storyAttachmentId?: string | null;
+    attachments?: JiraIssueAttachment[];
+  } | null>(null);
   const attachedRef = useRef<Set<string>>(new Set());
 
   const projectId = project?.id ?? null;
 
   useEffect(() => {
-    // Cleared before the request so a stale activation never leaks into the
-    // next project for the moment the new one is in flight.
     setIntegration(null);
-    // A bridge without the Jira surface — an older preload, or a test double
-    // that predates the integration — simply means Jira is off, not a crash.
     const api = window.gemUi?.jira;
     if (!projectId || !api) return;
     let current = true;
@@ -77,7 +85,7 @@ export function useJiraIssue({
     };
   }, [projectId, reloadToken]);
 
-  const issue = useMemo<JiraSessionIssue | null>(() => {
+  const baseIssue = useMemo<JiraSessionIssue | null>(() => {
     const config = integration?.activeConfig ?? null;
     if (!config || !sessionTitle) return null;
     const match = matchJiraIssueKey(sessionTitle, config.issuePrefixes);
@@ -87,13 +95,15 @@ export function useJiraIssue({
       prefix: match.prefix,
       url: buildJiraIssueUrl(config.baseUrl, match.issueKey),
       configName: config.name,
+      hasAccessToken: config.hasAccessToken,
     };
   }, [integration, sessionTitle]);
 
+  // 1. Attach link & story.md to active session
   useEffect(() => {
     const api = window.gemUi?.jira;
-    if (!projectId || !sessionId || !issue || !api) return;
-    const marker = `${sessionId}:${issue.issueKey}`;
+    if (!projectId || !sessionId || !baseIssue || !api) return;
+    const marker = `${sessionId}:${baseIssue.issueKey}`;
     if (attachedRef.current.has(marker)) return;
     attachedRef.current.add(marker);
 
@@ -103,15 +113,23 @@ export function useJiraIssue({
         clientRequestId: createClientRequestId(),
         projectId,
         sessionId,
-        issueKey: issue.issueKey,
+        issueKey: baseIssue.issueKey,
       })
-      .then(() => {
-        if (current) setAttachError(null);
+      .then((result) => {
+        if (current) {
+          setAttachError(null);
+          if (result.storyMarkdown || result.summary) {
+            setIssueDetails((prev) => ({
+              key: baseIssue.issueKey,
+              summary: result.summary ?? prev?.summary,
+              storyMarkdown: result.storyMarkdown ?? prev?.storyMarkdown,
+              storyAttachmentId: result.storyAttachmentId ?? prev?.storyAttachmentId,
+              attachments: prev?.key === baseIssue.issueKey ? prev.attachments : [],
+            }));
+          }
+        }
       })
       .catch((error: unknown) => {
-        // A failed attach must not stop the issue from being viewable, so it
-        // is reported rather than thrown — and the marker is dropped so the
-        // next render may try again.
         attachedRef.current.delete(marker);
         if (current) {
           setAttachError(
@@ -121,10 +139,51 @@ export function useJiraIssue({
           );
         }
       });
+
     return () => {
       current = false;
     };
-  }, [issue?.issueKey, projectId, sessionId]);
+  }, [baseIssue?.issueKey, projectId, sessionId]);
+
+  // 2. Fetch full issue details (summary, story markdown, attachments list) whenever access token is present
+  useEffect(() => {
+    const api = window.gemUi?.jira;
+    if (!projectId || !baseIssue?.issueKey || !baseIssue.hasAccessToken || !api) return;
+
+    let current = true;
+    api
+      .fetchIssueDetails({ projectId, issueKey: baseIssue.issueKey })
+      .then((details) => {
+        if (current) {
+          setIssueDetails((prev) => ({
+            key: baseIssue.issueKey,
+            summary: details.summary ?? prev?.summary,
+            storyMarkdown: details.storyMarkdown ?? prev?.storyMarkdown,
+            storyAttachmentId: prev?.key === baseIssue.issueKey ? prev.storyAttachmentId : undefined,
+            attachments: details.attachments || [],
+          }));
+        }
+      })
+      .catch((err) => {
+        console.warn("[useJiraIssue] Fehler beim Laden der Jira-Details:", err);
+      });
+
+    return () => {
+      current = false;
+    };
+  }, [baseIssue?.issueKey, baseIssue?.hasAccessToken, projectId, reloadToken]);
+
+  const issue = useMemo<JiraSessionIssue | null>(() => {
+    if (!baseIssue) return null;
+    const details = issueDetails?.key === baseIssue.issueKey ? issueDetails : null;
+    return {
+      ...baseIssue,
+      summary: details?.summary ?? null,
+      storyMarkdown: details?.storyMarkdown ?? null,
+      storyAttachmentId: details?.storyAttachmentId ?? null,
+      attachments: details?.attachments ?? [],
+    };
+  }, [baseIssue, issueDetails]);
 
   return { integration, issue, attachError };
 }
