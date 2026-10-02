@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { GeminiProcessSpawner, NormalizedAgentEvent } from "../../src/main/gemini/index.js";
 import { spawnGeminiProcess } from "../../src/main/processes/index.js";
-import { GeminiSessionManager } from "../../src/main/sessions/index.js";
+import { GeminiSessionManager, isMissingProviderSessionError } from "../../src/main/sessions/index.js";
 
 const fakeAgent = resolve("tests/fake-acp-agent/fake-acp-agent.mjs");
 const managers: GeminiSessionManager[] = [];
@@ -160,8 +160,8 @@ describe("GeminiSessionManager ACP contract", () => {
       ),
     ).toBeTruthy();
 
-    await manager.setMode("app-1", "auto_edit");
-    expect(manager.getSession("app-1")?.modes?.currentModeId).toBe("auto_edit");
+    await manager.setMode("app-1", "autoEdit");
+    expect(manager.getSession("app-1")?.modes?.currentModeId).toBe("autoEdit");
     await manager.setModel("app-1", "gemini-2.5-flash");
     expect(manager.getSession("app-1")?.models?.currentModelId).toBe(
       "gemini-2.5-flash",
@@ -193,6 +193,36 @@ describe("GeminiSessionManager ACP contract", () => {
       scope: "session_cumulative",
       source: "acp_prompt_usage",
       tokens: { input: 4, output: 6, total: 10, totalKind: "provider" },
+    });
+  });
+
+  it("auto-approves permission requests while Developer (yolo) is active", async () => {
+    const fixture = await workspaceFixture();
+    const events: NormalizedAgentEvent[] = [];
+    const manager = createManager(fixture);
+    manager.subscribe((event) => events.push(event));
+
+    await manager.createSession({ appSessionId: "yolo-app", access: fixture.access });
+    await manager.setMode("yolo-app", "yolo");
+    const result = await manager.prompt("yolo-app", [
+      { type: "text", text: "please stream" },
+    ]);
+
+    expect(result.stopReason).toBe("end_turn");
+    // Nothing may reach the UI: the request is answered like the first allow
+    // option, without ever becoming a pending permission.
+    expect(events.some((event) => event.type === "permission.requested")).toBe(false);
+    const trace = await readTrace(fixture.traceFile);
+    const approval = trace.find(
+      (entry) =>
+        entry.kind === "inbound" &&
+        entry.message &&
+        typeof entry.message === "object" &&
+        typeof entry.message.id === "string" &&
+        entry.message.id.startsWith("fake-permission-"),
+    );
+    expect(approval?.message.result).toMatchObject({
+      outcome: { outcome: "selected", optionId: "allow-once" },
     });
   });
 
@@ -405,6 +435,67 @@ describe("GeminiSessionManager ACP contract", () => {
       }),
     ).rejects.toThrow(/authentication is required/i);
     expect(Date.now() - startedAt).toBeLessThan(1_500);
+  });
+});
+
+describe("isMissingProviderSessionError", () => {
+  it("recognises a vanished Gemini session behind an ACP internal error", () => {
+    // Gemini 0.59 answers session/load with -32603 "Internal error" and moves
+    // the SessionError text into data.details.
+    const requestError = Object.assign(new Error("Internal error"), {
+      name: "RequestError",
+      code: -32603,
+      data: {
+        details:
+          'Invalid session identifier "afaff2c3-2a59-42da-a539-c27ac476e2d7".\n' +
+          "  Searched for sessions in /tmp/chats.\n" +
+          "  Use --list-sessions to see available sessions.",
+      },
+    });
+    expect(isMissingProviderSessionError(requestError)).toBe(true);
+  });
+
+  it("recognises an empty Gemini session store", () => {
+    const requestError = Object.assign(new Error("Internal error"), {
+      name: "RequestError",
+      code: -32603,
+      data: { details: "No previous sessions found for this project." },
+    });
+    expect(isMissingProviderSessionError(requestError)).toBe(true);
+  });
+
+  it("recognises raw SessionError codes and plain session-not-found messages", () => {
+    expect(
+      isMissingProviderSessionError(
+        Object.assign(new Error("Invalid session identifier \"x\""), {
+          name: "SessionError",
+          code: "INVALID_SESSION_IDENTIFIER",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isMissingProviderSessionError(new Error("Session not found: fake-session-1")),
+    ).toBe(true);
+  });
+
+  it("keeps auth, transport and unrelated params failures retryable", () => {
+    expect(
+      isMissingProviderSessionError(
+        Object.assign(new Error("Authentication required"), {
+          code: -32000,
+          data: { details: "Please set an Auth method before running." },
+        }),
+      ),
+    ).toBe(false);
+    expect(isMissingProviderSessionError(new Error("ACP connection closed"))).toBe(false);
+    expect(
+      isMissingProviderSessionError(
+        Object.assign(new Error("Invalid params"), {
+          code: -32602,
+          data: { details: "Invalid or unavailable mode: yolo" },
+        }),
+      ),
+    ).toBe(false);
   });
 });
 

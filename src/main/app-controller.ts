@@ -912,6 +912,17 @@ export class AppController implements ProjectRuntimeCoordinator {
         snapshot = manager.getSession(session.id) ?? snapshot;
       }
 
+      // The approval mode lives in the provider process, so a recreated session
+      // starts in Gemini's default. Restore the user's explicit choice exactly
+      // like the model; otherwise "Developer" silently degrades and every tool
+      // asks for approval again.
+      const restoredMode = await restoreStoredSessionMode({
+        storedModeId: session.mode,
+        modes: snapshot.modes,
+        setMode: (modeId) => manager.setMode(session.id, modeId),
+      });
+      if (restoredMode.restored) snapshot = manager.getSession(session.id) ?? snapshot;
+
       const appliedMode = await this.#applyProjectApprovalDefault(
         session.projectId,
         session.id,
@@ -1658,6 +1669,29 @@ function isDeltaEvent(
     event.type === "message.assistant.delta" ||
     event.type === "message.thought.delta"
   );
+}
+
+/**
+ * Re-applies the mode a session was explicitly set to. The approval mode lives
+ * inside the provider process, so a create/load after idle eviction would
+ * otherwise silently fall back to Gemini's default and ask for approvals the
+ * user had already disabled.
+ */
+export async function restoreStoredSessionMode(input: {
+  storedModeId: string | null;
+  modes: SessionModeSnapshot | undefined;
+  setMode: (modeId: string) => Promise<void>;
+}): Promise<{ restored: boolean; currentModeId: string | null }> {
+  if (
+    input.storedModeId &&
+    input.modes &&
+    input.modes.currentModeId !== input.storedModeId &&
+    input.modes.availableModes.some((mode) => mode.id === input.storedModeId)
+  ) {
+    await input.setMode(input.storedModeId);
+    return { restored: true, currentModeId: input.storedModeId };
+  }
+  return { restored: false, currentModeId: input.modes?.currentModeId ?? null };
 }
 
 export async function applyProjectApprovalMode(input: {

@@ -427,7 +427,8 @@ function modes(currentModeId) {
     currentModeId,
     availableModes: [
       { id: "default", name: "Default", description: "Ask before changes" },
-      { id: "auto_edit", name: "Auto Edit" },
+      { id: "autoEdit", name: "Auto Edit" },
+      { id: "yolo", name: "YOLO", description: "Auto-approves all tools" },
     ],
   };
 }

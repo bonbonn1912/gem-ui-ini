@@ -44,6 +44,11 @@ export function normalizeSessionNotification(
         }),
       ];
     case "agent_message_chunk":
+      // Gemini announces an approval-mode change as a fake assistant message.
+      // It is protocol noise, not model output, and must not enter the transcript.
+      if (update.content.type === "text" && update.content.text.startsWith("[MODE_UPDATE] ")) {
+        return [];
+      }
       return [
         make("message.assistant.delta", {
           content: normalizeContent(update.content),

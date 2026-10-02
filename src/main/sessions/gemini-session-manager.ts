@@ -17,23 +17,52 @@ import type { ElicitationRequest, RespondToElicitationInput } from "../../shared
 
 export type ResourceProfile = "economy" | "balanced" | "performance";
 
+const MISSING_SESSION_CODE = /^(?:INVALID_SESSION_IDENTIFIER|NO_SESSIONS_FOUND|session_not_found)$/;
+
+/**
+ * Collects every human-readable string an ACP error carries. The meaningful
+ * text is not always on `message`: Gemini answers an unloadable session with
+ * JSON-RPC "Internal error" and puts the real wording into `data.details`.
+ */
+function errorText(error: unknown): string {
+  const parts: string[] = [];
+  const visit = (value: unknown, depth: number): void => {
+    if (depth > 3 || value === null || value === undefined) return;
+    if (typeof value === "string") {
+      parts.push(value);
+      return;
+    }
+    if (typeof value !== "object") return;
+    const record = value as Record<string, unknown>;
+    for (const key of ["message", "details", "error", "reason", "description", "data", "cause"]) {
+      visit(record[key], depth + 1);
+    }
+  };
+  visit(error, 0);
+  return parts.join(" ").toLowerCase();
+}
+
 /**
  * True only for an explicit provider response that says the persisted session
  * no longer exists. Network, auth and generic ACP failures must keep the old
  * ID so a later retry can resume it.
+ *
+ * Gemini's session store is the authority here: it reports a session that was
+ * never flushed (no prompt completed), deleted, or created under a different
+ * project root as "No previous sessions found for this project." or
+ * "Invalid session identifier \"<id>\"..." (SessionError codes
+ * NO_SESSIONS_FOUND / INVALID_SESSION_IDENTIFIER). Both must trigger the fresh
+ * session fallback instead of surfacing a raw load failure on the next send or
+ * mode change.
  */
 export function isMissingProviderSessionError(error: unknown): boolean {
   if (error instanceof GeminiIntegrationError && error.code === "session_not_found") return true;
   if (!error || typeof error !== "object") return false;
-  const value = error as { code?: unknown; message?: unknown; data?: unknown };
+  const value = error as { code?: unknown; message?: unknown };
   if (value.code === "session_not_found") return true;
-  const textParts = [
-    typeof value.message === "string" ? value.message : "",
-    typeof value.data === "string" ? value.data : "",
-    value.data && typeof value.data === "object" && typeof (value.data as { message?: unknown }).message === "string"
-      ? (value.data as { message: string }).message : "",
-  ];
-  const text = textParts.join(" ").toLowerCase();
+  if (typeof value.code === "string" && MISSING_SESSION_CODE.test(value.code)) return true;
+  const text = errorText(error);
+  if (text.includes("no previous sessions found") || text.includes("invalid session identifier")) return true;
   if (/\b(auth|unauthori[sz]ed|forbidden|credential|network|timeout|timed out|connection|offline|unavailable)\b/.test(text)) return false;
   return /\b(session|conversation)\b.{0,32}\b(not found|does not exist|no longer exists|unknown)\b/.test(text)
     || /\b(not found|does not exist|unknown)\b.{0,32}\b(session|conversation)\b/.test(text);

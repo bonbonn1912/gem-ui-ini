@@ -728,7 +728,31 @@ export class GeminiAcpSession {
     ) {
       return Promise.resolve({ outcome: { outcome: "cancelled" as const } });
     }
+    const autoApproval = this.autoApprovalOptionId(request.options);
+    if (autoApproval) {
+      return Promise.resolve({
+        outcome: { outcome: "selected" as const, optionId: autoApproval },
+      });
+    }
     return this.permissionBroker.request(request);
+  }
+
+  /**
+   * Developer (YOLO) auto-approval. Gemini normally never asks in this mode,
+   * but policy or tool overrides can still produce a request. The user chose
+   * "run everything", so the request is answered exactly like the dialog's
+   * first allow option instead of blocking the turn. `allow_once` is preferred
+   * over `allow_always` so nothing silently survives a switch back to a
+   * prompting mode.
+   */
+  private autoApprovalOptionId(
+    options: ReadonlyArray<{ optionId: string; kind: string }>,
+  ): string | undefined {
+    if (this.modesValue?.currentModeId !== "yolo") return undefined;
+    const option =
+      options.find((candidate) => candidate.kind === "allow_once") ??
+      options.find((candidate) => candidate.kind === "allow_always");
+    return option?.optionId;
   }
 
   private handlePermissionRequested(request: PermissionRequest): void {
