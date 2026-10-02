@@ -1,3 +1,4 @@
+import type { TimelineSnapshotInput } from "../../shared";
 import { dialog, type BrowserWindow } from "electron";
 import path from "node:path";
 import {
@@ -63,6 +64,8 @@ import {
   type SetLinkPreviewBoundsInput,
   type StageDroppedPathInput,
   type SubscribeSessionEventsInput,
+  type ReplaySessionEventsInput,
+  type RespondToElicitationInput,
   type SubscribeGitProjectStatusInput,
   type GetStatsInput,
   type ExportSessionInput,
@@ -405,6 +408,21 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
   register(IPC_CHANNELS.searchSessions, (input) =>
     options.controller.searchSessions(input as SearchSessionsInput),
   );
+  register(IPC_CHANNELS.listSessionElicitations, (input) =>
+    options.controller.listSessionElicitations(input as { sessionId: string }),
+  );
+  register(IPC_CHANNELS.respondToElicitation, (input) =>
+    options.controller.respondToElicitation(input as RespondToElicitationInput),
+  );
+  register(IPC_CHANNELS.getEventBlob, (input) => options.controller.getEventBlob(input as {sessionId:string;blobId:string}));
+  register(IPC_CHANNELS.getTimelineSnapshot, (input) => options.controller.getTimelineSnapshot(input as TimelineSnapshotInput));
+  register(IPC_CHANNELS.setSessionConfigOption, (input) => options.controller.setSessionConfigOption(input as { sessionId: string; configId: string; value: string | boolean }));
+  register(IPC_CHANNELS.getResourceProfile, () => options.capabilities.getResourceProfile());
+  register(IPC_CHANNELS.setResourceProfile, (input) => {
+    const profile = (input as { profile: "economy" | "balanced" | "performance" }).profile;
+    options.controller.setResourceProfile(profile);
+    return options.capabilities.setResourceProfile(profile);
+  });
 
   register(IPC_CHANNELS.pickImages, (input) =>
     idempotent(
@@ -718,6 +736,9 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
       webContents: event.sender,
     });
   });
+  register(IPC_CHANNELS.replaySessionEvents, (input, event) =>
+    options.eventHub.replayPage(input as ReplaySessionEventsInput, event.sender),
+  );
   register(IPC_CHANNELS.unsubscribeSessionEvents, (input, event) => {
     options.eventHub.unsubscribe(
       (input as { subscriptionId: string }).subscriptionId,

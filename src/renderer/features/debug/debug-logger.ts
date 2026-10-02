@@ -15,7 +15,11 @@ type Listener = (logs: DebugLogEntry[]) => void;
 class DebugLoggerService {
   private logs: DebugLogEntry[] = [];
   private listeners: Set<Listener> = new Set();
-  private maxLogs = 1000;
+  private readonly maxLogs = 1000;
+  private readonly maxBytes = 2 * 1024 * 1024;
+  private retainedBytes = 0;
+  private notifyScheduled = false;
+  private verboseDiagnostics = false;
   private isInitialized = false;
 
   constructor() {
@@ -60,21 +64,25 @@ class DebugLoggerService {
     message: string,
     details?: unknown,
   ): DebugLogEntry {
+    const safeMessage = message.slice(0, 1_000);
+    const safeDetails = details === undefined ? undefined : redact(details, 0, "", this.verboseDiagnostics);
     const entry: DebugLogEntry = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       timestamp: new Date(),
       level,
       source,
-      message,
-      details,
+      message: safeMessage,
+      details: safeDetails,
     };
 
     this.logs.push(entry);
-    if (this.logs.length > this.maxLogs) {
-      this.logs.splice(0, this.logs.length - this.maxLogs);
+    this.retainedBytes += estimateBytes(entry);
+    while (this.logs.length > this.maxLogs || this.retainedBytes > this.maxBytes) {
+      const removed = this.logs.shift();
+      if (removed) this.retainedBytes -= estimateBytes(removed);
     }
 
-    this.notify();
+    this.scheduleNotify();
     return entry;
   }
 
@@ -104,7 +112,12 @@ class DebugLoggerService {
 
   public clear(): void {
     this.logs = [];
+    this.retainedBytes = 0;
     this.notify();
+  }
+
+  public setVerboseDiagnostics(enabled: boolean): void {
+    this.verboseDiagnostics = enabled;
   }
 
   public subscribe(listener: Listener): () => void {
@@ -116,6 +129,7 @@ class DebugLoggerService {
   }
 
   private notify(): void {
+    if (this.listeners.size === 0) return;
     const current = this.getLogs();
     for (const listener of this.listeners) {
       try {
@@ -124,6 +138,51 @@ class DebugLoggerService {
         console.error("Error in debug log listener:", err);
       }
     }
+  }
+
+  private scheduleNotify(): void {
+    if (this.listeners.size === 0 || this.notifyScheduled) return;
+    this.notifyScheduled = true;
+    const flush = () => {
+      this.notifyScheduled = false;
+      this.notify();
+    };
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(flush);
+    } else {
+      setTimeout(flush, 50);
+    }
+  }
+}
+
+const SECRET_KEY = /token|secret|password|authorization|cookie|api.?key|credential/i;
+
+/** Keep small metadata by default; full diagnostic values require explicit opt-in. */
+function redact(value: unknown, depth = 0, key = "", verbose = false): unknown {
+  const compactStringKeys = /^(type|code|status|name|source|level|kind|toolCallId|requestId)$/i;
+  if (typeof value === "string") {
+    if (!verbose && !compactStringKeys.test(key)) return `[Text mit ${value.length} Zeichen]`;
+    return value.length > 240 ? `${value.slice(0, 240)}… [gekürzt]` : value;
+  }
+  if (value === null || typeof value === "number" || typeof value === "boolean") return value;
+  if (value instanceof Error) return { name: value.name, message: value.message.slice(0, 240) };
+  if (depth >= 3) return "[Details gekürzt]";
+  if (Array.isArray(value)) return value.slice(0, 12).map((item) => redact(item, depth + 1, "", verbose));
+  if (typeof value === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value as Record<string, unknown>).slice(0, 24)) {
+      result[key] = SECRET_KEY.test(key) ? "[redigiert]" : redact(child, depth + 1, key, verbose);
+    }
+    return result;
+  }
+  return String(value).slice(0, 240);
+}
+
+function estimateBytes(entry: DebugLogEntry): number {
+  try {
+    return new TextEncoder().encode(JSON.stringify(entry)).byteLength;
+  } catch {
+    return 256;
   }
 }
 

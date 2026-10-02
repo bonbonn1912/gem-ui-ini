@@ -33,6 +33,12 @@ import type { ProjectService } from "../projects";
 
 const INDEX_TTL_MS = 30_000;
 const MAX_INDEXED_FILES = 50_000;
+const MAX_INDEXED_DIRECTORIES = 30_000;
+const MAX_CACHED_INDEXES = 4;
+const MAX_CACHED_INDEX_ENTRIES = 120_000;
+const MAX_CACHED_INDEX_BYTES = 24 * 1024 * 1024;
+const INDEX_BUILD_BUDGET_MS = 10_000;
+const FILE_INSPECTION_CONCURRENCY = 8;
 const MAX_DIRECTORY_DEPTH = 40;
 const SAMPLE_BYTES = 8_192;
 
@@ -132,33 +138,17 @@ export class ProjectFileService {
     if (stored.rootRevision !== parsed.expectedRootRevision) {
       throw new Error("Die Projektordner wurden geändert. Öffne den Explorer erneut.");
     }
-    const index = await this.#getIndex(parsed.projectId, parsed.expectedRootRevision);
-    const prefix = parsed.relativePath ? `${parsed.relativePath}/` : "";
-
-    const isDirectChild = (relativePath: string): boolean => {
-      if (!relativePath.startsWith(prefix)) return false;
-      const remainder = relativePath.slice(prefix.length);
-      return remainder.length > 0 && !remainder.includes("/");
-    };
-
-    const directories = index.directories
-      .filter((d) => d.rootId === parsed.rootId && isDirectChild(d.relativePath))
-      .sort((a, b) => a.displayName.localeCompare(b.displayName, "de"))
-      .map((directory) => toDirectoryEntry(directory));
-
-    const files = index.files
-      .filter((f) => f.rootId === parsed.rootId && isDirectChild(f.relativePath))
-      .sort((a, b) => a.displayName.localeCompare(b.displayName, "de"));
-
-    const inspected = (
-      await Promise.all(files.map((file) => inspectSearchEntry(file)))
-    ).filter((entry): entry is ProjectFileSearchEntry => entry !== null);
-
+    const access = await this.projects.getCurrentAccess(parsed.projectId);
+    if (access.rootRevision !== parsed.expectedRootRevision) {
+      throw new Error("Die Projektordner wurden geändert. Öffne den Explorer erneut.");
+    }
+    const root = [access.primaryRoot, ...access.additionalRoots].find((item) => item.id === parsed.rootId);
+    if (!root) throw new Error("Der angeforderte Ordner gehört nicht zu diesem Projekt.");
+    const result = await listDirectChildren(root, parsed.relativePath);
     return ProjectFileListDirectoryResultSchema.parse({
       projectId: parsed.projectId,
       rootRevision: parsed.expectedRootRevision,
-      entries: [...directories, ...inspected],
-      truncated: index.truncated,
+      ...result,
     });
   }
 
@@ -275,7 +265,7 @@ export class ProjectFileService {
 
     const fileBudget = Math.max(0, limit - directories.length);
     const inspected = (
-      await Promise.all(files.slice(0, fileBudget).map((file) => inspectSearchEntry(file)))
+      await mapWithConcurrency(files.slice(0, fileBudget), FILE_INSPECTION_CONCURRENCY, inspectSearchEntry)
     ).filter((entry): entry is ProjectFileSearchEntry => entry !== null);
 
     return [...directories.slice(0, limit), ...inspected].slice(0, limit);
@@ -337,10 +327,10 @@ export class ProjectFileService {
       .filter((candidate) => candidate.directory !== null)
       .map((candidate) => toDirectoryEntry(candidate.directory!));
     const files = (
-      await Promise.all(
-        selected
-          .filter((candidate) => candidate.file !== null)
-          .map((candidate) => inspectSearchEntry(candidate.file!)),
+      await mapWithConcurrency(
+        selected.filter((candidate) => candidate.file !== null).map((candidate) => candidate.file!),
+        FILE_INSPECTION_CONCURRENCY,
+        inspectSearchEntry,
       )
     ).filter((entry): entry is ProjectFileSearchEntry => entry !== null);
 
@@ -513,6 +503,8 @@ export class ProjectFileService {
       cached.rootRevision === rootRevision &&
       Date.now() - cached.createdAt < INDEX_TTL_MS
     ) {
+      this.#cache.delete(projectId);
+      this.#cache.set(projectId, cached);
       return cached;
     }
     const buildKey = `${projectId}:${rootRevision}`;
@@ -524,7 +516,20 @@ export class ProjectFileService {
     this.#builds.set(buildKey, build);
     const index = await build;
     this.#cache.set(projectId, index);
+    this.#pruneIndexes();
     return index;
+  }
+
+  #pruneIndexes(): void {
+    const entryCount = () => [...this.#cache.values()].reduce(
+      (total, index) => total + index.files.length + index.directories.length,
+      0,
+    );
+    while (this.#cache.size > MAX_CACHED_INDEXES || entryCount() > MAX_CACHED_INDEX_ENTRIES || [...this.#cache.values()].reduce((sum, index) => sum + estimateIndexBytes(index), 0) > MAX_CACHED_INDEX_BYTES) {
+      const oldest = this.#cache.keys().next().value;
+      if (!oldest) break;
+      this.#cache.delete(oldest);
+    }
   }
 
   async #buildIndex(projectId: string, rootRevision: number): Promise<ProjectFileIndex> {
@@ -534,7 +539,7 @@ export class ProjectFileService {
     }
     const files: IndexedProjectFile[] = [];
     const directories: IndexedProjectDirectory[] = [];
-    const state = { truncated: false };
+    const state = { truncated: false, deadline: Date.now() + INDEX_BUILD_BUDGET_MS };
     for (const root of [access.primaryRoot, ...access.additionalRoots]) {
       await indexRoot(root, files, directories, state);
       if (state.truncated) break;
@@ -554,7 +559,7 @@ async function indexRoot(
   root: ProjectAccess["primaryRoot"],
   files: IndexedProjectFile[],
   directories: IndexedProjectDirectory[],
-  state: { truncated: boolean },
+  state: { truncated: boolean; deadline: number },
 ): Promise<void> {
   const known = new Map<string, IndexedProjectDirectory>();
   const pending: Array<{ absolutePath: string; relativePath: string; depth: number }> = [{
@@ -563,6 +568,7 @@ async function indexRoot(
     depth: 0,
   }];
   while (pending.length > 0 && !state.truncated) {
+    if (Date.now() >= state.deadline) { state.truncated = true; break; }
     const directory = pending.pop();
     if (!directory) break;
     let handle;
@@ -575,8 +581,9 @@ async function indexRoot(
     let childCount = 0;
     try {
       for await (const entry of handle) {
+        if (Date.now() >= state.deadline) { state.truncated = true; break; }
         childCount += 1;
-        if (files.length >= MAX_INDEXED_FILES) {
+        if (files.length >= MAX_INDEXED_FILES || directories.length >= MAX_INDEXED_DIRECTORIES) {
           state.truncated = true;
           break;
         }
@@ -655,6 +662,17 @@ function toDirectoryEntry(
     contextUnavailableReason:
       directory.childCount > 0 ? null : "Der Ordner ist leer.",
   };
+}
+
+function estimateIndexBytes(index: ProjectFileIndex): number {
+  let bytes = 256;
+  for (const file of index.files) {
+    bytes += 192 + 2 * (file.rootId.length + file.rootLabel.length + file.rootRealPath.length + file.relativePath.length + file.displayName.length + file.absolutePath.length);
+  }
+  for (const directory of index.directories) {
+    bytes += 128 + 2 * (directory.rootId.length + directory.rootLabel.length + directory.relativePath.length + directory.displayName.length);
+  }
+  return bytes;
 }
 
 /** Wie `fileMatchScore`, aber ohne Dateiendungslogik — für Ordnernamen. */
@@ -775,6 +793,105 @@ async function inspectSearchEntry(
   }
 }
 
+async function listDirectChildren(
+  root: ProjectAccess["primaryRoot"],
+  relativePath: string,
+): Promise<{ entries: ProjectFileSearchEntry[]; truncated: boolean }> {
+  const canonicalDirectory = await resolveAuthorizedDirectory(root.realPath, relativePath);
+  const directory = await opendir(canonicalDirectory);
+  const names: Array<{ name: string; kind: "file" | "directory" }> = [];
+  let truncated = false;
+  try {
+    for await (const entry of directory) {
+      if (entry.isDirectory()) {
+        if (EXCLUDED_DIRECTORIES.has(entry.name)) continue;
+        names.push({ name: entry.name, kind: "directory" });
+      } else if (entry.isFile()) {
+        names.push({ name: entry.name, kind: "file" });
+      } else {
+        continue;
+      }
+      if (names.length > MAX_PROJECT_FILES_PER_DIRECTORY) {
+        names.pop();
+        truncated = true;
+        break;
+      }
+    }
+  } finally {
+    await directory.close().catch(() => undefined);
+  }
+  names.sort((left, right) => left.name.localeCompare(right.name, "de"));
+  const records = await mapWithConcurrency(names, FILE_INSPECTION_CONCURRENCY, async ({ name, kind }): Promise<{ sortKind: "directory" | "file"; entry: ProjectFileSearchEntry | null }> => {
+    const childPath = relativePath ? `${relativePath}/${name}` : name;
+    if (kind === "directory") {
+      const childAbsolutePath = path.join(canonicalDirectory, name);
+      const childCount = await hasVisibleChildren(childAbsolutePath);
+      return {
+        sortKind: kind,
+        entry: {
+          rootId: root.id,
+          rootLabel: root.label,
+          relativePath: childPath,
+          displayName: safeDisplayName(name),
+          kind,
+          size: 0,
+          childCount,
+          contextEligible: childCount > 0,
+          contextUnavailableReason: childCount > 0 ? null : "Der Ordner ist leer.",
+        } satisfies ProjectFileSearchEntry,
+      };
+    }
+    const file: IndexedProjectFile = {
+      rootId: root.id,
+      rootLabel: root.label,
+      rootRealPath: root.realPath,
+      relativePath: childPath,
+      displayName: safeDisplayName(name),
+      absolutePath: path.join(canonicalDirectory, name),
+    };
+    return { sortKind: kind, entry: await inspectSearchEntry(file) };
+  });
+  const entries = records
+    .filter((record) => record.entry !== null)
+    .sort((left, right) => left.sortKind.localeCompare(right.sortKind) || left.entry!.displayName.localeCompare(right.entry!.displayName, "de"))
+    .map((record) => record.entry!);
+  return { entries, truncated };
+}
+
+async function hasVisibleChildren(directoryPath: string): Promise<number> {
+  return countVisibleChildren(directoryPath);
+}
+
+async function countVisibleChildren(directoryPath: string): Promise<number> {
+  let handle;
+  try { handle = await opendir(directoryPath); } catch { return 0; }
+  let count = 0;
+  try {
+    for await (const entry of handle) {
+      if (entry.isDirectory() && EXCLUDED_DIRECTORIES.has(entry.name)) continue;
+      if (entry.isDirectory() || entry.isFile()) count += 1;
+    }
+  } catch { /* Return the count available before a transient filesystem error. */ }
+  finally { await handle.close().catch(() => undefined); }
+  return count;
+}
+
+async function resolveAuthorizedDirectory(rootPath: string, relativePath: string): Promise<string> {
+  if (!relativePath) return rootPath;
+  const parsed = ProjectRelativePathSchema.parse(relativePath);
+  let candidate = rootPath;
+  for (const segment of parsed.split("/")) {
+    candidate = path.join(candidate, segment);
+    const metadata = await lstat(candidate).catch(() => null);
+    if (!metadata || metadata.isSymbolicLink() || !metadata.isDirectory()) {
+      throw new Error("Der angeforderte Ordner ist nicht mehr verfügbar.");
+    }
+  }
+  const canonical = await realpath(candidate);
+  if (!isInsideRoot(rootPath, canonical)) throw new Error("Der angeforderte Ordner liegt außerhalb des Projektordners.");
+  return canonical;
+}
+
 async function readAuthorizedProjectFile(
   rootRealPath: string,
   relativePath: string,
@@ -849,4 +966,20 @@ function formatBytes(bytes: number): string {
   if (bytes < 1_024) return `${bytes} B`;
   if (bytes < 1_024 * 1_024) return `${(bytes / 1_024).toFixed(1)} KiB`;
   return `${(bytes / 1_024 / 1_024).toFixed(1)} MiB`;
+}
+
+async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  mapper: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(values.length, concurrency) }, async () => {
+    while (next < values.length) {
+      const index = next++;
+      results[index] = await mapper(values[index]!);
+    }
+  }));
+  return results;
 }

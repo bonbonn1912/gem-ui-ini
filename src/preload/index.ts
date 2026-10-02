@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 import {
   AppUpdateDownloadProgressSchema,
   EventSubscriptionResultSchema,
+  ReplaySessionEventsResultSchema,
   ContextAttachmentPushSchema,
   ContextAttachmentSubscriptionResultSchema,
   GitLabReviewStatePushSchema,
@@ -27,10 +28,11 @@ type EventBatch = {
   events: StreamEnvelope[];
 };
 
-type EventCallback = (events: StreamEnvelope[]) => void;
+type EventCallback = (events: StreamEnvelope[], metadata?: { replay: boolean; error?: string }) => void;
 
 const callbacks = new Map<string, EventCallback>();
-const pendingBatches = new Map<string, StreamEnvelope[][]>();
+const pendingWatermarks = new Map<string, { seq: number; at: number }>();
+let subscribing = 0;
 const gitCallbacks = new Map<string, (status: GitProjectStatus) => void>();
 const pendingGitStatuses = new Map<string, GitProjectStatus[]>();
 const gitlabCallbacks = new Map<string, (state: GitLabReviewState) => void>();
@@ -49,9 +51,12 @@ ipcRenderer.on(IPC_CHANNELS.sessionEventBatch, (_event, payload: unknown) => {
     return;
   }
 
-  const queued = pendingBatches.get(parsed.subscriptionId) ?? [];
-  if (queued.length < 50) queued.push(parsed.events);
-  pendingBatches.set(parsed.subscriptionId, queued);
+  if (!subscribing) return;
+  const now = Date.now();
+  for (const [id, entry] of pendingWatermarks) if (now - entry.at > 30_000) pendingWatermarks.delete(id);
+  const seq = Math.max(pendingWatermarks.get(parsed.subscriptionId)?.seq ?? 0, ...parsed.events.map((event) => event.seq));
+  pendingWatermarks.set(parsed.subscriptionId, { seq, at: now });
+  while (pendingWatermarks.size > 32) pendingWatermarks.delete(pendingWatermarks.keys().next().value!);
 });
 
 ipcRenderer.on(
@@ -128,6 +133,8 @@ ipcRenderer.on(IPC_CHANNELS.appUpdateDownloadProgress, (_event, payload: unknown
 const desktopApi: GemUiDesktopApi = {
   getCapabilities: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getCapabilities, {}),
+  getResourceProfile: () => ipcRenderer.invoke(IPC_CHANNELS.getResourceProfile, {}),
+  setResourceProfile: (input) => ipcRenderer.invoke(IPC_CHANNELS.setResourceProfile, input),
 
   app: {
     checkForUpdates: () =>
@@ -193,9 +200,14 @@ const desktopApi: GemUiDesktopApi = {
     respondToPermission: (input) =>
       ipcRenderer.invoke(IPC_CHANNELS.respondToPermission, input),
     setMode: (input) => ipcRenderer.invoke(IPC_CHANNELS.setSessionMode, input),
+    getEventBlob: (input) => ipcRenderer.invoke(IPC_CHANNELS.getEventBlob, input),
+    getTimelineSnapshot: (input) => ipcRenderer.invoke(IPC_CHANNELS.getTimelineSnapshot, input),
+    setConfigOption: (input) => ipcRenderer.invoke(IPC_CHANNELS.setSessionConfigOption, input),
     setModel: (input) => ipcRenderer.invoke(IPC_CHANNELS.setSessionModel, input),
     getReconnectState: (input) =>
       ipcRenderer.invoke(IPC_CHANNELS.getSessionReconnectState, input),
+    listElicitations: (input) => ipcRenderer.invoke(IPC_CHANNELS.listSessionElicitations, input),
+    respondToElicitation: (input) => ipcRenderer.invoke(IPC_CHANNELS.respondToElicitation, input),
     search: (input) => ipcRenderer.invoke(IPC_CHANNELS.searchSessions, input),
     export: (input) => ipcRenderer.invoke(IPC_CHANNELS.exportSession, input),
   },
@@ -440,31 +452,64 @@ const desktopApi: GemUiDesktopApi = {
       ipcRenderer.invoke(IPC_CHANNELS.replyToGitLabDiscussion, input),
   },
 
-  subscribeSessionEvents: async (
-    input: unknown,
-    callback: EventCallback,
-    onUsageSnapshot?: (snapshot: UsageSnapshot | null) => void,
-  ): Promise<() => void> => {
-    const result = EventSubscriptionResultSchema.parse(
-      await ipcRenderer.invoke(IPC_CHANNELS.subscribeSessionEvents, input),
-    );
-
-    callbacks.set(result.subscriptionId, callback);
-    // The snapshot is applied before the replay so a usage event inside the
-    // replay window still wins, and a session outside it is not left empty.
-    onUsageSnapshot?.(result.usageSnapshot);
-    if (result.replay.length > 0) callback(result.replay);
-    const queued = pendingBatches.get(result.subscriptionId) ?? [];
-    pendingBatches.delete(result.subscriptionId);
-    for (const events of queued) callback(events);
-
-    return () => {
-      callbacks.delete(result.subscriptionId);
-      pendingBatches.delete(result.subscriptionId);
-      void ipcRenderer.invoke(IPC_CHANNELS.unsubscribeSessionEvents, {
-        subscriptionId: result.subscriptionId,
-      });
+  subscribeSessionEvents: async (input, callback, onUsageSnapshot) => {
+    subscribing += 1;
+    let result;
+    try {
+      result = EventSubscriptionResultSchema.parse(await ipcRenderer.invoke(IPC_CHANNELS.subscribeSessionEvents, input));
+    } finally { subscribing -= 1; }
+    const id = result.subscriptionId;
+    let stopped = false;
+    let pumping = true;
+    let cursor = input.afterSeq;
+    let target = Math.max(result.replayUntilSeq, pendingWatermarks.get(id)?.seq ?? 0);
+    pendingWatermarks.delete(id);
+    if (!subscribing) pendingWatermarks.clear();
+    const close = () => {
+      if (stopped) return;
+      stopped = true;
+      callbacks.delete(id);
+      pendingWatermarks.delete(id);
+      void ipcRenderer.invoke(IPC_CHANNELS.unsubscribeSessionEvents, { subscriptionId: id }).catch(() => undefined);
     };
+    const deliver = (events: StreamEnvelope[], replay: boolean) => {
+      const fresh = events.filter((event) => event.seq > cursor);
+      for (let index = 0; index < fresh.length; index++) {
+        if (fresh[index].seq !== cursor + index + 1) throw new Error("Lücke im Sessionverlauf. Bitte die Session erneut öffnen.");
+      }
+      if (fresh.length) { callback(fresh, { replay }); cursor = fresh.at(-1)!.seq; }
+    };
+    const catchUp = async (replay: boolean) => {
+      while (!stopped && cursor < target) {
+        const page = ReplaySessionEventsResultSchema.parse(await ipcRenderer.invoke(IPC_CHANNELS.replaySessionEvents, {
+          subscriptionId: id, sessionId: input.sessionId, afterSeq: cursor, throughSeq: target, limit: 200,
+        }));
+        if (stopped) return;
+        if (!page.events.length || page.nextAfterSeq <= cursor) throw new Error("Der Sessionverlauf konnte nicht vollständig geladen werden.");
+        deliver(page.events, replay);
+      }
+    };
+    callbacks.set(id, (events) => {
+      target = events.reduce((max, event) => Math.max(max, event.seq), target);
+      if (pumping || stopped) return;
+      pumping = true;
+      const process = async () => {
+        const fresh = events.filter((event) => event.seq > cursor);
+        if (fresh[0]?.seq === cursor + 1) deliver(fresh, false);
+        await catchUp(false);
+      };
+      void process().catch((error) => {
+        callback([], { replay: false, error: error instanceof Error ? error.message : "Die Live-Anzeige wurde unterbrochen." });
+        close();
+      }).finally(() => { pumping = false; });
+    });
+    try {
+      onUsageSnapshot?.(result.usageSnapshot);
+      deliver(result.replay, true);
+      await catchUp(true);
+      pumping = false;
+      return close;
+    } catch (error) { close(); throw error; }
   },
 
   openExternalHttpsUrl: (url) =>

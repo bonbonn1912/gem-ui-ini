@@ -75,6 +75,60 @@ async function createFixture() {
 }
 
 describe("StatsRepository", () => {
+  it("backfills legacy usage in resumable bounded chunks", async () => {
+    const { database, project, session, statsRepository } = await createFixture();
+    const insertUsage = database.prepare(
+      `INSERT INTO turn_usage (
+         session_id, turn_id, source, input_tokens, output_tokens, total_tokens,
+         thought_tokens, cached_read_tokens, observed_at
+       ) VALUES (?, ?, 'acp_prompt_usage', 10, 5, 15, 0, 0, ?)`
+    );
+    for (let index = 0; index < 55; index += 1) {
+      insertUsage.run(session.id, `legacy-${String(index).padStart(3, "0")}`, new Date().toISOString());
+    }
+
+    // Native rows already present in the metrics table must be preserved.
+    statsRepository.recordTurnMetric({
+      turnId: "legacy-000",
+      sessionId: session.id,
+      projectId: project.id,
+      model: "native-model",
+      durationMs: 125,
+      inputTokens: 900,
+      outputTokens: 100,
+      totalTokens: 1000,
+    });
+    statsRepository.recordTurnMetric({
+      turnId: "native-only",
+      sessionId: session.id,
+      projectId: project.id,
+      model: "native-model",
+      durationMs: 200,
+      totalTokens: 200,
+    });
+
+    // Construction is cheap, and the first chunk yields to the event loop.
+    expect((database.prepare("SELECT COUNT(*) AS count FROM turn_metrics").get() as { count: number }).count).toBe(2);
+    const firstRun = statsRepository.backfillHistorical();
+    expect(statsRepository.backfillHistorical()).toBe(firstRun);
+    expect((database.prepare("SELECT COUNT(*) AS count FROM turn_metrics").get() as { count: number }).count).toBe(2);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    statsRepository.dispose();
+    await firstRun;
+
+    const partialCount = (database.prepare("SELECT COUNT(*) AS count FROM turn_metrics").get() as { count: number }).count;
+    expect(partialCount).toBe(51);
+    const nativeMetric = database
+      .prepare("SELECT model, total_tokens FROM turn_metrics WHERE session_id = ? AND turn_id = 'legacy-000'")
+      .get(session.id) as { model: string; total_tokens: number };
+    expect(nativeMetric).toEqual({ model: "native-model", total_tokens: 1000 });
+
+    const resumed = new StatsRepository(database);
+    await resumed.backfillHistorical();
+    expect((database.prepare("SELECT COUNT(*) AS count FROM turn_metrics").get() as { count: number }).count).toBe(56);
+    resumed.dispose();
+  });
+
   it("records turn metrics and computes aggregated summaries and comparisons", async () => {
     const { session, project, statsRepository } = await createFixture();
 

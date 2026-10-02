@@ -1,4 +1,5 @@
 import type { JsonValue } from "../../shared/contracts";
+import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type {
   UsageContextObservation,
   UsageTokenObservation,
@@ -13,6 +14,8 @@ export interface ProjectAccess {
 
 export interface GeminiCliFeatures {
   readonly acp: boolean;
+  readonly acpFlag: "--acp" | "--experimental-acp" | null;
+  readonly skipTrust: boolean;
   readonly includeDirectories: boolean;
   readonly resume: boolean;
   readonly listSessions: boolean;
@@ -90,6 +93,10 @@ export interface SessionMode {
 export interface SessionModeSnapshot {
   readonly currentModeId: string;
   readonly availableModes: readonly SessionMode[];
+}
+
+export interface SessionConfigSnapshot {
+  readonly options: readonly SessionConfigOption[];
 }
 
 export interface SessionModel {
@@ -229,6 +236,7 @@ export type NormalizedAgentEvent =
         readonly capabilities: NormalizedAcpCapabilities;
         readonly modes?: SessionModeSnapshot;
         readonly models?: SessionModelSnapshot;
+        readonly config?: SessionConfigSnapshot;
       }
     >
   | Event<
@@ -307,7 +315,9 @@ export interface GeminiSessionSnapshot {
   readonly capabilities: NormalizedAcpCapabilities;
   readonly modes?: SessionModeSnapshot;
   readonly models?: SessionModelSnapshot;
+  readonly config?: SessionConfigSnapshot;
   readonly pendingPermissionCount: number;
+  readonly pendingElicitationCount: number;
   readonly stderr: string;
 }
 

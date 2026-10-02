@@ -35,6 +35,8 @@ type PanelRailProps = {
   onToggleTheme?: () => void;
   onToggleStats?: () => void;
   onToggleLogs?: () => void;
+  resourceProfile?: "economy" | "balanced" | "performance";
+  onResourceProfileChange?: (profile: "economy" | "balanced" | "performance") => void;
 };
 
 function cap(value: number, limit: number): string {
@@ -53,6 +55,8 @@ export function PanelRail({
   onToggleTheme,
   onToggleStats,
   onToggleLogs,
+  resourceProfile,
+  onResourceProfileChange,
 }: PanelRailProps) {
   return (
     <nav className="panel-rail" aria-label="Panels">
@@ -80,6 +84,16 @@ export function PanelRail({
       </div>
 
       <div className="panel-rail-bottom">
+        {resourceProfile && onResourceProfileChange && (
+          <label className="resource-profile-control" title="Ressourcenprofil">
+            <Icon name="settings" size={17} />
+            <select aria-label="Ressourcenprofil" value={resourceProfile} onChange={(event) => onResourceProfileChange(event.target.value as "economy" | "balanced" | "performance")}>
+              <option value="economy">Sparmodus</option>
+              <option value="balanced">Ausgewogen</option>
+              <option value="performance">Leistung</option>
+            </select>
+          </label>
+        )}
         {onToggleStats && (
           <button
             className={`panel-rail-button panel-rail-stats-toggle ${statsOpen ? "panel-rail-button--active" : ""}`}

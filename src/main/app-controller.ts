@@ -1,4 +1,7 @@
-import { randomUUID } from "node:crypto";
+import { isGeminiCompatibilityModel } from "../shared/gemini-models";
+import type { TimelineSnapshotInput } from "../shared";
+import { BufferedEventWriter } from "./events/buffered-event-writer";
+import { createHash, randomUUID } from "node:crypto";
 import {
   AppSessionSchema,
   generateSessionTitleFromPrompt,
@@ -36,6 +39,9 @@ import type { ContextAttachmentService } from "./context-attachments";
 import type { GeminiCapabilityService } from "./capability-service";
 import {
   describeGeminiError,
+  normalizeModes,
+  normalizeModels,
+  GeminiIntegrationError,
   type NormalizedAgentEvent,
   type NormalizedContent,
   type NormalizedToolCall,
@@ -45,10 +51,13 @@ import {
   type SessionModeSnapshot,
   type SessionModelSnapshot,
 } from "./gemini";
+import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import type { ElicitationRequest, RespondToElicitationInput } from "../shared/contracts/elicitation";
+import type { ResourceProfile } from "./sessions/gemini-session-manager";
 import type { ProjectService, ProjectRuntimeCoordinator } from "./projects";
 import type { ProjectFileService } from "./project-files";
 import { runCapturedCommand } from "./processes/run-command";
-import { GeminiSessionManager } from "./sessions";
+import { GeminiSessionManager, isMissingProviderSessionError } from "./sessions";
 import type { UsageService } from "./usage";
 import {
   type AttachmentRepository,
@@ -87,6 +96,7 @@ const OPEN_TURN_EVENT_TYPES: ReadonlySet<string> = new Set([
 type ActiveTurn = {
   turnId: string;
   assistantMessageId: string;
+  legacySegment?: "assistant" | "thought" | "tool";
   thoughtMessageId: string;
   startTime: number;
   projectId: string;
@@ -139,6 +149,7 @@ export type AppControllerOptions = {
   stats?: StatsRepository;
   publishEvents: (events: StreamEnvelope[]) => void | Promise<void>;
   externalContextRegistry?: ExternalPromptContextRegistry;
+  resourceProfile?: ResourceProfile;
 };
 
 export class AppController implements ProjectRuntimeCoordinator {
@@ -154,8 +165,10 @@ export class AppController implements ProjectRuntimeCoordinator {
   readonly #stats?: StatsRepository;
   readonly #publishEvents: AppControllerOptions["publishEvents"];
   readonly #externalContextRegistry?: ExternalPromptContextRegistry;
+  #resourceProfile: ResourceProfile;
   readonly #activeTurns = new Map<string, ActiveTurn>();
-  readonly #eventBuffers = new Map<string, PendingEventBuffer>();
+  readonly #eventWriter: BufferedEventWriter;
+  readonly #persistenceErrors = new Map<string, string>();
   readonly #reconnectedSessions = new Set<string>();
   /**
    * Sessions, deren ACP-Prozess gerade hochgefahren wird. Sie stehen auf
@@ -180,7 +193,17 @@ export class AppController implements ProjectRuntimeCoordinator {
     this.#usage = options.usage;
     this.#stats = options.stats;
     this.#publishEvents = options.publishEvents;
+    this.#eventWriter = new BufferedEventWriter({
+      appendBatch: (events) => this.#events.appendBatch(events),
+      publish: options.publishEvents,
+      onRecovered: (id) => this.#persistenceErrors.delete(id),
+      onFailure: (id, message, stop) => {
+        this.#persistenceErrors.set(id, message);
+        if (stop) void this.#manager?.cancel(id).catch(() => undefined);
+      },
+    });
     this.#externalContextRegistry = options.externalContextRegistry;
+    this.#resourceProfile = options.resourceProfile ?? "balanced";
   }
 
   listSessions(input: ListSessionsInput): AppSession[] {
@@ -191,6 +214,26 @@ export class AppController implements ProjectRuntimeCoordinator {
       input.projectId,
       input.includeArchived ?? false,
     );
+  }
+
+  listSessionElicitations(input: { sessionId: string }): ElicitationRequest[] {
+    return this.#manager?.getSession(input.sessionId) ? this.#manager.listElicitations(input.sessionId) : [];
+  }
+
+  respondToElicitation(input: RespondToElicitationInput): void {
+    this.#manager?.respondToElicitation(input);
+  }
+
+  setResourceProfile(profile: ResourceProfile): void {
+    this.#resourceProfile = profile;
+    this.#manager?.setResourceProfile(profile);
+  }
+
+  async setSessionConfigOption(input: { sessionId: string; configId: string; value: string | boolean }): Promise<void> {
+    const session = this.#sessions.getById(input.sessionId);
+    const access = await this.#projects.getCurrentAccess(session.projectId);
+    await this.#ensureManagedSession(session, access);
+    await this.#manager!.setConfigOption(input.sessionId, input.configId, input.value);
   }
 
   async createSession(input: CreateSessionInput): Promise<AppSession> {
@@ -218,9 +261,10 @@ export class AppController implements ProjectRuntimeCoordinator {
     ]);
 
     this.#openingSessions.add(appSession.id);
+    let release: (() => void) | undefined;
     try {
       const manager = await this.#getManager();
-      await this.#makeRoomForSession(manager, appSession.id);
+      release = manager.reserveSession(appSession.id);
       const snapshot = await manager.createSession({
         appSessionId: appSession.id,
         access: toGeminiAccess(access),
@@ -245,6 +289,7 @@ export class AppController implements ProjectRuntimeCoordinator {
       });
       throw error;
     } finally {
+      release?.();
       this.#openingSessions.delete(appSession.id);
     }
   }
@@ -295,9 +340,15 @@ export class AppController implements ProjectRuntimeCoordinator {
 
   async deleteSession(input: DeleteSessionInput): Promise<void> {
     const session = this.#sessions.getById(input.sessionId);
+    let providerDeleted = false;
+    if (input.deleteProviderHistory && session.providerSessionId && this.#manager?.getSession(session.id)?.capabilities.session.delete) {
+      if (this.#activeTurns.has(session.id)) await this.#manager.cancel(session.id);
+      await this.#manager.deleteProviderSession(session.id, session.providerSessionId);
+      providerDeleted = true;
+    }
     await this.#manager?.disposeSession(input.sessionId);
 
-    if (input.deleteProviderHistory && session.providerSessionId) {
+    if (input.deleteProviderHistory && session.providerSessionId && !providerDeleted) {
       const probe = this.#capabilities.probe;
       if (!probe?.ok || !probe.features.deleteSession) {
         throw new Error(
@@ -332,7 +383,22 @@ export class AppController implements ProjectRuntimeCoordinator {
     this.#sessions.delete(input.sessionId);
   }
 
+  readonly #preparingPrompts = new Set<string>();
   async sendPrompt(input: SendPromptInput): Promise<{ turnId: string }> {
+    if (this.#preparingPrompts.has(input.sessionId)) throw new Error("Diese Anfrage wird bereits vorbereitet.");
+    this.#preparingPrompts.add(input.sessionId);
+    let release: (() => void) | undefined;
+    try {
+      const manager = await this.#getManager();
+      release = manager.reserveSession(input.sessionId);
+      return await this.#sendPrompt(input);
+    } finally {
+      release?.();
+      this.#preparingPrompts.delete(input.sessionId);
+    }
+  }
+
+  async #sendPrompt(input: SendPromptInput): Promise<{ turnId: string }> {
     const session = this.#sessions.getById(input.sessionId);
     const access = await this.#projects.getCurrentAccess(session.projectId);
     if (input.expectedRootRevision !== access.rootRevision) {
@@ -344,6 +410,9 @@ export class AppController implements ProjectRuntimeCoordinator {
       throw new Error("In dieser Session läuft bereits eine Anfrage.");
     }
 
+    if (this.#persistenceErrors.has(session.id) && !this.#eventWriter.retry(session.id)) {
+      throw new Error("Der bisherige Verlauf konnte noch nicht gespeichert werden. Bitte freien Speicherplatz und Datenbankzugriff prüfen.");
+    }
     await this.#ensureManagedSession(session, access);
     for (const attachmentId of input.attachmentIds) {
       const attachment = this.#attachmentRepository.find(attachmentId);
@@ -368,7 +437,7 @@ export class AppController implements ProjectRuntimeCoordinator {
       projectId: session.projectId,
       sessionId: session.id,
       attachmentIds: input.contextAttachmentIds ?? [],
-      imagesSupported: this.#capabilities.snapshot().gemini.images,
+      imagesSupported: this.#manager?.getSession(session.id)?.capabilities.prompt.image === true,
     });
     const external = this.#externalContextRegistry
       ? await this.#externalContextRegistry.resolve(input.externalContextRefs ?? [])
@@ -376,8 +445,7 @@ export class AppController implements ProjectRuntimeCoordinator {
 
     const parts: PromptPart[] = [];
     if (this.#reconnectedSessions.has(session.id)) {
-      this.#reconnectedSessions.delete(session.id);
-      const compressedHistory = this.#buildCompressedHistory(session.id);
+      const compressedHistory = await this.#buildCompressedHistory(session.id);
       if (compressedHistory) {
         parts.push({
           type: "text",
@@ -424,7 +492,6 @@ export class AppController implements ProjectRuntimeCoordinator {
       filesDeleted: 0,
       toolActivity: new Map(),
     };
-    this.#activeTurns.set(session.id, activeTurn);
 
     const timestamp = new Date().toISOString();
     const userEnvelope = this.#events.append({
@@ -441,7 +508,10 @@ export class AppController implements ProjectRuntimeCoordinator {
       },
       timestamp,
     });
-    void this.#publishEvents([userEnvelope]);
+    this.#activeTurns.set(session.id, activeTurn);
+    void Promise.resolve().then(() => this.#publishEvents([userEnvelope])).catch(() => {
+      this.#persistenceErrors.set(session.id, "Die Live-Anzeige wurde unterbrochen. Der Verlauf ist gespeichert; die Session erneut öffnen.");
+    });
 
     for (const image of images) {
       this.#attachmentRepository.markSent(image.id, session.id, turnId);
@@ -460,6 +530,7 @@ export class AppController implements ProjectRuntimeCoordinator {
 
     void this.#manager!
       .prompt(session.id, parts)
+      .then(() => { this.#reconnectedSessions.delete(session.id); })
       .catch((error: unknown) => this.#handleSyntheticFailure(session.id, error));
 
     return { turnId };
@@ -494,6 +565,13 @@ export class AppController implements ProjectRuntimeCoordinator {
     });
   }
 
+  getEventBlob(input: {sessionId:string;blobId:string}) { return this.#events.getBlob(input.sessionId,input.blobId); }
+
+  getTimelineSnapshot(input: TimelineSnapshotInput) {
+    this.#sessions.getById(input.sessionId);
+    return this.#events.timelinePage(input);
+  }
+
   getSessionReconnectState(
     input: GetSessionReconnectStateInput,
   ): SessionReconnectState {
@@ -504,6 +582,7 @@ export class AppController implements ProjectRuntimeCoordinator {
       sessionId: input.sessionId,
       reconnected,
       hasHistory,
+      persistenceError: this.#persistenceErrors.get(input.sessionId) ?? null,
     };
   }
 
@@ -668,7 +747,8 @@ export class AppController implements ProjectRuntimeCoordinator {
     await this.#ensureManagedSession(session, access);
     const managedSession = this.#manager?.getSession(input.sessionId);
     const available = managedSession?.models?.availableModels ?? session.availableModels;
-    if (available && available.length > 0 && !available.some((model) => model.id === input.modelId)) {
+    const legacyCompatibilityChoice = managedSession?.models?.transport === "legacy_models" && isGeminiCompatibilityModel(input.modelId);
+    if (available && available.length > 0 && !available.some((model) => model.id === input.modelId) && !legacyCompatibilityChoice) {
       throw new Error(
         "Dieses Modell wurde von der aktuellen Gemini-Session nicht angeboten.",
       );
@@ -685,6 +765,7 @@ export class AppController implements ProjectRuntimeCoordinator {
     }
     return this.#sessions.update(input.sessionId, {
       model: input.modelId,
+      ...toCachedSessionOptions(this.#manager!.getSession(input.sessionId) ?? {}),
       updatedAt: new Date().toISOString(),
     });
   }
@@ -758,11 +839,8 @@ export class AppController implements ProjectRuntimeCoordinator {
       clearInterval(this.#reconcileTimer);
       this.#reconcileTimer = null;
     }
-    for (const buffer of this.#eventBuffers.values()) clearTimeout(buffer.timer);
-    for (const sessionId of [...this.#eventBuffers.keys()]) {
-      this.#flushBufferedEvents(sessionId);
-    }
     await this.resetGeminiManager();
+    this.#eventWriter.dispose();
   }
 
   async #getManager(): Promise<GeminiSessionManager> {
@@ -781,6 +859,8 @@ export class AppController implements ProjectRuntimeCoordinator {
     const manager = new GeminiSessionManager({
       binaryPath: launch.binaryPath,
       binaryArgs: launch.binaryArgs,
+      resourceProfile: this.#resourceProfile,
+      acpFlag: launch.acpFlag,
     });
     this.#unsubscribeManager = manager.subscribe((event) =>
       this.#handleNormalizedEvent(event),
@@ -796,8 +876,8 @@ export class AppController implements ProjectRuntimeCoordinator {
   ): Promise<void> {
     const manager = await this.#getManager();
     if (manager.getSession(session.id)) return;
-    await this.#makeRoomForSession(manager, session.id);
 
+    const release = manager.reserveSession(session.id);
     this.#openingSessions.add(session.id);
     this.#sessions.update(session.id, {
       status: "starting",
@@ -807,27 +887,29 @@ export class AppController implements ProjectRuntimeCoordinator {
       let snapshot: Awaited<ReturnType<GeminiSessionManager["createSession"]>>;
       if (session.providerSessionId) {
         try {
-          snapshot = await manager.loadSession({
-            appSessionId: session.id,
-            providerSessionId: session.providerSessionId,
-            access: toGeminiAccess(access),
-          });
-        } catch (loadError) {
-          console.warn(
-            `[AppController] Konnte vorherige ACP-Session ${session.providerSessionId} für Session ${session.id} nicht laden. Erstelle neue Session. Fehler:`,
-            loadError,
-          );
+          try {
+            snapshot = await manager.resumeSession({ appSessionId: session.id, providerSessionId: session.providerSessionId, access: toGeminiAccess(access) });
+          } catch (resumeError) {
+            if (!(resumeError instanceof GeminiIntegrationError) || resumeError.code !== "capability_unsupported") throw resumeError;
+            snapshot = await manager.loadSession({ appSessionId: session.id, providerSessionId: session.providerSessionId, access: toGeminiAccess(access) });
+          }
+          // Resume/load already restores provider context; do not inject it twice.
+          this.#reconnectedSessions.delete(session.id);
+        } catch (restoreError) {
+          const unsupported = restoreError instanceof GeminiIntegrationError && restoreError.code === "capability_unsupported";
+          if (!unsupported && !isMissingProviderSessionError(restoreError)) throw restoreError;
+          snapshot = await manager.createSession({ appSessionId: session.id, access: toGeminiAccess(access) });
           this.#reconnectedSessions.add(session.id);
-          snapshot = await manager.createSession({
-            appSessionId: session.id,
-            access: toGeminiAccess(access),
-          });
         }
       } else {
-        snapshot = await manager.createSession({
-          appSessionId: session.id,
-          access: toGeminiAccess(access),
-        });
+        snapshot = await manager.createSession({ appSessionId: session.id, access: toGeminiAccess(access) });
+        if (this.#hasPreviousHistory(session.id)) this.#reconnectedSessions.add(session.id);
+      }
+
+      // Idle eviction must not reset an explicitly selected model to the CLI default.
+      if (session.model && snapshot.models && snapshot.models.currentModelId !== session.model) {
+        await manager.setModel(session.id, session.model);
+        snapshot = manager.getSession(session.id) ?? snapshot;
       }
 
       const appliedMode = await this.#applyProjectApprovalDefault(
@@ -872,6 +954,7 @@ export class AppController implements ProjectRuntimeCoordinator {
       });
       throw error;
     } finally {
+      release();
       this.#openingSessions.delete(session.id);
     }
   }
@@ -918,24 +1001,6 @@ export class AppController implements ProjectRuntimeCoordinator {
       });
     }
     return result.currentModeId;
-  }
-
-  async #makeRoomForSession(
-    manager: GeminiSessionManager,
-    targetSessionId: string,
-  ): Promise<void> {
-    const active = manager.listActiveSessions();
-    if (active.length < 3) return;
-    const victim = active.find(
-      (session) =>
-        session.appSessionId !== targetSessionId && session.state === "idle",
-    );
-    if (!victim) {
-      throw new Error(
-        "Es laufen bereits drei Gemini-Sessions. Stoppe zuerst eine laufende Anfrage.",
-      );
-    }
-    await manager.disposeSession(victim.appSessionId);
   }
 
   #handleNormalizedEvent(event: NormalizedAgentEvent): void {
@@ -995,6 +1060,24 @@ export class AppController implements ProjectRuntimeCoordinator {
           mode: event.payload.currentModeId,
         });
         break;
+      case "session.info.updated": {
+        const existing = this.#sessions.getById(event.appSessionId);
+        if (event.payload.title?.trim() && existing.title === "Neue Session") {
+          this.#safeSessionUpdate(event.appSessionId, { title: event.payload.title.trim() });
+        }
+        break;
+      }
+      case "config.updated": {
+        const options = event.payload.configOptions as SessionConfigOption[];
+        const modes = normalizeModes(undefined, options);
+        const models = normalizeModels(options);
+        this.#safeSessionUpdate(event.appSessionId, {
+          ...toCachedSessionOptions({ modes, models }),
+          ...(modes ? { mode: modes.currentModeId } : {}),
+          ...(models ? { model: models.currentModelId } : {}),
+        });
+        break;
+      }
       case "tool.started":
       case "tool.updated":
       case "tool.completed": {
@@ -1220,61 +1303,23 @@ export class AppController implements ProjectRuntimeCoordinator {
     });
   }
 
-  #buildCompressedHistory(sessionId: string): string | null {
-    const envelopes = this.#events.listAfter(sessionId, 0, 1000);
-    if (envelopes.length === 0) return null;
-
-    const turns: Array<{ role: "User" | "Assistant"; text: string }> = [];
-    let currentAssistantText = "";
-
-    for (const env of envelopes) {
-      const event = env.event;
-      if (event.type === "message.user") {
-        if (currentAssistantText.trim()) {
-          turns.push({ role: "Assistant", text: currentAssistantText.trim() });
-          currentAssistantText = "";
-        }
-        if (event.text && event.text.trim()) {
-          turns.push({ role: "User", text: event.text.trim() });
-        }
-      } else if (event.type === "message.assistant.delta") {
-        currentAssistantText += event.delta;
-      } else if (
-        event.type === "turn.completed" ||
-        event.type === "turn.failed" ||
-        event.type === "turn.cancelled"
-      ) {
-        if (currentAssistantText.trim()) {
-          turns.push({ role: "Assistant", text: currentAssistantText.trim() });
-          currentAssistantText = "";
-        }
+  async #buildCompressedHistory(sessionId: string): Promise<string | null> {
+    const messages = await this.#events.recentMessages(sessionId, 100);
+    const selected: string[] = [];
+    let remaining = 24_000;
+    for (const message of messages.reverse()) {
+      const value = `${message.role === "user" ? "User" : "Assistant"}: ${message.text}`;
+      if (value.length > remaining) {
+        if (selected.length === 0) selected.unshift(`[Anfang gekürzt] ${value.slice(-remaining)}`);
+        break;
       }
+      selected.unshift(value); remaining -= value.length + 2;
     }
-
-    if (currentAssistantText.trim()) {
-      turns.push({ role: "Assistant", text: currentAssistantText.trim() });
-    }
-
-    if (turns.length === 0) return null;
-
-    return turns
-      .map((t) => {
-        const text =
-          t.text.length > 2000
-            ? `${t.text.slice(0, 1950)}... [gekürzt]`
-            : t.text;
-        return `${t.role}: ${text}`;
-      })
-      .join("\n\n");
+    return selected.length ? selected.join("\n\n") : null;
   }
 
   #hasPreviousHistory(sessionId: string): boolean {
-    const envelopes = this.#events.listAfter(sessionId, 0, 10);
-    return envelopes.some(
-      (env) =>
-        env.event.type === "message.user" ||
-        env.event.type === "message.assistant.delta",
-    );
+    return this.#events.hasMessageHistory(sessionId);
   }
 
   #safeSessionUpdate(
@@ -1291,55 +1336,14 @@ export class AppController implements ProjectRuntimeCoordinator {
     }
   }
 
-  #queueEvent(input: {
-    sessionId: string;
-    turnId: string | null;
-    event: AgentEvent;
-    timestamp: string;
-  }): void {
-    if (!isDeltaEvent(input.event)) {
-      this.#flushBufferedEvents(input.sessionId);
-      const envelope = this.#events.append(input);
-      void this.#publishEvents([envelope]);
-      return;
-    }
-
-    let buffer = this.#eventBuffers.get(input.sessionId);
-    if (!buffer) {
-      buffer = {
-        timer: setTimeout(() => this.#flushBufferedEvents(input.sessionId), 32),
-        events: [],
-      };
-      buffer.timer.unref?.();
-      this.#eventBuffers.set(input.sessionId, buffer);
-    }
-
-    const previous = buffer.events.at(-1);
-    if (
-      previous &&
-      isDeltaEvent(previous.event) &&
-      previous.event.type === input.event.type &&
-      previous.event.messageId === input.event.messageId &&
-      previous.event.delta.length + input.event.delta.length <= 100_000
-    ) {
-      previous.event = {
-        ...previous.event,
-        delta: previous.event.delta + input.event.delta,
-      };
-    } else {
-      buffer.events.push(input);
-    }
+  #queueEvent(input: { sessionId: string; turnId: string | null; event: AgentEvent; timestamp: string }): void {
+    this.#eventWriter.enqueue(input);
   }
 
   #flushBufferedEvents(sessionId: string): void {
-    const buffer = this.#eventBuffers.get(sessionId);
-    if (!buffer) return;
-    clearTimeout(buffer.timer);
-    this.#eventBuffers.delete(sessionId);
-    if (buffer.events.length === 0) return;
-    const envelopes = this.#events.appendBatch(buffer.events);
-    void this.#publishEvents(envelopes);
+    this.#eventWriter.flush(sessionId);
   }
+
 }
 
 /**
@@ -1350,6 +1354,7 @@ export class AppController implements ProjectRuntimeCoordinator {
 function toCachedSessionOptions(snapshot: {
   readonly modes?: SessionModeSnapshot;
   readonly models?: SessionModelSnapshot;
+  readonly config?: { readonly options: readonly SessionConfigOption[] };
 }): Pick<SessionUpdate, "availableModels" | "availableModes"> {
   return {
     ...(snapshot.models
@@ -1396,6 +1401,9 @@ function toSharedEvent(
       return {
         type: "session.ready",
         providerSessionId: event.providerSessionId,
+        configOptions: event.payload.config?.options.map(toJson),
+        currentModeId: event.payload.modes?.currentModeId,
+        capabilities: { images: event.payload.capabilities.prompt.image },
         modes:
           event.payload.modes?.availableModes.map((mode) => mode.id) ?? [],
         models:
@@ -1416,57 +1424,97 @@ function toSharedEvent(
       return null;
     case "message.assistant.delta": {
       const delta = contentToText(event.payload.content);
-      if (!delta || !active) return null;
+      if (!active) return null;
+      const safeDelta = delta ?? contentFallback(event.payload.content);
+      if (!safeDelta) return null;
+      if (!event.payload.messageId && active.legacySegment !== "assistant") active.assistantMessageId = randomUUID();
+      active.legacySegment = "assistant";
+      const messageId = event.payload.messageId
+        ? providerMessageId(event.providerSessionId ?? event.appSessionId, event.type, event.payload.messageId)
+        : active.assistantMessageId;
       return {
         type: "message.assistant.delta",
-        messageId: active.assistantMessageId,
-        delta,
+        messageId,
+        ...(event.payload.messageId ? { providerMessageId: event.payload.messageId } : {}),
+        delta: safeDelta,
+        ...(delta === null ? { contentBlocks: [toJson(event.payload.content)] } : {}),
       };
     }
     case "message.thought.delta": {
       const delta = contentToText(event.payload.content);
-      if (!delta || !active) return null;
+      if (!active) return null;
+      const safeDelta = delta ?? contentFallback(event.payload.content);
+      if (!safeDelta) return null;
+      if (!event.payload.messageId && active.legacySegment !== "thought") active.thoughtMessageId = randomUUID();
+      active.legacySegment = "thought";
+      const messageId = event.payload.messageId
+        ? providerMessageId(event.providerSessionId ?? event.appSessionId, event.type, event.payload.messageId)
+        : active.thoughtMessageId;
       return {
         type: "message.thought.delta",
-        messageId: active.thoughtMessageId,
-        delta,
+        messageId,
+        ...(event.payload.messageId ? { providerMessageId: event.payload.messageId } : {}),
+        delta: safeDelta,
+        ...(delta === null ? { contentBlocks: [toJson(event.payload.content)] } : {}),
       };
     }
     case "tool.started":
+      if (active) active.legacySegment = "tool";
       return {
         type: "tool.started",
         toolCallId: event.payload.toolCall.toolCallId,
         title: toolTitle(event.payload.toolCall),
         kind: event.payload.toolCall.kind ?? null,
         arguments: toJson(event.payload.toolCall.rawInput),
+        ...(event.payload.toolCall.rawInput !== undefined ? { rawInput: toJson(event.payload.toolCall.rawInput) } : {}),
+        ...(event.payload.toolCall.content ? { content: event.payload.toolCall.content.map(toJson) } : {}),
+        ...(event.payload.toolCall.locations ? { locations: event.payload.toolCall.locations.map(toJson) } : {}),
       };
     case "tool.updated":
       return {
         type: "tool.updated",
         toolCallId: event.payload.toolCall.toolCallId,
+        ...(event.payload.toolCall.title !== undefined ? { title: event.payload.toolCall.title } : {}),
+        ...(event.payload.toolCall.kind !== undefined ? { kind: event.payload.toolCall.kind } : {}),
         status: event.payload.toolCall.status ?? "in_progress",
         update: toJson(
-          event.payload.toolCall.content ?? event.payload.toolCall.rawOutput,
+          event.payload.toolCall.rawOutput ?? event.payload.toolCall.content ?? event.payload.toolCall.rawInput,
         ),
+        ...(event.payload.toolCall.rawInput !== undefined ? { rawInput: toJson(event.payload.toolCall.rawInput) } : {}),
+        ...(event.payload.toolCall.rawOutput !== undefined ? { rawOutput: toJson(event.payload.toolCall.rawOutput) } : {}),
+        ...(event.payload.toolCall.content ? { content: event.payload.toolCall.content.map(toJson) } : {}),
+        ...(event.payload.toolCall.locations ? { locations: event.payload.toolCall.locations.map(toJson) } : {}),
       };
     case "tool.completed":
       return {
         type: "tool.completed",
         toolCallId: event.payload.toolCall.toolCallId,
+        ...(event.payload.toolCall.title !== undefined ? { title: event.payload.toolCall.title } : {}),
+        ...(event.payload.toolCall.kind !== undefined ? { kind: event.payload.toolCall.kind } : {}),
         result: toJson(
-          event.payload.toolCall.rawOutput ?? event.payload.toolCall.content,
+          event.payload.toolCall.rawOutput ?? event.payload.toolCall.content ?? event.payload.toolCall.rawInput,
         ),
+        ...(event.payload.toolCall.rawInput !== undefined ? { rawInput: toJson(event.payload.toolCall.rawInput) } : {}),
+        ...(event.payload.toolCall.rawOutput !== undefined ? { rawOutput: toJson(event.payload.toolCall.rawOutput) } : {}),
+        ...(event.payload.toolCall.content ? { content: event.payload.toolCall.content.map(toJson) } : {}),
+        ...(event.payload.toolCall.locations ? { locations: event.payload.toolCall.locations.map(toJson) } : {}),
       };
     case "tool.failed":
       return {
         type: "tool.failed",
         toolCallId: event.payload.toolCall.toolCallId,
+        ...(event.payload.toolCall.title !== undefined ? { title: event.payload.toolCall.title } : {}),
+        ...(event.payload.toolCall.kind !== undefined ? { kind: event.payload.toolCall.kind } : {}),
         error: {
           code: "tool_failed",
           message: `${toolTitle(event.payload.toolCall)} ist fehlgeschlagen.`,
           retryable: false,
           details: toJson(event.payload.toolCall.rawOutput),
         },
+        ...(event.payload.toolCall.rawInput !== undefined ? { rawInput: toJson(event.payload.toolCall.rawInput) } : {}),
+        ...(event.payload.toolCall.rawOutput !== undefined ? { rawOutput: toJson(event.payload.toolCall.rawOutput) } : {}),
+        ...(event.payload.toolCall.content ? { content: event.payload.toolCall.content.map(toJson) } : {}),
+        ...(event.payload.toolCall.locations ? { locations: event.payload.toolCall.locations.map(toJson) } : {}),
       };
     case "permission.requested":
       return {
@@ -1481,13 +1529,7 @@ function toSharedEvent(
         })),
       };
     case "permission.resolved":
-      return event.payload.optionId
-        ? {
-            type: "permission.resolved",
-            requestId: event.payload.permissionId,
-            optionId: event.payload.optionId,
-          }
-        : null;
+      return { type: "permission.resolved", requestId: event.payload.permissionId, optionId: event.payload.optionId ?? null };
     // Usage is not a straight passthrough: both observations are aggregated by
     // the UsageService and published as one complete snapshot.
     case "usage.tokens.observed":
@@ -1513,6 +1555,9 @@ function toSharedEvent(
                 typeof value.description === "string"
                   ? value.description
                   : null,
+              inputHint: typeof (value.input as { hint?: unknown } | undefined)?.hint === "string"
+                ? (value.input as { hint: string }).hint
+                : null,
             };
           })
           .filter((command): command is NonNullable<typeof command> => !!command),
@@ -1548,16 +1593,42 @@ function toSharedEvent(
         exitCode: event.payload.exitCode,
       };
     case "mode.updated":
+      return { type: "mode.updated", currentModeId: event.payload.currentModeId };
     case "config.updated":
+      return { type: "config.updated", configOptions: event.payload.configOptions.map((option) => toJson(option)) };
     case "session.info.updated":
+      return {
+        type: "session.info.updated",
+        ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
+        ...(event.payload.updatedAt !== undefined ? { updatedAt: event.payload.updatedAt } : {}),
+      };
     case "plan.updated":
+      return { type: "plan.updated", plan: toJson(event.payload.plan) };
     case "plan.removed":
-      return null;
+      return { type: "plan.removed", planId: event.payload.planId };
   }
 }
 
 function contentToText(content: NormalizedContent): string | null {
   return content.type === "text" ? content.text : null;
+}
+
+function contentFallback(content: NormalizedContent): string | null {
+  switch (content.type) {
+    case "image": return `[Bild: ${content.mimeType}]`;
+    case "audio": return `[Audio: ${content.mimeType}]`;
+    case "resource_link": return `[Datei: ${content.name} (${content.uri})]`;
+    case "resource": return "[Eingebettete Ressource]";
+    default: return null;
+  }
+}
+
+function providerMessageId(sessionId: string, kind: string, providerId: string): string {
+  const bytes = createHash("sha256").update(JSON.stringify([sessionId, kind, providerId])).digest().subarray(0, 16);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
 }
 
 function toolTitle(toolCall: NormalizedToolCall): string {

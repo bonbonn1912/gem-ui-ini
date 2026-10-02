@@ -560,6 +560,93 @@ const migrations: readonly Migration[] = [
       ALTER TABLE jira_configs ADD COLUMN email TEXT;
     `,
   },
+  {
+    version: 18,
+    name: "018_materialized_message_search",
+    sql: `
+      ALTER TABLE context_attachment_files ADD COLUMN extraction_truncated INTEGER NOT NULL DEFAULT 0
+        CHECK(extraction_truncated IN (0, 1));
+      CREATE TABLE message_search (
+        session_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+        text TEXT NOT NULL,
+        last_seq INTEGER NOT NULL CHECK(last_seq >= 1),
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(session_id, message_id),
+        FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      ) STRICT;
+      CREATE INDEX message_search_session_seq ON message_search(session_id, last_seq DESC);
+      CREATE INDEX message_search_updated ON message_search(updated_at DESC, session_id);
+      CREATE TABLE message_search_fragments (
+        session_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        seq INTEGER NOT NULL CHECK(seq >= 1),
+        delta TEXT NOT NULL,
+        PRIMARY KEY(session_id, message_id, seq),
+        FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      ) STRICT;
+      CREATE TABLE message_search_backfill (
+        id INTEGER PRIMARY KEY CHECK(id = 1),
+        last_session_id TEXT NOT NULL DEFAULT '',
+        last_seq INTEGER NOT NULL DEFAULT 0 CHECK(last_seq >= 0),
+        complete INTEGER NOT NULL DEFAULT 0 CHECK(complete IN (0, 1))
+      ) STRICT;
+      INSERT INTO message_search_backfill(id) VALUES (1);
+    `,
+  },
+  {
+    version: 19,
+    name: "019_materialized_timeline",
+    sql: `
+      CREATE INDEX events_session_type_seq ON events(session_id,event_type,seq DESC);
+      CREATE TABLE timeline_item_versions (
+        session_id TEXT NOT NULL, item_id TEXT NOT NULL,
+        valid_from_seq INTEGER NOT NULL CHECK(valid_from_seq>=1),
+        valid_to_seq INTEGER CHECK(valid_to_seq IS NULL OR valid_to_seq>valid_from_seq),
+        order_seq INTEGER NOT NULL CHECK(order_seq>=1), last_seq INTEGER NOT NULL CHECK(last_seq>=1),
+        kind TEXT NOT NULL CHECK(kind IN ('message','thought','tool','permission','notice','plan')),
+        payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),
+        PRIMARY KEY(session_id,item_id,valid_from_seq),
+        FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      ) STRICT;
+      CREATE INDEX timeline_current_turn ON timeline_item_versions(session_id,json_extract(payload_json, '$.turnId'),kind) WHERE valid_to_seq IS NULL;
+      CREATE INDEX timeline_page_order ON timeline_item_versions(session_id,order_seq DESC,item_id,valid_from_seq,valid_to_seq);
+      CREATE UNIQUE INDEX timeline_current_item ON timeline_item_versions(session_id,item_id) WHERE valid_to_seq IS NULL;
+      CREATE TABLE timeline_item_fragments (
+        session_id TEXT NOT NULL, item_id TEXT NOT NULL, seq INTEGER NOT NULL CHECK(seq>=1), text TEXT NOT NULL,
+        PRIMARY KEY(session_id,item_id,seq), FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      ) STRICT;
+      CREATE TABLE timeline_progress (
+        session_id TEXT PRIMARY KEY, last_seq INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      ) STRICT;
+    `,
+  },
+  {
+    version: 20,
+    name: "020_message_search_fts",
+    sql: `
+      CREATE VIRTUAL TABLE message_search_fts USING fts5(
+        session_id UNINDEXED,
+        message_id UNINDEXED,
+        text,
+        tokenize = 'trigram'
+      );
+      CREATE TRIGGER message_search_fts_delete AFTER DELETE ON message_search BEGIN
+        DELETE FROM message_search_fts WHERE rowid=old.rowid;
+      END;
+    `,
+  },
+  {
+    version: 21,
+    name: "021_event_blobs",
+    sql: `CREATE TABLE event_blobs (
+      id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+      payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),
+      FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    ) STRICT; CREATE INDEX event_blobs_session ON event_blobs(session_id);`,
+  },
 ];
 
 export function runMigrations(database: SqliteDatabase): void {

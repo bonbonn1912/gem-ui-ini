@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { WebContents } from "electron";
+import { BrowserWindow } from "electron";
 
 import {
   GitStatusPushSchema,
@@ -20,6 +21,7 @@ type Subscription = {
 };
 
 const POLL_INTERVAL_MS = 4_000;
+const MINIMIZED_POLL_INTERVAL_MS = 15_000;
 
 export class GitStatusSubscriptionHub {
   readonly #git: GitService;
@@ -72,9 +74,10 @@ export class GitStatusSubscriptionHub {
 
   #schedule(subscription: Subscription): void {
     if (this.#closed || !this.#subscriptions.has(subscription.id)) return;
+    const minimized = BrowserWindow.fromWebContents(subscription.webContents)?.isMinimized() ?? false;
     subscription.timer = setTimeout(
       () => void this.#poll(subscription),
-      POLL_INTERVAL_MS,
+      minimized ? MINIMIZED_POLL_INTERVAL_MS : POLL_INTERVAL_MS,
     );
     subscription.timer.unref?.();
   }
@@ -87,6 +90,10 @@ export class GitStatusSubscriptionHub {
       !this.#subscriptions.has(subscription.id) ||
       subscription.webContents.isDestroyed()
     ) return;
+    if (BrowserWindow.fromWebContents(subscription.webContents)?.isMinimized()) {
+      this.#schedule(subscription);
+      return;
+    }
     subscription.polling = true;
     try {
       const status = await this.#git.getProjectStatus(subscription.input);

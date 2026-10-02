@@ -87,7 +87,9 @@ export function normalizeSessionNotification(
     case "plan_removed":
       return [make("plan.removed", { planId: update.planId })];
     default:
-      return assertNever(update);
+      // ACP adds optional notification variants over time. Preserve the turn
+      // and ignore updates that GeminUI does not yet model.
+      return [];
   }
 }
 

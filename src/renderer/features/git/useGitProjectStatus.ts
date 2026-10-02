@@ -34,6 +34,7 @@ export function useGitProjectStatus({
   const [error, setError] = useState<string | null>(null);
   const statusRef = useRef<GitProjectStatus | null>(null);
   const handledRefreshToken = useRef(0);
+  const requestGeneration = useRef(0);
 
   const applyStatus = useCallback((next: GitProjectStatus) => {
     statusRef.current = next;
@@ -45,18 +46,21 @@ export function useGitProjectStatus({
 
   const refresh = useCallback(async () => {
     if (!project) return;
+    const generation = ++requestGeneration.current;
+    const projectId = project.id;
+    const rootRevision = project.rootRevision;
     if (statusRef.current) setRefreshing(true);
     else setLoading(true);
     try {
-      applyStatus(await window.gemUi.git.getProjectStatus({
-        projectId: project.id,
-        expectedRootRevision: project.rootRevision,
-      }));
+      const result = await window.gemUi.git.getProjectStatus({ projectId, expectedRootRevision: rootRevision });
+      if (generation === requestGeneration.current) applyStatus(result);
     } catch (reason) {
-      setError(messageFrom(reason, "Änderungen konnten nicht geladen werden."));
+      if (generation === requestGeneration.current) setError(messageFrom(reason, "Änderungen konnten nicht geladen werden."));
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (generation === requestGeneration.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [applyStatus, project]);
 
@@ -74,6 +78,7 @@ export function useGitProjectStatus({
   }, [onCapabilitiesChange, refresh]);
 
   useEffect(() => {
+    requestGeneration.current += 1;
     setStatus(null);
     statusRef.current = null;
     setError(null);

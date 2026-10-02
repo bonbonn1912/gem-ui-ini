@@ -4,7 +4,8 @@ import { join, resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { NormalizedAgentEvent } from "../../src/main/gemini/index.js";
+import type { GeminiProcessSpawner, NormalizedAgentEvent } from "../../src/main/gemini/index.js";
+import { spawnGeminiProcess } from "../../src/main/processes/index.js";
 import { GeminiSessionManager } from "../../src/main/sessions/index.js";
 
 const fakeAgent = resolve("tests/fake-acp-agent/fake-acp-agent.mjs");
@@ -15,6 +16,51 @@ afterEach(async () => {
 });
 
 describe("GeminiSessionManager ACP contract", () => {
+  it("keeps ten simultaneous starts within the atomic process budget", async () => {
+    const fixture = await workspaceFixture();
+    let active = 0;
+    let peak = 0;
+    const spawner: GeminiProcessSpawner = (input) => {
+      const child = spawnGeminiProcess(input);
+      active += 1;
+      peak = Math.max(peak, active);
+      let countedExit = false;
+      child.onExit(() => {
+        if (!countedExit) { countedExit = true; active -= 1; }
+      });
+      return child;
+    };
+    const manager = new GeminiSessionManager({
+      binaryPath: process.execPath,
+      binaryArgs: [fakeAgent],
+      processSpawner: spawner,
+      environment: { ...process.env, FAKE_ACP_TRACE_FILE: fixture.traceFile },
+      resourceProfile: "balanced",
+    });
+    managers.push(manager);
+    await Promise.all(Array.from({ length: 10 }, (_, index) => manager.createSession({
+      appSessionId: `budget-${index}`, access: fixture.access,
+    })));
+    expect(peak).toBeLessThanOrEqual(2);
+    expect((await readTrace(fixture.traceFile)).filter((entry) => entry.kind === "spawn")).toHaveLength(10);
+    expect(manager.listActiveSessions().length).toBeLessThanOrEqual(2);
+  });
+
+  it("aborts a pending handshake and waits for its child during manager disposal", async () => {
+    const fixture = await workspaceFixture();
+    const manager = createManager(fixture, { FAKE_ACP_INITIALIZE_DELAY_MS: "5000" });
+    const opening = manager.createSession({ appSessionId: "pending-open", access: fixture.access });
+    await expect.poll(async () => {
+      try { return (await readTrace(fixture.traceFile)).some((entry) => entry.kind === "spawn"); }
+      catch { return false; }
+    }).toBe(true);
+    const startedAt = Date.now();
+    await manager.dispose();
+    managers.splice(managers.indexOf(manager), 1);
+    await expect(opening).rejects.toBeDefined();
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
+  });
+
   it("spawns one safe child, handles fragmented NDJSON, and brokers exact permissions", async () => {
     const fixture = await workspaceFixture();
     const events: NormalizedAgentEvent[] = [];
@@ -258,13 +304,10 @@ describe("GeminiSessionManager ACP contract", () => {
           event.providerSessionId === "provider-existing",
       ),
     ).toBe(true);
-    expect(
-      events.some(
-        (event) =>
-          event.type === "message.assistant.delta" &&
-          event.providerSessionId === "provider-existing",
-      ),
-    ).toBe(true);
+    // session/load restores provider context but may replay old transcript
+    // notifications. Those must stay suppressed to avoid duplicate timeline
+    // messages; fresh output starts with the next user prompt below.
+    expect(events.some((event) => event.type === "message.assistant.delta")).toBe(false);
     await expect(
       manager.prompt("loaded-app", [
         { type: "image", mimeType: "image/png", data: "aGVsbG8=" },
@@ -292,6 +335,24 @@ describe("GeminiSessionManager ACP contract", () => {
         access: noLoadFixture.access,
       }),
     ).rejects.toMatchObject({ code: "capability_unsupported" });
+  });
+
+  it("lists provider sessions by cursor and gates provider deletion on ACP capabilities", async () => {
+    const fixture = await workspaceFixture();
+    const manager = createManager(fixture, { FAKE_ACP_SESSION_LIST_DELETE: "1" });
+    await manager.createSession({ appSessionId: "provider-admin", access: fixture.access });
+    const first = await manager.listProviderSessions("provider-admin", { cwd: fixture.primaryRoot });
+    expect(first).toMatchObject({ sessions: [{ sessionId: "provider-page-1" }], nextCursor: "page-two" });
+    await expect(manager.listProviderSessions("provider-admin", { cursor: first.nextCursor! })).resolves.toMatchObject({
+      sessions: [{ sessionId: "provider-page-2" }],
+    });
+    await manager.deleteProviderSession("provider-admin", "provider-page-2");
+
+    const unsupportedFixture = await workspaceFixture();
+    const unsupported = createManager(unsupportedFixture);
+    await unsupported.createSession({ appSessionId: "no-provider-admin", access: unsupportedFixture.access });
+    await expect(unsupported.listProviderSessions("no-provider-admin", {})).rejects.toMatchObject({ code: "capability_unsupported" });
+    await expect(unsupported.deleteProviderSession("no-provider-admin", "id")).rejects.toMatchObject({ code: "capability_unsupported" });
   });
 
   it("reads and switches models on an agent that still speaks the legacy models API", async () => {

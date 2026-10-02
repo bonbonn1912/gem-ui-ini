@@ -111,6 +111,8 @@ async function extractPdf(input: ExtractionRequest): Promise<ExtractionResult> {
   let text = "";
   let extractedChars = 0;
   const pageLimit = Math.min(document.numPages, 200);
+  let pagesProcessed = 0;
+  let stoppedAtTextBudget = false;
   try {
     for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
       const page = await document.getPage(pageNumber);
@@ -123,9 +125,17 @@ async function extractPdf(input: ExtractionRequest): Promise<ExtractionResult> {
       extractedChars += pageText.length + (pageNumber > 1 ? 2 : 0);
       if (text.length < MAX_CONTEXT_CHARS_PER_ATTACHMENT) {
         const separator = pageNumber > 1 ? "\n\n" : "";
-        text = (text + separator + pageText).slice(0, MAX_CONTEXT_CHARS_PER_ATTACHMENT);
+        const remaining = MAX_CONTEXT_CHARS_PER_ATTACHMENT - text.length;
+        const pageAddition = separator + pageText;
+        text += pageAddition.slice(0, remaining);
+        stoppedAtTextBudget = pageAddition.length > remaining;
       }
       page.cleanup();
+      pagesProcessed = pageNumber;
+      if (stoppedAtTextBudget || text.length >= MAX_CONTEXT_CHARS_PER_ATTACHMENT) {
+        stoppedAtTextBudget = pageNumber < document.numPages;
+        break;
+      }
     }
   } finally {
     await loading.destroy();
@@ -138,7 +148,7 @@ async function extractPdf(input: ExtractionRequest): Promise<ExtractionResult> {
     text,
     extractedChars,
     pageCount: document.numPages,
-    truncated: document.numPages > pageLimit || extractedChars > text.length,
+    truncated: document.numPages > pageLimit || stoppedAtTextBudget || pagesProcessed < document.numPages || extractedChars > text.length,
     error: null,
   };
 }

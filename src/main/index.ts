@@ -56,6 +56,7 @@ const ownsInstance =
 let mainWindow: BrowserWindow | null = null;
 let database: SqliteDatabase | null = null;
 let controller: AppController | null = null;
+let persistedEvents: EventRepository | null = null;
 let eventHub: SessionEventHub | null = null;
 let gitStatusHub: GitStatusSubscriptionHub | null = null;
 let contextAttachmentHub: ContextAttachmentSubscriptionHub | null = null;
@@ -114,6 +115,7 @@ async function bootstrap(): Promise<void> {
   const projectRepository = new ProjectRepository(database);
   const sessionRepository = new SessionRepository(database);
   const eventRepository = new EventRepository(database);
+  persistedEvents = eventRepository;
   const attachmentRepository = new AttachmentRepository(database);
   const contextAttachmentRepository = new ContextAttachmentRepository(database);
   const settingsRepository = new SettingsRepository(database);
@@ -130,7 +132,7 @@ async function bootstrap(): Promise<void> {
     settingsRepository,
     app.getVersion(),
   );
-  await capabilityService.refresh();
+
 
   const attachmentService = new AttachmentService(
     app.getPath("userData"),
@@ -207,6 +209,9 @@ async function bootstrap(): Promise<void> {
   eventHub = new SessionEventHub({
     eventsAfter: (sessionId, afterSeq) =>
       eventRepository.listAfter(sessionId, afterSeq),
+    latestSequence: (sessionId) => eventRepository.latestSequence(sessionId),
+    eventsThrough: (sessionId, afterSeq, throughSeq, limit) =>
+      eventRepository.listThrough(sessionId, afterSeq, throughSeq, limit),
     usageSnapshot: (sessionId) => usageService.getSnapshot(sessionId),
   });
   controller = new AppController({
@@ -218,6 +223,7 @@ async function bootstrap(): Promise<void> {
     contextAttachments: contextAttachmentService,
     projectFiles: projectFileService,
     capabilities: capabilityService,
+    resourceProfile: capabilityService.getResourceProfile().profile,
     usage: usageService,
     stats: statsRepository,
     publishEvents: (events) => eventHub?.publish(events),
@@ -271,6 +277,13 @@ async function bootstrap(): Promise<void> {
     sessionExport: sessionExportService,
   };
   await openApplicationWindow();
+  eventRepository.startBackgroundWork();
+  void statsRepository.backfillHistorical().catch((error) => {
+    console.error("[GeminUI] Statistikimport unterbrochen", error);
+  });
+  void capabilityService.refresh().catch((error) => {
+    console.error("[GeminUI] CLI-Prüfung fehlgeschlagen", error);
+  });
 }
 
 async function openApplicationWindow(): Promise<void> {
@@ -305,6 +318,9 @@ async function cleanup(): Promise<void> {
     todoHub = null;
     todoService = null;
     contextAttachmentService = null;
+    persistedEvents?.dispose();
+    persistedEvents = null;
+    runtimeServices?.stats?.dispose();
     runtimeServices = null;
     if (database?.open) database.close();
     database = null;

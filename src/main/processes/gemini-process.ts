@@ -56,12 +56,12 @@ export function validateProjectAccess(access: ProjectAccess): void {
   }
 }
 
-export function buildGeminiAcpArgs(access: ProjectAccess): string[] {
+export function buildGeminiAcpArgs(access: ProjectAccess, acpFlag: "--acp" | "--experimental-acp" = "--acp"): string[] {
   validateProjectAccess(access);
   // Folder selection in GeminUI is the explicit trust decision. Gemini's own
   // terminal trust prompt cannot be answered over ACP and would otherwise
   // block before initialize for a newly selected directory.
-  const args = ["--acp", "--skip-trust"];
+  const args = [acpFlag, "--skip-trust"];
   for (const root of access.additionalRoots) {
     args.push("--include-directories", root);
   }
@@ -97,6 +97,7 @@ export interface GeminiProcessHandle {
 export interface SpawnGeminiProcessInput {
   readonly binaryPath: string;
   readonly binaryArgs?: readonly string[];
+  readonly acpFlag?: "--acp" | "--experimental-acp";
   readonly access: ProjectAccess;
   readonly environment?: NodeJS.ProcessEnv;
   readonly maxStderrBytes?: number;
@@ -214,7 +215,7 @@ export function spawnGeminiProcess(
   assertUsableProjectAccess(input.access);
   const args = [
     ...(input.binaryArgs ?? []),
-    ...buildGeminiAcpArgs(input.access),
+    ...buildGeminiAcpArgs(input.access, input.acpFlag),
   ];
   // The npm Gemini launcher otherwise relaunches itself with inherited stdio.
   // That wrapper can swallow early ACP input and signals when it is spawned

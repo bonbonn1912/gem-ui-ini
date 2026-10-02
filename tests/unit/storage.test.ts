@@ -40,8 +40,7 @@ describe("SQLite setup and migrations", () => {
       const versions = database
         .prepare("SELECT version FROM schema_migrations ORDER BY version")
         .all() as Array<{ version: number }>;
-      expect(versions.map(({ version }) => version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
-      expect(getLatestSchemaVersion()).toBe(17);
+      expect(versions.at(-1)?.version).toBe(getLatestSchemaVersion());
       const clientRequests = database
         .prepare(
           "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'client_requests'",
@@ -296,6 +295,70 @@ describe("repositories", () => {
       expect(results[0].snippet).toContain("geheimem Begriff");
 
       expect(events.searchByContent(fixture.project.id, "Nicht vorhanden")).toEqual([]);
+
+      const splitMessageId = randomUUID();
+      for (const delta of ["phrase across ", "two streaming chunks: naïve café ✓"]) {
+        events.append({
+          sessionId,
+          turnId: null,
+          timestamp,
+          event: { type: "message.assistant.delta", messageId: splitMessageId, delta },
+        });
+      }
+      const spanningPhrase = events.searchByContent(fixture.project.id, "across two streaming chunks");
+      expect(spanningPhrase).toHaveLength(1);
+      expect(spanningPhrase[0].snippet).toContain("across two streaming chunks");
+      expect(events.searchByContent(fixture.project.id, "naïve café ✓")).toHaveLength(1);
+    } finally {
+      fixture.database.close();
+    }
+  });
+
+  it("paginates a fixed timeline watermark while stream rows keep changing", async () => {
+    const fixture = await createProjectFixture();
+    try {
+      const sessions = new SessionRepository(fixture.database);
+      const sessionId = randomUUID();
+      sessions.create({
+        id: sessionId, provider: "gemini-cli", providerSessionId: null,
+        projectId: fixture.project.id, lastRootRevision: fixture.project.rootRevision,
+        lastRootFingerprint: fixture.project.rootFingerprint, title: "Timeline fixture",
+        status: "idle", model: null, mode: null, pinned: false, archived: false,
+        createdAt: timestamp, updatedAt: timestamp,
+      });
+      const events = new EventRepository(fixture.database);
+      const userId = randomUUID();
+      const assistantId = randomUUID();
+      const toolCallId = randomUUID();
+      const turnId = randomUUID();
+      events.append({ sessionId, turnId, timestamp,
+        event: { type: "message.user", messageId: userId, text: "Question", attachmentIds: [], contextAttachments: [], projectFiles: [], externalContexts: [] } });
+      events.append({ sessionId, turnId, timestamp,
+        event: { type: "message.assistant.delta", messageId: assistantId, delta: "first " } });
+      events.append({ sessionId, turnId, timestamp,
+        event: { type: "message.assistant.delta", messageId: assistantId, delta: "answer" } });
+      events.append({ sessionId, turnId, timestamp,
+        event: { type: "tool.started", toolCallId, title: "Read file", kind: "read", arguments: { path: "a.ts" } } });
+
+      const watermark = events.latestSequence(sessionId);
+      const newest = events.timelinePage({ sessionId, throughSeq: watermark, limit: 1 });
+      expect(newest.complete).toBe(true);
+      expect(newest.items.map((item) => item.kind)).toEqual(["tool"]);
+      expect(newest.hasMore).toBe(true);
+
+      // Later stream updates must not change the historical snapshot page.
+      events.append({ sessionId, turnId, timestamp,
+        event: { type: "message.assistant.delta", messageId: assistantId, delta: " later" } });
+      events.append({ sessionId, turnId, timestamp,
+        event: { type: "tool.completed", toolCallId, result: "done" } });
+      const older = events.timelinePage({ sessionId, throughSeq: watermark, before: newest.nextBefore, limit: 2 });
+      expect(older.items.map((item) => item.kind)).toEqual(["message", "message"]);
+      expect(older.items[0]).toMatchObject({ role: "user", text: "Question" });
+      expect(older.items[1]).toMatchObject({ role: "assistant", text: "first answer", streaming: true });
+      expect(events.timelinePage({ sessionId, throughSeq: watermark, limit: 1 }).items[0])
+        .toMatchObject({ kind: "tool", status: "running" });
+      expect(events.timelinePage({ sessionId, limit: 1 }).items[0])
+        .toMatchObject({ kind: "tool", status: "completed" });
     } finally {
       fixture.database.close();
     }

@@ -45,6 +45,7 @@ export const ContextAttachmentFileSchema = z.object({
   sha256: Sha256Schema,
   extractionState: ExtractionStateSchema,
   extractedChars: z.int().nonnegative().nullable(),
+  extractionTruncated: z.boolean().default(false),
   pageCount: z.int().nonnegative().nullable(),
   extractionError: z.string().max(500).nullable(),
   renderable: z.boolean(),

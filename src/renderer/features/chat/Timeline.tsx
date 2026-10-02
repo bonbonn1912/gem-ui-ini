@@ -1,17 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { MessageItem, PermissionItem, TimelineItem, ToolItem } from "./reducer";
 import { MarkdownContent } from "../../components/MarkdownContent";
 import { Icon } from "../../components/Icon";
+import { EventPayload } from "./EventPayload";
 import type { DiffSelection } from "../git/DiffViewer";
 import { InlineDiffPreviews } from "../git/InlineDiffPreviews";
 import type { GitPreviewGroup } from "../git/useGitChangePreviews";
 
 type TimelineProps = {
+  sessionId: string;
   items: TimelineItem[];
   sessionTitle: string;
   gitPreviewGroups: ReadonlyMap<string, GitPreviewGroup>;
   /** Prompt ist raus, aber vom Agenten kam noch keine einzige Ausgabe. */
   awaitingAnswer?: boolean;
+  hasOlderItems?: boolean;
+  loadingOlderItems?: boolean;
+  onLoadOlderItems?: () => void;
   onOpenExternal: (url: string) => void;
   onOpenGitDiff: (selection: DiffSelection) => void;
   onRespondToPermission: (requestId: string, optionId: string) => void;
@@ -49,7 +54,18 @@ function extractMarkdownPayload(input: unknown, output: unknown, locations?: { p
   return null;
 }
 
-function ToolCard({ item, onOpenExternal }: { item: ToolItem; onOpenExternal?: (url: string) => void }) {
+function PayloadDisclosure({ sessionId, title, value }: { sessionId: string; title: string; value: unknown }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details className="tool-payload-disclosure" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>{title}</summary>
+      {open && <EventPayload sessionId={sessionId} value={value} />}
+    </details>
+  );
+}
+
+function ToolCard({ item, sessionId, onOpenExternal }: { item: ToolItem; sessionId: string; onOpenExternal?: (url: string) => void }) {
+  const [expanded, setExpanded] = useState(item.status === "failed");
   const [showRaw, setShowRaw] = useState(false);
   const markdownPayload = useMemo(
     () => extractMarkdownPayload(item.input, item.output, item.locations),
@@ -64,7 +80,7 @@ function ToolCard({ item, onOpenExternal }: { item: ToolItem; onOpenExternal?: (
         : "Fehlgeschlagen";
 
   return (
-    <details className={`tool-card tool-card--${item.status}`} open={item.status === "failed"}>
+    <details className={`tool-card tool-card--${item.status}`} open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
       <summary>
         <span className="tool-icon">
           {item.status === "completed" ? (
@@ -82,7 +98,7 @@ function ToolCard({ item, onOpenExternal }: { item: ToolItem; onOpenExternal?: (
         </span>
         <Icon name="chevron-down" size={15} className="details-chevron" />
       </summary>
-      <div className="tool-body">
+      {expanded && <div className="tool-body">
         {item.locations?.length ? (
           <div className="tool-locations">
             {item.locations.map((location) => (
@@ -146,8 +162,11 @@ function ToolCard({ item, onOpenExternal }: { item: ToolItem; onOpenExternal?: (
             <pre>{formatPayload(item.output)}</pre>
           </section>
         )}
+        {item.rawInput !== undefined && <PayloadDisclosure sessionId={sessionId} title="ACP-Rohdaten: Eingabe" value={item.rawInput} />}
+        {item.rawOutput !== undefined && <PayloadDisclosure sessionId={sessionId} title="ACP-Rohdaten: Ausgabe" value={item.rawOutput} />}
+        {item.content?.length ? <PayloadDisclosure sessionId={sessionId} title="Strukturierter Toolinhalt" value={item.content} /> : null}
         {item.error && <p className="tool-error">{item.error}</p>}
-      </div>
+      </div>}
     </details>
   );
 }
@@ -160,11 +179,13 @@ function ToolCard({ item, onOpenExternal }: { item: ToolItem; onOpenExternal?: (
  */
 function ToolRunGroup({
   items,
+  sessionId,
   gitPreviewGroups,
   onOpenGitDiff,
   onOpenExternal,
 }: {
   items: ToolItem[];
+  sessionId: string;
   gitPreviewGroups: ReadonlyMap<string, GitPreviewGroup>;
   onOpenGitDiff: (selection: DiffSelection) => void;
   onOpenExternal: (url: string) => void;
@@ -240,7 +261,7 @@ function ToolRunGroup({
             const previewGroup = gitPreviewGroups.get(item.toolCallId);
             return (
               <div className="tool-run-step" key={item.id}>
-                <ToolCard item={item} onOpenExternal={onOpenExternal} />
+                <ToolCard item={item} sessionId={sessionId} onOpenExternal={onOpenExternal} />
                 {previewGroup && (
                   <InlineDiffPreviews group={previewGroup} onOpenDiff={onOpenGitDiff} />
                 )}
@@ -358,13 +379,37 @@ function AssistantMarkBadge({ item }: { item: MessageItem }) {
 
 function AssistantMessage({
   item,
+  sessionId,
   onOpenExternal,
 }: {
   item: MessageItem;
+  sessionId: string;
   onOpenExternal: (url: string) => void;
 }) {
   const [showRaw, setShowRaw] = useState(false);
   const text = typeof item.text === "string" ? item.text : "";
+  const [renderedText, setRenderedText] = useState(text);
+  const pendingText = useRef(text);
+  const timer = useRef<number | null>(null);
+
+  useEffect(() => {
+    pendingText.current = text;
+    if (!item.streaming) {
+      if (timer.current !== null) window.clearTimeout(timer.current);
+      timer.current = null;
+      setRenderedText(text);
+      return;
+    }
+    if (timer.current !== null) return;
+    timer.current = window.setTimeout(() => {
+      timer.current = null;
+      setRenderedText(pendingText.current);
+    }, 100);
+  }, [text, item.streaming]);
+
+  useEffect(() => () => {
+    if (timer.current !== null) window.clearTimeout(timer.current);
+  }, []);
   const isPlanOrMarkdown =
     text.includes("#") ||
     text.includes("```") ||
@@ -388,11 +433,12 @@ function AssistantMessage({
           </button>
         )}
         {!showRaw ? (
-          <MarkdownContent onOpenExternal={onOpenExternal}>{item.text}</MarkdownContent>
+          <MarkdownContent onOpenExternal={onOpenExternal}>{renderedText}</MarkdownContent>
         ) : (
           <pre className="message-raw-content">{item.text}</pre>
         )}
         {item.streaming && <span className="stream-cursor" aria-label="Gemini schreibt" />}
+        {item.contentBlocks?.length ? <PayloadDisclosure sessionId={sessionId} title="Strukturierter Antwortinhalt" value={item.contentBlocks} /> : null}
       </div>
     </article>
   );
@@ -484,14 +530,16 @@ function PermissionCard({
   );
 }
 
-function TimelineEntry({
+const TimelineEntry = memo(function TimelineEntry({
   item,
+  sessionId,
   gitPreviewGroup,
   onOpenExternal,
   onOpenGitDiff,
   onRespondToPermission,
 }: {
   item: TimelineItem;
+  sessionId: string;
   gitPreviewGroup?: GitPreviewGroup;
   onOpenExternal: (url: string) => void;
   onOpenGitDiff: (selection: DiffSelection) => void;
@@ -545,13 +593,14 @@ function TimelineEntry({
           </div>
         )}
         {item.text && <p>{item.text}</p>}
+        {item.contentBlocks?.length ? <PayloadDisclosure sessionId={sessionId} title="Strukturierter Nachrichteninhalt" value={item.contentBlocks} /> : null}
         {item.failed && <span className="message-error-label">Nicht gesendet</span>}
       </article>
     );
   }
 
   if (item.kind === "message") {
-    return <AssistantMessage item={item} onOpenExternal={onOpenExternal} />;
+    return <AssistantMessage item={item} sessionId={sessionId} onOpenExternal={onOpenExternal} />;
   }
 
   if (item.kind === "thought") {
@@ -571,7 +620,7 @@ function TimelineEntry({
   if (item.kind === "tool") {
     return (
       <>
-        <ToolCard item={item} onOpenExternal={onOpenExternal} />
+        <ToolCard item={item} sessionId={sessionId} onOpenExternal={onOpenExternal} />
         {gitPreviewGroup && (
           <InlineDiffPreviews group={gitPreviewGroup} onOpenDiff={onOpenGitDiff} />
         )}
@@ -580,6 +629,14 @@ function TimelineEntry({
   }
   if (item.kind === "permission") {
     return <PermissionCard item={item} onRespond={onRespondToPermission} />;
+  }
+  if (item.kind === "plan") {
+    return (
+      <section className="agent-plan-card" aria-label="Agentenplan">
+        <header><Icon name="checklist" size={16} /><strong>Arbeitsplan</strong></header>
+        <pre>{formatPayload(item.plan)}</pre>
+      </section>
+    );
   }
 
   return (
@@ -596,7 +653,7 @@ function TimelineEntry({
       </div>
     </div>
   );
-}
+});
 
 /**
  * Zwischen dem Absenden und dem ersten Zeichen der Antwort liegt spürbar Zeit:
@@ -626,17 +683,34 @@ function PendingAnswer() {
 }
 
 export function Timeline({
+  sessionId,
   items,
   sessionTitle,
   gitPreviewGroups,
   awaitingAnswer = false,
+  hasOlderItems = false,
+  loadingOlderItems = false,
+  onLoadOlderItems,
   onOpenExternal,
   onOpenGitDiff,
   onRespondToPermission,
 }: TimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const anchorRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
+  const callbacks = useRef({ onOpenExternal, onOpenGitDiff, onRespondToPermission });
+  callbacks.current = { onOpenExternal, onOpenGitDiff, onRespondToPermission };
+  const stableOpenExternal = useCallback((url: string) => callbacks.current.onOpenExternal(url), []);
+  const stableOpenGitDiff = useCallback((selection: DiffSelection) => callbacks.current.onOpenGitDiff(selection), []);
+  const stableRespond = useCallback((request: string, option: string) => callbacks.current.onRespondToPermission(request, option), []);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(700);
+  const [heightRevision, setHeightRevision] = useState(0);
+  const measuredHeights = useRef(new Map<string, number>());
+  const observedRows = useRef(new Map<string, HTMLDivElement>());
+  const rowRefCallbacks = useRef(new Map<string, (node: HTMLDivElement | null) => void>());
+  const scrollHeightBeforePrepend = useRef<number | null>(null);
+  const lastItemCount = useRef(items.length);
+  const requestingOlder = useRef(false);
 
   // Aufeinanderfolgende Tool-Schritte werden zu einer Gruppe zusammengefasst.
   // Ein einzelner Schritt bleibt eine schlichte Karte — eine Box mit Kopfzeile
@@ -662,24 +736,132 @@ export function Timeline({
     return result;
   }, [items]);
 
-  const contentSignature = items
-    .map((item) =>
-      item.kind === "message" || item.kind === "thought"
-        ? item.text.length
-        : item.kind === "tool"
-          ? `${item.seq ?? 0}${item.status}`
-          : item.seq ?? 0,
-    )
-    .join(":");
-  const previewSignature = [...gitPreviewGroups.values()]
-    .map((group) => `${group.toolCallId}:${group.loading}:${group.totalFiles}:${group.previews.length}`)
-    .join(":");
+  const rowPositions = useMemo(() => new Map(rows.map((row, index) => [row.kind === "group" ? row.id : row.item.id, index])), [rows]);
+
+  const rowHeights = useMemo(() => rows.map((row) => {
+    const key = row.kind === "group" ? row.id : row.item.id;
+    const estimate = row.kind === "group" ? 150 : row.item.kind === "message" ? 150 : row.item.kind === "tool" ? 180 : 90;
+    return measuredHeights.current.get(key) ?? estimate;
+  }), [rows, heightRevision]);
+  const offsets = useMemo(() => {
+    const values = new Array<number>(rowHeights.length + 1);
+    values[0] = 0;
+    for (let index = 0; index < rowHeights.length; index += 1) values[index + 1] = values[index]! + rowHeights[index]!;
+    return values;
+  }, [rowHeights]);
+  const layoutRef = useRef({ rowPositions, offsets, rows });
+  layoutRef.current = { rowPositions, offsets, rows };
+  const findRow = useCallback((position: number) => {
+    let low = 0;
+    let high = rowHeights.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if (offsets[middle + 1]! < position) low = middle + 1;
+      else high = middle;
+    }
+    return low;
+  }, [offsets, rowHeights.length]);
+  const firstVisible = Math.max(0, findRow(scrollTop) - 8);
+  const lastVisible = Math.min(rows.length, findRow(scrollTop + viewportHeight) + 9);
+  const totalHeight = offsets.at(-1) ?? 0;
+  const previewVersion = gitPreviewGroups.size;
+  const lastItem = items.at(-1);
+
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const updateSize = () => setViewportHeight(element.clientHeight);
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!stickToBottom.current) return;
+    const element = scrollRef.current;
+    if (element) element.scrollTop = element.scrollHeight;
+  }, [lastItem, previewVersion, awaitingAnswer, heightRevision]);
 
   useEffect(() => {
-    if (stickToBottom.current) {
-      anchorRef.current?.scrollIntoView?.({ block: "end" });
+    if (!loadingOlderItems) requestingOlder.current = false;
+  }, [loadingOlderItems]);
+
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (element && items.length > lastItemCount.current && scrollHeightBeforePrepend.current !== null) {
+      element.scrollTop += element.scrollHeight - scrollHeightBeforePrepend.current;
+      scrollHeightBeforePrepend.current = null;
     }
-  }, [contentSignature, previewSignature, awaitingAnswer]);
+    lastItemCount.current = items.length;
+  }, [items.length]);
+
+  useEffect(() => {
+    const liveKeys = new Set(rowPositions.keys());
+    for (const key of measuredHeights.current.keys()) if (!liveKeys.has(key)) measuredHeights.current.delete(key);
+    for (const key of rowRefCallbacks.current.keys()) if (!liveKeys.has(key)) rowRefCallbacks.current.delete(key);
+  }, [rowPositions]);
+
+  const measureRow = useCallback((key: string, node: HTMLDivElement | null) => {
+    const previous = observedRows.current.get(key);
+    if (!node) {
+      if (previous) {
+        (previous as HTMLDivElement & { __heightObserver?: ResizeObserver }).__heightObserver?.disconnect();
+        observedRows.current.delete(key);
+      }
+      return;
+    }
+    observedRows.current.set(key, node);
+    const measure = () => {
+      const height = node.getBoundingClientRect().height;
+      const layout = layoutRef.current;
+      const index = layout.rowPositions.get(key);
+      const row = index === undefined ? undefined : layout.rows[index];
+      const estimate = row?.kind === "group" ? 150 : row?.item.kind === "tool" ? 180 : row?.item.kind === "message" ? 150 : 90;
+      const oldHeight = measuredHeights.current.get(key) ?? estimate;
+      if (height > 0 && Math.abs(oldHeight - height) > 1) {
+        const container = scrollRef.current;
+        let firstVisibleIndex = 0;
+        if (container) {
+          const currentOffsets = layout.offsets;
+          let low = 0;
+          let high = currentOffsets.length - 1;
+          while (low < high) {
+            const middle = (low + high) >>> 1;
+            if (currentOffsets[middle + 1]! < container.scrollTop) low = middle + 1;
+            else high = middle;
+          }
+          firstVisibleIndex = low;
+        }
+        if (index !== undefined && container && index < firstVisibleIndex) {
+          // Keep the first visible content at the same viewport position when
+          // late Markdown/image layout changes the height of rows above it.
+          container.scrollTop += height - oldHeight;
+          setScrollTop(container.scrollTop);
+        }
+        measuredHeights.current.set(key, height);
+        setHeightRevision((value) => value + 1);
+      }
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      measure();
+      return;
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    // The element is removed when it leaves the virtual window; disconnect with it.
+    (node as HTMLDivElement & { __heightObserver?: ResizeObserver }).__heightObserver?.disconnect();
+    (node as HTMLDivElement & { __heightObserver?: ResizeObserver }).__heightObserver = observer;
+  }, []);
+  const rowRef = useCallback((key: string) => {
+    let callback = rowRefCallbacks.current.get(key);
+    if (!callback) {
+      callback = (node) => measureRow(key, node);
+      rowRefCallbacks.current.set(key, callback);
+    }
+    return callback;
+  }, [measureRow]);
 
   if (items.length === 0) {
     return (
@@ -709,49 +891,33 @@ export function Timeline({
       aria-label={`Verlauf von ${sessionTitle}`}
       onScroll={(event) => {
         const element = event.currentTarget;
+        setScrollTop(element.scrollTop);
+        if (element.scrollTop < 240 && hasOlderItems && !loadingOlderItems && !requestingOlder.current && onLoadOlderItems) {
+          requestingOlder.current = true;
+          scrollHeightBeforePrepend.current = element.scrollHeight;
+          onLoadOlderItems();
+        }
         stickToBottom.current =
           element.scrollHeight - element.scrollTop - element.clientHeight < 140;
       }}
     >
-      <div className="timeline">
-        {rows.map((row) => {
-          if (row.kind === "group") {
+      {loadingOlderItems && <div className="timeline-history-loading" role="status">Ältere Nachrichten werden geladen …</div>}
+      <div className="timeline" role="list" aria-label="Nachrichtenverlauf">
+        <div aria-hidden="true" style={{ height: offsets[firstVisible] ?? 0 }} />
+        {rows.slice(firstVisible, lastVisible).map((row, visibleIndex) => {
+          const rowIndex = firstVisible + visibleIndex;
+          const rowKey = row.kind === "group" ? row.id : row.item.id;
+          const renderedRow = row.kind === "group" ? (() => {
             if (row.items.length === 1) {
               const only = row.items[0]!;
-              return (
-                <TimelineEntry
-                  key={only.id}
-                  item={only}
-                  gitPreviewGroup={gitPreviewGroups.get(only.toolCallId)}
-                  onOpenExternal={onOpenExternal}
-                  onOpenGitDiff={onOpenGitDiff}
-                  onRespondToPermission={onRespondToPermission}
-                />
-              );
+              return <TimelineEntry item={only} sessionId={sessionId} gitPreviewGroup={gitPreviewGroups.get(only.toolCallId)} onOpenExternal={stableOpenExternal} onOpenGitDiff={stableOpenGitDiff} onRespondToPermission={stableRespond} />;
             }
-            return (
-              <ToolRunGroup
-                key={row.id}
-                items={row.items}
-                gitPreviewGroups={gitPreviewGroups}
-                onOpenGitDiff={onOpenGitDiff}
-                onOpenExternal={onOpenExternal}
-              />
-            );
-          }
-
-          return (
-            <TimelineEntry
-              key={row.item.id}
-              item={row.item}
-              onOpenExternal={onOpenExternal}
-              onOpenGitDiff={onOpenGitDiff}
-              onRespondToPermission={onRespondToPermission}
-            />
-          );
+            return <ToolRunGroup items={row.items} sessionId={sessionId} gitPreviewGroups={gitPreviewGroups} onOpenGitDiff={stableOpenGitDiff} onOpenExternal={stableOpenExternal} />;
+          })() : <TimelineEntry item={row.item} sessionId={sessionId} onOpenExternal={stableOpenExternal} onOpenGitDiff={stableOpenGitDiff} onRespondToPermission={stableRespond} />;
+          return <div className="timeline-virtual-row" key={rowKey} ref={rowRef(rowKey)} role="listitem" aria-posinset={rowIndex + 1} aria-setsize={rows.length}>{renderedRow}</div>;
         })}
+        <div aria-hidden="true" style={{ height: Math.max(0, totalHeight - (offsets[lastVisible] ?? totalHeight)) }} />
         {awaitingAnswer && <PendingAnswer />}
-        <div ref={anchorRef} className="scroll-anchor" />
       </div>
     </div>
   );

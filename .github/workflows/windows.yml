@@ -20,6 +20,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run make
+      - name: Electron replay and lifecycle checks
+        run: npm run test:e2e
       - name: Extract package version
         id: pkg_version
         shell: bash

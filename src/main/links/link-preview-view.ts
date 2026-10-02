@@ -14,6 +14,7 @@ import { normalizeUrl } from "./url-policy";
 export class LinkPreviewViewHost {
   #view: WebContentsView | null = null;
   #attachmentId: string | null = null;
+  #generation = 0;
   #bounds: Rectangle = { x: 0, y: 0, width: 0, height: 0 };
 
   constructor(
@@ -53,6 +54,7 @@ export class LinkPreviewViewHost {
 
     normalizeUrl(targetUrl);
     this.close();
+    const generation = this.#generation;
     this.#bounds = { x: 0, y: 0, width: 0, height: 0 };
     const view = new WebContentsView({
       webPreferences: {
@@ -92,7 +94,8 @@ export class LinkPreviewViewHost {
     try {
       await view.webContents.loadURL(targetUrl);
     } catch (error) {
-      this.close();
+      if (generation === this.#generation && this.#view === view) this.close();
+      else closeView(this.mainWindow, view);
       throw error;
     }
     return { attachmentId: targetAttachmentId, url: targetUrl, host: targetHost, loading: false };
@@ -109,15 +112,12 @@ export class LinkPreviewViewHost {
   }
 
   close(): void {
+    this.#generation += 1;
     const view = this.#view;
     this.#view = null;
     this.#attachmentId = null;
     if (!view) return;
-    try {
-      this.mainWindow.contentView.removeChildView(view);
-    } catch {
-      // Ignore if view was already removed or destroyed
-    }
+    closeView(this.mainWindow, view);
   }
 
   async clearStorage(): Promise<void> {
@@ -143,4 +143,13 @@ export class LinkPreviewViewHost {
   #preventDownload = (event: Event) => {
     event.preventDefault();
   };
+}
+
+function closeView(mainWindow: BrowserWindow, view: WebContentsView): void {
+  try {
+    mainWindow.contentView.removeChildView(view);
+  } catch {
+    // The view may already have been detached.
+  }
+  if (!view.webContents.isDestroyed()) view.webContents.close();
 }

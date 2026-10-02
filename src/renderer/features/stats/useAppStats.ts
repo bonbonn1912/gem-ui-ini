@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AppStats,
   GetStatsInput,
@@ -17,8 +17,10 @@ export function useAppStats(
   const [stats, setStats] = useState<AppStats | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const requestGeneration = useRef(0);
 
   const fetchStats = useCallback(async () => {
+    const generation = ++requestGeneration.current;
     setLoading(true);
     setError(null);
     try {
@@ -32,16 +34,17 @@ export function useAppStats(
         model: selectedModel,
         projectId,
       });
-      setStats(data);
+      if (generation === requestGeneration.current) setStats(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Fehler beim Laden der Statistiken.");
+      if (generation === requestGeneration.current) setError(err instanceof Error ? err.message : "Fehler beim Laden der Statistiken.");
     } finally {
-      setLoading(false);
+      if (generation === requestGeneration.current) setLoading(false);
     }
   }, [timeRange, granularity, selectedModel, projectId]);
 
   useEffect(() => {
     void fetchStats();
+    return () => { requestGeneration.current += 1; };
   }, [fetchStats]);
 
   return {

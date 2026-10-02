@@ -40,6 +40,7 @@ type ContextAttachmentRow = {
   file_name: string | null;
   extraction_state: ExtractionState | null;
   extracted_chars: number | null;
+  extraction_truncated: number;
   page_count: number | null;
   extraction_error: string | null;
   url: string | null;
@@ -104,7 +105,7 @@ const SELECT_COLUMNS = `
          COALESCE(sel.included, a.default_include) AS effective_included,
          f.display_name, f.mime_type, f.size AS file_size, f.sha256,
          f.storage_dir, f.file_name, f.extraction_state, f.extracted_chars,
-         f.page_count, f.extraction_error,
+         f.page_count, f.extraction_error, f.extraction_truncated,
          l.url, l.host, l.preview_state, l.preview_title,
          l.preview_description, l.preview_site_name, l.preview_image_file,
          l.preview_error, l.fetched_at
@@ -332,17 +333,19 @@ export class ContextAttachmentRepository {
     state: ExtractionState;
     extractedChars?: number | null;
     pageCount?: number | null;
+    truncated?: boolean;
     error?: string | null;
   }): void {
     const result = this.database.prepare(
       `UPDATE context_attachment_files
-       SET extraction_state = ?, extracted_chars = ?, page_count = ?, extraction_error = ?
+       SET extraction_state = ?, extracted_chars = ?, page_count = ?, extraction_error = ?, extraction_truncated = ?
        WHERE attachment_id = ?`,
     ).run(
       input.state,
       input.extractedChars ?? null,
       input.pageCount ?? null,
       input.error?.slice(0, 500) ?? null,
+      input.truncated ? 1 : 0,
       input.attachmentId,
     );
     if (result.changes !== 1) throw new StorageNotFoundError("Context attachment file", input.attachmentId);
@@ -464,6 +467,7 @@ function parseStoredAttachment(row: ContextAttachmentRow): StoredContextAttachme
         sha256: required(row.sha256),
         extractionState: row.extraction_state ?? "failed",
         extractedChars: row.extracted_chars,
+        extractionTruncated: row.extraction_truncated === 1,
         pageCount: row.page_count,
         extractionError: row.extraction_error,
         renderable: isRenderableImage(row.mime_type),

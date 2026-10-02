@@ -81,10 +81,15 @@ async function handleMessage(message) {
   const params = message.params ?? {};
   switch (message.method) {
     case "initialize": {
+      const initializeDelay = Number(process.env.FAKE_ACP_INITIALIZE_DELAY_MS ?? 0);
+      if (initializeDelay > 0) await new Promise((resolve) => setTimeout(resolve, initializeDelay));
       respond(message.id, {
         protocolVersion: Number(process.env.FAKE_ACP_PROTOCOL_VERSION ?? 1),
         agentCapabilities: {
           loadSession: process.env.FAKE_ACP_NO_LOAD !== "1",
+          ...(process.env.FAKE_ACP_SESSION_LIST_DELETE === "1"
+            ? { sessionCapabilities: { list: {}, delete: {} } }
+            : {}),
           promptCapabilities: {
             image: process.env.FAKE_ACP_NO_IMAGE !== "1",
             audio: true,
@@ -105,6 +110,17 @@ async function handleMessage(message) {
         modes: modes("default"),
         ...modelPayload(),
       });
+      return;
+    }
+    case "session/list": {
+      respond(message.id, {
+        sessions: [{ sessionId: params.cursor ? "provider-page-2" : "provider-page-1", cwd: process.cwd() }],
+        ...(params.cursor ? {} : { nextCursor: "page-two" }),
+      });
+      return;
+    }
+    case "session/delete": {
+      respond(message.id, {});
       return;
     }
     case "session/load": {

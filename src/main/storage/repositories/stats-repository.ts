@@ -94,8 +94,28 @@ type TimeSeriesSqlRow = {
 };
 
 export class StatsRepository {
-  constructor(private readonly database: SqliteDatabase) {
-    this.backfillHistoricalIfEmpty();
+  private readonly historicalBackfillKey = "stats.historicalBackfill.v1";
+  private disposed = false;
+  private backfillPromise: Promise<void> | null = null;
+
+  constructor(private readonly database: SqliteDatabase) {}
+
+  /**
+   * Starts a resumable migration of legacy usage rows without blocking startup.
+   * Each database turn handles at most 50 rows, then yields to the main loop.
+   */
+  backfillHistorical(): Promise<void> {
+    if (this.backfillPromise) return this.backfillPromise;
+    if (this.disposed) return Promise.resolve();
+
+    this.backfillPromise = this.runHistoricalBackfill().finally(() => {
+      this.backfillPromise = null;
+    });
+    return this.backfillPromise;
+  }
+
+  dispose(): void {
+    this.disposed = true;
   }
 
   /**
@@ -673,38 +693,51 @@ export class StatsRepository {
     };
   }
 
-  /**
-   * Backfills historical data from existing `turn_usage` and `events` into `turn_metrics`
-   * if `turn_metrics` table is empty.
-   */
-  private backfillHistoricalIfEmpty(): void {
-    try {
-      const countRow = this.database
-        .prepare("SELECT COUNT(*) AS count FROM turn_metrics")
-        .get() as { count: number };
+  /** Backfills legacy `turn_usage` rows in bounded, restartable chunks. */
+  private async runHistoricalBackfill(): Promise<void> {
+    const chunkSize = 50;
+    const progress = this.readBackfillProgress();
+    if (progress?.complete) return;
 
-      if (countRow.count > 0) return;
+    let cursor = progress ?? { complete: false, sessionId: "", turnId: "" };
+    const selectChunk = this.database.prepare(
+      `SELECT
+         u.session_id,
+         u.turn_id,
+         u.input_tokens,
+         u.output_tokens,
+         u.total_tokens,
+         u.thought_tokens,
+         u.cached_read_tokens,
+         u.model_usage_json,
+         u.observed_at,
+         s.project_id,
+         s.model AS session_model,
+         s.mode AS session_mode
+       FROM turn_usage u
+       JOIN sessions s ON s.id = u.session_id
+       WHERE (u.session_id > ? OR (u.session_id = ? AND u.turn_id > ?))
+       ORDER BY u.session_id, u.turn_id
+       LIMIT ?`,
+    );
+    const insertHistoricalMetric = this.database.prepare(
+      `INSERT OR IGNORE INTO turn_metrics (
+         turn_id, session_id, project_id, model, mode, duration_ms,
+         input_tokens, output_tokens, total_tokens, thought_tokens, cached_tokens,
+         lines_added, lines_deleted, plan_decision, status, created_at
+       ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 0, 0, ?, 'completed', ?)`,
+    );
 
-      // Read existing turn_usage rows joined with sessions
-      const usageRows = this.database
-        .prepare(
-          `SELECT
-             u.session_id,
-             u.turn_id,
-             u.input_tokens,
-             u.output_tokens,
-             u.total_tokens,
-             u.thought_tokens,
-             u.cached_read_tokens,
-             u.model_usage_json,
-             u.observed_at,
-             s.project_id,
-             s.model AS session_model,
-             s.mode AS session_mode
-           FROM turn_usage u
-           JOIN sessions s ON s.id = u.session_id`,
-        )
-        .all() as Array<{
+    // Let startup and other queued work run before the first synchronous SQLite chunk.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    while (!this.disposed) {
+      const usageRows = selectChunk.all(
+        cursor.sessionId,
+        cursor.sessionId,
+        cursor.turnId,
+        chunkSize,
+      ) as Array<{
         session_id: string;
         turn_id: string;
         input_tokens: number | null;
@@ -719,7 +752,17 @@ export class StatsRepository {
         session_mode: string | null;
       }>;
 
-      if (usageRows.length === 0) return;
+      if (usageRows.length === 0) {
+        this.writeBackfillProgress({ ...cursor, complete: true });
+        return;
+      }
+
+      const last = usageRows[usageRows.length - 1];
+      const nextCursor = {
+        complete: false,
+        sessionId: last.session_id,
+        turnId: last.turn_id,
+      };
 
       this.database.transaction(() => {
         for (const row of usageRows) {
@@ -757,29 +800,68 @@ export class StatsRepository {
             }
           }
 
-          this.recordTurnMetric({
-            turnId: row.turn_id,
-            sessionId: row.session_id,
-            projectId: row.project_id,
-            model: primaryModel,
-            mode: row.session_mode,
-            durationMs: 0,
-            inputTokens: row.input_tokens || 0,
-            outputTokens: row.output_tokens || 0,
-            totalTokens: row.total_tokens || 0,
-            thoughtTokens: row.thought_tokens || 0,
-            cachedTokens: row.cached_read_tokens || 0,
-            linesAdded: 0,
-            linesDeleted: 0,
+          insertHistoricalMetric.run(
+            row.turn_id,
+            row.session_id,
+            row.project_id,
+            primaryModel,
+            row.session_mode,
+            row.input_tokens || 0,
+            row.output_tokens || 0,
+            row.total_tokens || 0,
+            row.thought_tokens || 0,
+            row.cached_read_tokens || 0,
             planDecision,
-            status: "completed",
-            createdAt: row.observed_at,
-          });
+            row.observed_at,
+          );
         }
+
+        // Commit cursor and imported metrics together so a crash cannot skip rows.
+        this.writeBackfillProgress(nextCursor);
       })();
-    } catch {
-      // ignore
+
+      cursor = nextCursor;
+      await new Promise<void>((resolve) => setImmediate(resolve));
     }
+  }
+
+  private readBackfillProgress(): { complete: boolean; sessionId: string; turnId: string } | null {
+    const row = this.database
+      .prepare("SELECT value_json FROM settings WHERE key = ?")
+      .get(this.historicalBackfillKey) as { value_json: string } | undefined;
+    if (!row) return null;
+    try {
+      const value = JSON.parse(row.value_json) as Partial<{
+        complete: boolean;
+        sessionId: string;
+        turnId: string;
+      }>;
+      if (typeof value.sessionId !== "string" || typeof value.turnId !== "string") return null;
+      return {
+        complete: value.complete === true,
+        sessionId: value.sessionId,
+        turnId: value.turnId,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private writeBackfillProgress(progress: {
+    complete: boolean;
+    sessionId: string;
+    turnId: string;
+  }): void {
+    this.database
+      .prepare(
+        `INSERT INTO settings (key, value_json, version, updated_at)
+         VALUES (?, ?, 1, ?)
+         ON CONFLICT(key) DO UPDATE SET
+           value_json = excluded.value_json,
+           version = excluded.version,
+           updated_at = excluded.updated_at`,
+      )
+      .run(this.historicalBackfillKey, JSON.stringify(progress), new Date().toISOString());
   }
 }
 

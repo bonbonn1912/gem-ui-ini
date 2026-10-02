@@ -86,7 +86,10 @@ function TextPreview({
   return (
     <section className="attachment-text-preview">
       <header>
-        <span>{text.length.toLocaleString("de-DE")} Zeichen Vorschau</span>
+        <span>
+          {text.length.toLocaleString("de-DE")} Zeichen Vorschau
+          {attachment.file?.extractionTruncated && <strong className="attachment-extraction-partial"> · Auszug gekürzt</strong>}
+        </span>
         <div className="preview-header-actions">
           {isMarkdown && (
             <button

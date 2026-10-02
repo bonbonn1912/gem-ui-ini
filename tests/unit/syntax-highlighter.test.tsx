@@ -230,6 +230,29 @@ describe("syntax-highlighter", () => {
   });
 
   describe("FileViewer integration", () => {
+    it("virtualisiert große Dateien auf sichtbare Codezeilen", async () => {
+      const mockProject = {
+        id: "p1", name: "Test", primaryRootId: "r1", rootRevision: 1,
+        roots: [], createdAt: "", updatedAt: "",
+      } as unknown as AppProject;
+      const content = Array.from({ length: 2_000 }, (_, index) => `const line${index} = ${index};`).join("\n");
+      (window as unknown as { gemUi: Record<string, unknown> }).gemUi = {
+        projectFiles: { readFile: vi.fn().mockResolvedValue({
+          projectId: "p1", rootRevision: 1, rootId: "r1", relativePath: "large.ts",
+          displayName: "large.ts", size: content.length, mimeType: "text/typescript",
+          binary: false, content, truncated: false, lineCount: 2_000, language: "typescript",
+        }) },
+      };
+
+      const { container, unmount } = render(
+        <FileViewer project={mockProject} file={{ rootId: "r1", relativePath: "large.ts", displayName: "large.ts" }} onClose={vi.fn()} />,
+      );
+      await waitFor(() => expect(container.querySelectorAll(".file-viewer-line").length).toBeGreaterThan(0));
+      expect(container.querySelectorAll(".file-viewer-line").length).toBeLessThan(100);
+      expect(screen.queryByText("line1999", { exact: false })).not.toBeInTheDocument();
+      unmount();
+    });
+
     it("renders syntax-highlighted tokens in the DOM", async () => {
       const mockProject: AppProject = {
         id: "p1",

@@ -4,7 +4,7 @@ GeminUI ist ein nativer Electron-Client für die lokal installierte Gemini CLI. 
 
 ## Voraussetzungen und Anmeldung
 
-- macOS oder Windows 10/11 (64 Bit) mit lokal installierter Gemini CLI. Google empfiehlt für die aktuelle Gemini CLI offiziell Windows 11 24H2 oder neuer; Windows 10 ist deshalb Best-Effort und wird separat getestet.
+- macOS, Linux oder Windows 10/11 (64 Bit) mit lokal installierter Gemini CLI. Google empfiehlt für die aktuelle Gemini CLI offiziell Windows 11 24H2 oder neuer; Windows 10 ist deshalb Best-Effort.
 - Installation: `npm install -g @google/gemini-cli`
 - Google-/Workspace-/Enterprise-Anmeldung: einmal `gemini` im Terminal bzw. in PowerShell starten und **Sign in with Google** wählen. GeminUI verwendet anschließend ausschließlich die von Gemini CLI lokal zwischengespeicherte Anmeldung.
 - Unternehmens-/Workspace-Konten benötigen je nach Organisation zusätzlich `GOOGLE_CLOUD_PROJECT` und die von der Administration vorgegebene Auth-Policy.
@@ -14,19 +14,7 @@ Unter Windows löst GeminUI den üblichen npm-Wrapper `gemini.cmd` auf den verif
 
 Ein Projekt besitzt genau einen Hauptordner und bis zu fünf zusätzliche Ordner an beliebigen Orten. Der Hauptordner wird Geminis `cwd`; alle weiteren Roots werden als einzelne `--include-directories`-Argumente an denselben Gemini-Prozess übergeben.
 
-## Voraussetzungen
-
-- macOS, Linux oder Windows mit einer kompatiblen Node-/Gemini-CLI-Installation
-- Gemini CLI `0.56.0` oder neuer mit `--acp`
-- eine funktionierende Gemini-CLI-Anmeldung
-
-Vor dem ersten App-Start sollte dieser Befehl im Terminal ohne Authentifizierungsfehler funktionieren:
-
-```bash
-gemini
-```
-
-Die App verwendet die vorhandene Gemini-Anmeldung und speichert selbst keine API-Schlüssel. Wenn eine Desktop-App einen anderen `PATH` als das Terminal erhält, kann die Gemini-Binary im Onboarding nativ ausgewählt werden.
+GeminUI prüft beim Start die ausgewählte Gemini-Binary und das verfügbare ACP-Startflag (`--acp` oder `--experimental-acp`). Die Projektanforderung `0.56.0 oder neuer` ist keine Zusage, dass jede CLI-Version und jede ACP-Funktion mit GeminUI getestet wurde. Für 0.60.x und 0.61.x liegt mit v0.16.0 keine vollständige reale Kompatibilitätsmatrix vor.
 
 ## Entwicklung
 
@@ -99,14 +87,21 @@ Release behält eine verlässliche App-Identität über Versionen hinweg.
 - native Projekte mit einem unveränderlichen Primary Root und bis zu fünf Additional Roots
 - Projektordner später hinzufügen oder entfernen; laufende Turns schützen die Root-Änderung
 - mehrere persistente Sessions pro Projekt
-- genau ein isolierter `gemini --acp`-Child-Prozess pro aktiver Session, maximal drei gleichzeitig
-- Session-Recovery über `session/load` und den jeweils aktuellen Root-Satz
+- isolierte Gemini-Child-Prozesse innerhalb des gewählten Ressourcenbudgets; aktive Sessions können bei Platzmangel auf einen freien Slot warten
+- Session-Recovery bevorzugt über `session/resume`, mit `session/load` als kompatiblem Fallback und dem jeweils aktuellen Root-Satz
 - live gestreamte Markdown-Antworten, Gedanken- und Toolkarten
+- ausgehandelte ACP-Konfigurationsoptionen einschließlich Modell-/Modusfeldern und booleschen Werten, soweit der Agent sie anbietet
+- ACP-Pläne, verfügbare Slash Commands sowie Formular- und URL-Rückfragen, wenn der Agent die jeweilige Funktion unterstützt
 - exakte ACP-Permission-Optionen mit Allow/Reject-Antwort
 - semantischer Abbruch über `session/cancel`, danach kontrollierter Prozess-Fallback
 - PNG, JPEG, WebP und GIF per Picker, Drop oder Paste
-- SQLite-Timeline und sequenzierter Replay nach Renderer-Reload
+- paginierte SQLite-Timeline, Textsuche in Nachrichten und sequenzierter Replay nach Renderer-Reload
+- virtuelle Timeline- und Dateiviewer-Zeilen sowie ein einstellbares Ressourcenprofil
 - keine HTTP-Ports und kein Cloud-Backend der UI
+
+Das Profil **Sparsam** hält höchstens einen Gemini-Prozess und gibt inaktive Sessions unmittelbar frei. **Ausgewogen** erlaubt zwei Prozesse und gibt inaktive Sessions nach 90 Sekunden frei. **Leistung** erlaubt drei Prozesse mit 180 Sekunden Leerlaufzeit. Ausgelagerte Anhangstextextraktion verwendet einen eigenen Utility-Prozess, der nach Leerlauf endet.
+
+Die vollständige Umsetzungszuordnung und offene Grenzen stehen in [docs/v0.16.0-implementation.md](./docs/v0.16.0-implementation.md). Dort sind auch die unverifizierten CLI-/Plattformannahmen genannt.
 
 ## Sicherheitsmodell
 

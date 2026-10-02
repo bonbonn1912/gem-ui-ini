@@ -51,6 +51,9 @@ type FileSnapshot = {
 };
 
 const SNAPSHOT_TTL_MS = 5 * 60_000;
+const DISCOVERY_TTL_MS = 10_000;
+const MAX_FILE_SNAPSHOTS = 20_000;
+const FILE_SNAPSHOT_CONCURRENCY = 8;
 
 export class GitService {
   readonly #projects: ProjectService;
@@ -58,6 +61,8 @@ export class GitService {
   readonly #repositoryIds = new Map<string, string>();
   readonly #fileSnapshots = new Map<string, FileSnapshot>();
   readonly #fileSnapshotIds = new Map<string, string>();
+  readonly #statusScans = new Map<string, { promise: Promise<GitProjectStatus>; rerun: boolean }>();
+  readonly #discoveries = new Map<string, { at: number; value: DiscoveredRepositoryContext[] }>();
 
   constructor(
     projects: ProjectService,
@@ -80,17 +85,62 @@ export class GitService {
     input: GetGitProjectStatusInput,
     signal?: AbortSignal,
   ): Promise<GitProjectStatus> {
+    const key = `${input.projectId}:${input.expectedRootRevision}:${this.#capabilities.gitBinaryPath ?? ""}`;
+    // Validate even cache hits: a project root change must invalidate an old
+    // snapshot immediately, not after its short burst-coalescing window.
+    const access = await this.#projects.getCurrentAccess(input.projectId);
+    assertRootRevision(access, input.expectedRootRevision);
+    if (signal?.aborted) throw abortError();
+    const existing = this.#statusScans.get(key);
+    if (existing) {
+      existing.rerun = true;
+      return waitForAbort(existing.promise, signal);
+    }
+    const state = { promise: Promise.resolve(null as unknown as GitProjectStatus), rerun: false };
+    state.promise = (async () => {
+      let result: GitProjectStatus;
+      let followupConsumed = false;
+      for (;;) {
+        state.rerun = false;
+        // A shared scan belongs to the service, not to whichever subscriber
+        // happened to request it first. One caller's AbortSignal must not
+        // cancel work awaited by every other caller.
+        result = await this.#scanProjectStatus(input);
+        if (followupConsumed || !state.rerun) break;
+        followupConsumed = true;
+      }
+      return result;
+    })().finally(() => {
+      if (this.#statusScans.get(key) === state) this.#statusScans.delete(key);
+    });
+    this.#statusScans.set(key, state);
+    return waitForAbort(state.promise, signal);
+  }
+
+  async #scanProjectStatus(
+    input: GetGitProjectStatusInput,
+    signal?: AbortSignal,
+  ): Promise<GitProjectStatus> {
     this.#pruneSnapshots();
     const access = await this.#projects.getCurrentAccess(input.projectId);
     assertRootRevision(access, input.expectedRootRevision);
     const binaryPath = this.#capabilities.gitBinaryPath;
     if (!binaryPath) return this.#unavailableStatus(access);
 
-    const contexts = await discoverProjectRepositories({
-      access,
-      binaryPath,
-      signal,
-    });
+    const discoveryKey = `${access.projectId}:${access.rootRevision}:${binaryPath}`;
+    const cachedDiscovery = this.#discoveries.get(discoveryKey);
+    let contexts: DiscoveredRepositoryContext[];
+    if (cachedDiscovery && Date.now() - cachedDiscovery.at < DISCOVERY_TTL_MS) {
+      contexts = cachedDiscovery.value;
+      this.#discoveries.delete(discoveryKey);
+      this.#discoveries.set(discoveryKey, cachedDiscovery);
+    } else {
+      contexts = await discoverProjectRepositories({ access, binaryPath, signal });
+      this.#discoveries.set(discoveryKey, { at: Date.now(), value: contexts });
+      while (this.#discoveries.size > 32) {
+        this.#discoveries.delete(this.#discoveries.keys().next().value!);
+      }
+    }
     const repositories: GitRepositorySummary[] = [];
     const changes: GitFileChange[] = [];
 
@@ -160,7 +210,7 @@ export class GitService {
         state: "ready",
         message: null,
       });
-      const repositoryChanges = await Promise.all(parsed.entries.map(async (entry) => {
+      const repositoryChanges = await mapWithConcurrency(parsed.entries, FILE_SNAPSHOT_CONCURRENCY, async (entry) => {
         const fileId = await this.#fileIdForSnapshot(
           access,
           repositoryId,
@@ -179,7 +229,7 @@ export class GitService {
           submodule: entry.submodule,
           renameScore: entry.renameScore,
         } satisfies GitFileChange;
-      }));
+      });
       changes.push(...repositoryChanges);
     }
 
@@ -551,7 +601,7 @@ export class GitService {
   #pruneSnapshots(): void {
     const cutoff = Date.now() - SNAPSHOT_TTL_MS;
     for (const [fileId, snapshot] of this.#fileSnapshots) {
-      if (snapshot.createdAt < cutoff) {
+      if (snapshot.createdAt < cutoff || this.#fileSnapshots.size > MAX_FILE_SNAPSHOTS) {
         this.#fileSnapshots.delete(fileId);
         if (this.#fileSnapshotIds.get(snapshot.key) === fileId) {
           this.#fileSnapshotIds.delete(snapshot.key);
@@ -561,10 +611,45 @@ export class GitService {
   }
 }
 
+async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  mapper: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+    while (next < values.length) {
+      const index = next++;
+      results[index] = await mapper(values[index]!);
+    }
+  }));
+  return results;
+}
+
 function assertRootRevision(access: ProjectAccess, expected: number): void {
   if (access.rootRevision !== expected) {
     throw new Error("Die Projektordner wurden geändert. Lade die Änderungen für die aktuelle Root-Liste neu.");
   }
+}
+
+function abortError(): Error {
+  const error = new Error("The operation was aborted.");
+  error.name = "AbortError";
+  return error;
+}
+
+function waitForAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(abortError());
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(abortError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => { signal.removeEventListener("abort", onAbort); resolve(value); },
+      (error: unknown) => { signal.removeEventListener("abort", onAbort); reject(error); },
+    );
+  });
 }
 
 function assertAreaAvailable(entry: ParsedGitStatusEntry, area: GitArea): void {

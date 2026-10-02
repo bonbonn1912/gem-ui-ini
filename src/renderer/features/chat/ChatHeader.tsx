@@ -1,3 +1,4 @@
+import { GEMINI_COMPATIBILITY_MODELS, geminiModelLabel } from "../../../shared/gemini-models";
 import { useMemo, useRef, useState } from "react";
 import { Icon } from "../../components/Icon";
 import { useDismissOnOutsideClick } from "../../hooks/useDismissOnOutsideClick";
@@ -18,7 +19,43 @@ type ChatHeaderProps = {
   onEditProject: () => void;
   onSetMode: (mode: string) => void;
   onSetModel: (model: string) => void;
+  onSetConfigOption: (configId: string, value: string | boolean) => void;
 };
+
+type ConfigOptionView = { id: string; name: string; description?: string | null; category?: string | null } & (
+  | { type: "boolean"; currentValue: boolean; options: [] }
+  | { type: "select"; currentValue: string; options: Array<{ value: string; name: string; description?: string | null }> }
+);
+
+function configOptionViews(values: unknown[]): ConfigOptionView[] {
+  const result: ConfigOptionView[] = [];
+  for (const value of values) {
+    if (!value || typeof value !== "object") continue;
+    const option = value as Record<string, unknown>;
+    if (typeof option.id !== "string" || typeof option.name !== "string") continue;
+    if (option.type === "boolean" && typeof option.currentValue === "boolean") {
+      result.push({ id: option.id, name: option.name, description: typeof option.description === "string" ? option.description : null, category: typeof option.category === "string" ? option.category : null, type: "boolean", currentValue: option.currentValue, options: [] });
+      continue;
+    }
+    if (option.type !== "select" || typeof option.currentValue !== "string" || !Array.isArray(option.options)) continue;
+    const options = option.options.flatMap((entry) => {
+      if (!entry || typeof entry !== "object") return [];
+      const item = entry as Record<string, unknown>;
+      if (Array.isArray(item.options)) return item.options.flatMap((nested) => {
+        if (!nested || typeof nested !== "object") return [];
+        const nestedOption = nested as Record<string, unknown>;
+        return typeof nestedOption.value === "string" && typeof nestedOption.name === "string"
+          ? [{ value: nestedOption.value, name: nestedOption.name, description: typeof nestedOption.description === "string" ? nestedOption.description : null }]
+          : [];
+      });
+      return typeof item.value === "string" && typeof item.name === "string"
+        ? [{ value: item.value, name: item.name, description: typeof item.description === "string" ? item.description : null }]
+        : [];
+    });
+    result.push({ id: option.id, name: option.name, description: typeof option.description === "string" ? option.description : null, category: typeof option.category === "string" ? option.category : null, type: "select", currentValue: option.currentValue, options });
+  }
+  return result;
+}
 
 function optionLabel(id: string): string {
   if (id.toLowerCase() === "yolo") return "Developer";
@@ -253,15 +290,6 @@ function usagePresentation(chat: ChatState, working: boolean): UsagePresentation
     ...(percent !== undefined ? { percent } : {}),
   };
 }
-
-const FALLBACK_MODELS: readonly SessionMode[] = [
-  { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro" },
-  { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
-  { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash" },
-  { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro" },
-  { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash" },
-  { id: "auto", name: "Auto" },
-];
 
 const FALLBACK_MODES: readonly SessionMode[] = [
   { id: "auto", name: "Auto" },
@@ -582,6 +610,7 @@ export function ChatHeader({
   onEditProject,
   onSetMode,
   onSetModel,
+  onSetConfigOption,
 }: ChatHeaderProps) {
   const menuRef = useDismissOnOutsideClick<HTMLDetailsElement>();
   let modes = mergeOptions(session.availableModes, chat.modes, session.mode, optionLabel);
@@ -589,12 +618,17 @@ export function ChatHeader({
     modes = mergeOptions([...modes, ...FALLBACK_MODES], [], session.mode, optionLabel);
   }
 
-  let models = mergeOptions(session.availableModels, chat.models, session.model, (id) => id);
-  if (models.length <= 1) {
-    models = mergeOptions([...models, ...FALLBACK_MODELS], [], session.model, (id) => id);
-  }
-
+  const allConfigOptions = configOptionViews(chat.configOptions);
+  const modelConfig = allConfigOptions.find((option) => option.type === "select" && (option.category === "model" || option.id === "model"));
+  const configModels = modelConfig?.type === "select"
+    ? modelConfig.options.map((option) => ({ id: option.value, name: option.name, description: option.description ?? undefined }))
+    : null;
+  const models = configModels
+    ? mergeOptions(configModels, [], session.model, geminiModelLabel)
+    : mergeOptions([...(session.availableModels ?? []), ...GEMINI_COMPATIBILITY_MODELS], chat.models, session.model, geminiModelLabel);
+  const canSetModel = modelsSupported || !!modelConfig || chat.models.length > 0 || (session.availableModels?.length ?? 0) > 0;
   const working = ["running", "awaiting_permission", "cancelling"].includes(chat.phase);
+  const configOptions = allConfigOptions.filter((option) => option.category !== "mode" && option.category !== "model" && option.id !== "model");
   const usage = usagePresentation(chat, working);
   const activeModeObj = modes.find((mode) => mode.id === session.mode);
   const activeModeName = activeModeObj
@@ -645,12 +679,13 @@ export function ChatHeader({
           <div className="session-settings-popover">
             <div className="session-settings-row">
               <span className="session-settings-label">Modell</span>
-              {modelsSupported ? (
+              {canSetModel ? (
                 <label className="model-select">
                   <span className="sr-only">Gemini-Modell</span>
                   <select
                     value={session.model ?? models[0]?.id ?? ""}
                     onChange={(event) => onSetModel(event.target.value)}
+                    disabled={working}
                     aria-label="Gemini-Modell"
                   >
                     {!session.model && <option value="" disabled>Modell wählen</option>}
@@ -669,6 +704,23 @@ export function ChatHeader({
                 </span>
               )}
             </div>
+
+            {configOptions.map((option) => (
+              <div className="session-settings-row" key={option.id}>
+                <span className="session-settings-label" title={option.description ?? undefined}>{option.name}</span>
+                {option.type === "boolean" ? (
+                  <input type="checkbox" aria-label={option.name} checked={option.currentValue === true} disabled={working} onChange={(event) => onSetConfigOption(option.id, event.target.checked)} />
+                ) : (
+                  <label className="model-select">
+                    <span className="sr-only">{option.name}</span>
+                    <select aria-label={option.name} value={option.currentValue} disabled={working || option.options.length === 0} onChange={(event) => onSetConfigOption(option.id, event.target.value)}>
+                      {option.options.map((value) => <option key={value.value} value={value.value} title={value.description ?? undefined}>{value.name}</option>)}
+                    </select>
+                    <Icon name="chevron-down" size={13} />
+                  </label>
+                )}
+              </div>
+            ))}
 
             <div className="session-settings-row">
               <div className="session-settings-label-with-info">

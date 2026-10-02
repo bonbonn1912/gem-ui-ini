@@ -8,8 +8,13 @@ import type {
   GeminiCliFeatures,
 } from "./types.js";
 
+const PROBE_CACHE_TTL_MS = 5 * 60_000;
+const PROBE_CACHE_MAX = 24;
+const probeCache = new Map<string, { expiresAt: number; result: GeminiBinaryProbeResult }>();
+
 export interface GeminiBinaryProbeInput {
   readonly candidate?: string;
+  readonly force?: boolean;
   readonly environment?: NodeJS.ProcessEnv;
   readonly timeoutMs?: number;
   readonly platform?: NodeJS.Platform;
@@ -36,12 +41,28 @@ export async function probeGeminiBinary(
 
   try {
     const launch = await resolveGeminiLaunch(binaryPath, environment, platform);
-    const versionResult = await runCapturedCommand({
-      binaryPath: launch.executablePath,
-      args: [...launch.executableArgs, "--version"],
-      environment,
-      timeoutMs: input.timeoutMs,
-    });
+    const cacheKey = await getCacheKey(binaryPath, launch, platform);
+    const cached = probeCache.get(cacheKey);
+    if (!input.force && cached && cached.expiresAt > Date.now()) {
+      probeCache.delete(cacheKey);
+      probeCache.set(cacheKey, cached);
+      return cached.result;
+    }
+
+    const [versionResult, helpResult] = await Promise.all([
+      runCapturedCommand({
+        binaryPath: launch.executablePath,
+        args: [...launch.executableArgs, "--version"],
+        environment,
+        timeoutMs: input.timeoutMs,
+      }),
+      runCapturedCommand({
+        binaryPath: launch.executablePath,
+        args: [...launch.executableArgs, "--help"],
+        environment,
+        timeoutMs: input.timeoutMs,
+      }),
+    ]);
     if (versionResult.timedOut || versionResult.exitCode !== 0) {
       return failedProbe(
         candidate,
@@ -55,12 +76,6 @@ export async function probeGeminiBinary(
       return failedProbe(candidate, `Could not parse Gemini CLI version from: ${rawVersion}`);
     }
 
-    const helpResult = await runCapturedCommand({
-      binaryPath: launch.executablePath,
-      args: [...launch.executableArgs, "--help"],
-      environment,
-      timeoutMs: input.timeoutMs,
-    });
     if (helpResult.timedOut || helpResult.exitCode !== 0) {
       return failedProbe(
         candidate,
@@ -70,16 +85,18 @@ export async function probeGeminiBinary(
 
     const help = `${helpResult.stdout}\n${helpResult.stderr}`;
     const features = detectGeminiCliFeatures(help);
-    if (!features.acp) {
+    if (!features.acp || !features.skipTrust) {
       return {
         ok: false,
         candidate,
         code: "acp_unsupported",
-        message: `Gemini CLI ${version} does not advertise the required --acp flag`,
+        message: !features.acp
+          ? `Gemini CLI ${version} does not advertise the required ACP flag`
+          : `Gemini CLI ${version} does not advertise the required --skip-trust flag`,
       };
     }
 
-    return {
+    const result: GeminiBinaryProbeResult = {
       ok: true,
       binaryPath,
       executablePath: launch.executablePath,
@@ -88,6 +105,8 @@ export async function probeGeminiBinary(
       rawVersion,
       features,
     };
+    cacheProbe(cacheKey, result);
+    return result;
   } catch (error) {
     return failedProbe(
       candidate,
@@ -104,14 +123,49 @@ export function detectGeminiCliFeatures(help: string): GeminiCliFeatures {
   const hasFlag = (flag: string): boolean =>
     new RegExp(`(^|[\\s,])${escapeRegExp(flag)}(?=[=\\s,]|$)`, "m").test(help);
 
+  const acpFlag = hasFlag("--acp")
+    ? "--acp"
+    : hasFlag("--experimental-acp")
+      ? "--experimental-acp"
+      : null;
   return {
-    acp: hasFlag("--acp") || hasFlag("--experimental-acp"),
+    acp: acpFlag !== null,
+    acpFlag,
+    skipTrust: hasFlag("--skip-trust"),
     includeDirectories: hasFlag("--include-directories"),
     resume: hasFlag("--resume"),
     listSessions: hasFlag("--list-sessions"),
     deleteSession: hasFlag("--delete-session"),
     approvalMode: hasFlag("--approval-mode"),
   };
+}
+
+function cacheProbe(key: string, result: GeminiBinaryProbeResult): void {
+  probeCache.delete(key);
+  probeCache.set(key, { result, expiresAt: Date.now() + PROBE_CACHE_TTL_MS });
+  while (probeCache.size > PROBE_CACHE_MAX) {
+    const oldest = probeCache.keys().next().value as string | undefined;
+    if (!oldest) break;
+    probeCache.delete(oldest);
+  }
+}
+
+async function getCacheKey(
+  binaryPath: string,
+  launch: GeminiLaunchCommand,
+  platform: NodeJS.Platform,
+): Promise<string> {
+  const paths = [binaryPath, launch.executablePath, ...launch.executableArgs];
+  const facts = await Promise.all(paths.map(async (file) => {
+    try {
+      const resolved = await realpath(file);
+      const details = await stat(resolved);
+      return `${resolved}:${details.size}:${details.mtimeMs}`;
+    } catch {
+      return file;
+    }
+  }));
+  return `${platform}|${facts.join("|")}`;
 }
 
 export async function resolveExecutable(
@@ -155,6 +209,7 @@ export async function resolveExecutable(
 export interface GeminiLaunchCommand {
   readonly executablePath: string;
   readonly executableArgs: readonly string[];
+  readonly acpFlag?: "--acp" | "--experimental-acp";
 }
 
 /**

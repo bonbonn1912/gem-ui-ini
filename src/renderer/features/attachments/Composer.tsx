@@ -43,6 +43,7 @@ type ComposerProps = {
   pendingProjectFileRefs?: ProjectFileSearchEntry[] | null;
   externalContexts?: PreparedExternalContext[];
   sessionMode?: string | null;
+  commands?: Array<{ name: string; description?: string | null }>;
   hasPendingPlan?: boolean;
   onDraftApplied?: () => void;
   onProjectFileRefsApplied?: () => void;
@@ -125,6 +126,7 @@ export function Composer({
   pendingProjectFileRefs = null,
   externalContexts = [],
   sessionMode = null,
+  commands = [],
   hasPendingPlan = true,
   onDraftApplied,
   onProjectFileRefsApplied,
@@ -167,6 +169,8 @@ export function Composer({
   const mention = activeFileMention(text, caretPosition);
   const mentionKey = mention ? `${mention.start}:${mention.end}:${mention.query}` : null;
   const fileMenuOpen = Boolean(mention && mentionKey !== dismissedMention && !disabled);
+  const commandQuery = /^\/([^\s]*)$/.exec(text.trim());
+  const commandSuggestions = commandQuery ? commands.filter((command) => command.name.toLowerCase().startsWith(commandQuery[1]!.toLowerCase())).slice(0, 8) : [];
   /** Gesetzt, sobald die Erwähnung einen Ordner adressiert ("src/…"). */
   const scope = mention ? directoryScope(mention.query) : null;
 
@@ -540,6 +544,13 @@ export function Composer({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (commandSuggestions.length && (event.key === "Tab" || event.key === "ArrowDown")) {
+      event.preventDefault();
+      const command = commandSuggestions[0]!;
+      setText(`/${command.name} `);
+      requestAnimationFrame(() => textareaRef.current?.setSelectionRange(command.name.length + 2, command.name.length + 2));
+      return;
+    }
     if (fileMenuOpen) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
@@ -844,6 +855,22 @@ export function Composer({
             aria-activedescendant={fileMenuOpen && activeSuggestion >= 0 ? `${PROJECT_FILE_MENU_ID}-${activeSuggestion}` : undefined}
             disabled={disabled}
           />
+          {commandSuggestions.length > 0 && !fileMenuOpen && (
+            <div className="composer-command-suggestions" role="listbox" aria-label="Agent-Befehle">
+              {commandSuggestions.map((command) => (
+                <button key={command.name} type="button" role="option" onMouseDown={(event) => event.preventDefault()} onClick={() => {
+                  const next = `/${command.name} `;
+                  setText(next);
+                  requestAnimationFrame(() => {
+                    textareaRef.current?.focus();
+                    textareaRef.current?.setSelectionRange(next.length, next.length);
+                  });
+                }}>
+                  <strong>/{command.name}</strong>{command.description && <span>{command.description}</span>}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="composer-toolbar">
             <div className="composer-tools">
               <button

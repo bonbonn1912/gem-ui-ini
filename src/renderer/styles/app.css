@@ -1480,6 +1480,103 @@ button:disabled, .primary-button:disabled, .secondary-button:disabled { cursor: 
   }
 }
 
+/* Low resource profile: retain the same layout and contrast while removing
+   expensive translucent layers and decorative motion on integrated GPUs. */
+html[data-resource-profile="economy"] *,
+html[data-resource-profile="economy"] *::before,
+html[data-resource-profile="economy"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+html[data-resource-profile="economy"] .panel-rail,
+html[data-resource-profile="economy"] .modal,
+html[data-resource-profile="economy"] .popover,
+html[data-resource-profile="economy"] .assistant-mark-popover,
+html[data-resource-profile="economy"] .composer,
+html[data-resource-profile="economy"] .tool-run {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+.agent-plan-card {
+  padding: 14px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface-raised);
+}
+
+.agent-plan-card header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.agent-plan-card pre {
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.runtime-capability-banner {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 14px;
+  color: var(--text-secondary);
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 12px;
+}
+
+.runtime-capability-banner span { flex: 1; }
+.runtime-capability-banner button { color: var(--accent); background: transparent; border: 0; cursor: pointer; }
+
+.composer-command-suggestions {
+  position: absolute;
+  z-index: 30;
+  bottom: calc(100% + 8px);
+  left: 0;
+  display: grid;
+  min-width: min(360px, 90vw);
+  max-height: 260px;
+  overflow: auto;
+  padding: 5px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  box-shadow: 0 12px 36px rgb(0 0 0 / 20%);
+}
+
+.composer-command-suggestions button {
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  color: var(--text-primary);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.composer-command-suggestions button:hover { background: var(--surface-hover); }
+.composer-command-suggestions span { color: var(--text-secondary); font-size: 11px; }
+.timeline-history-loading { position: sticky; top: 4px; z-index: 2; width: fit-content; margin: 4px auto; padding: 5px 10px; color: var(--text-secondary); border: 1px solid var(--border-subtle); border-radius: 999px; background: var(--surface-raised); font-size: 11px; }
+.event-persistence-banner { padding: 7px 12px; border-bottom: 1px solid var(--border-subtle); color: var(--danger); background: var(--surface-raised); font-size: 12px; overflow-wrap: anywhere; }
+.tool-payload-disclosure { margin-top: 10px; border-top: 1px solid var(--border-subtle); padding-top: 7px; }
+.tool-payload-disclosure > summary { cursor: pointer; color: var(--text-secondary); font-size: 11px; }
+.event-payload { max-width: 100%; overflow: auto; }
+.event-payload__json, .event-payload__text { max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.5 var(--font-mono); }
+.event-payload__image { display: block; max-width: min(100%, 720px); max-height: 480px; object-fit: contain; }
+.event-payload__blocks { display: grid; gap: 8px; list-style: none; padding: 0; margin: 8px 0; }
+.event-payload__error { color: var(--danger); font-size: 12px; }
+.event-payload__loading { color: var(--text-secondary); font-size: 11px; }
+
 
 /* ==========================================================================
    Skills- und MCP-Panel
@@ -4587,10 +4684,18 @@ button:disabled, .primary-button:disabled, .secondary-button:disabled { cursor: 
 
 .file-viewer-code-wrapper {
   min-height: 100%;
+  height: 100%;
+  overflow: auto;
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 20px;
   outline: none;
+}
+
+.file-viewer-code-wrapper--virtual .file-viewer-line {
+  height: 20px;
+  min-height: 20px;
+  overflow: hidden;
 }
 
 .file-viewer-code-wrapper--wrap .file-viewer-line-content code {
@@ -5356,6 +5461,3 @@ button:disabled, .primary-button:disabled, .secondary-button:disabled { cursor: 
 :root[data-platform="win32"] .stats-view-header {
   padding-right: 98px;
 }
-
-
-

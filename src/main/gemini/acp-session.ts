@@ -1,13 +1,18 @@
+import { isGeminiCompatibilityModel, geminiModelLabel } from "../../shared/gemini-models";
 import { Readable, Writable } from "node:stream";
 
 import * as acp from "@agentclientprotocol/sdk";
+import appPackage from "../../../package.json" with { type: "json" };
 import type {
   ClientConnection,
   ContentBlock,
   InitializeResponse,
   PromptResponse,
   SessionNotification,
+  SessionConfigOption,
+  ListSessionsResponse,
 } from "@agentclientprotocol/sdk";
+import { ElicitationBroker } from "./elicitation-broker.js";
 
 import {
   NdjsonLineGuard,
@@ -17,6 +22,7 @@ import {
 } from "../processes/index.js";
 import {
   normalizeCapabilities,
+  normalizeConfigOptions,
   normalizeLegacyModels,
   normalizeModes,
   normalizeModels,
@@ -40,13 +46,22 @@ import type {
   PromptPart,
   SessionModeSnapshot,
   SessionModelSnapshot,
+  SessionConfigSnapshot,
 } from "./types.js";
+
+const APP_VERSION = appPackage.version;
 
 /**
  * Pre-configOptions model API, still spoken by Gemini CLI. The SDK no longer
  * types either side of it, so the payloads are read and written structurally.
  */
 const LEGACY_SET_MODEL_METHOD = "session/set_model";
+
+function selectOptionValues(options: Extract<SessionConfigOption, { type: "select" }>["options"]): string[] {
+  return (options as ReadonlyArray<{ value?: string; options?: readonly { value: string }[] }>).flatMap((option) =>
+    option.options ? option.options.map((nested) => nested.value) : option.value ? [option.value] : [],
+  );
+}
 
 function readLegacyModels(response: unknown): SessionModelSnapshot | undefined {
   if (typeof response !== "object" || response === null) return undefined;
@@ -61,6 +76,7 @@ export interface GeminiAcpSessionInput {
   readonly appSessionId: string;
   readonly binaryPath: string;
   readonly binaryArgs?: readonly string[];
+  readonly acpFlag?: "--acp" | "--experimental-acp";
   readonly access: ProjectAccess;
   readonly environment?: NodeJS.ProcessEnv;
   readonly onEvent?: AgentEventListener;
@@ -70,6 +86,7 @@ export interface GeminiAcpSessionInput {
   readonly cancelTimeoutMs?: number;
   readonly maxStderrBytes?: number;
   readonly maxProtocolLineBytes?: number;
+  readonly signal?: AbortSignal;
 }
 
 export interface LoadGeminiAcpSessionInput extends GeminiAcpSessionInput {
@@ -86,6 +103,7 @@ export class GeminiAcpSession {
   private readonly onEvent?: AgentEventListener;
   private readonly process: GeminiProcessHandle;
   private readonly permissionBroker: PermissionBroker;
+  private readonly elicitationBroker: ElicitationBroker;
   private readonly initializeTimeoutMs: number;
   private readonly requestTimeoutMs: number;
   private readonly cancelTimeoutMs: number;
@@ -95,6 +113,8 @@ export class GeminiAcpSession {
   private capabilitiesValue!: NormalizedAcpCapabilities;
   private modesValue?: SessionModeSnapshot;
   private modelsValue?: SessionModelSnapshot;
+  private configValue?: SessionConfigSnapshot;
+  private suppressReplay = false;
   private providerSessionIdValue: string | null;
   private stateValue: SessionState = "idle";
   private activeTurn?: Promise<GeminiTurnResult>;
@@ -103,6 +123,8 @@ export class GeminiAcpSession {
   private disconnectedEmitted = false;
   private initializationComplete = false;
   private unsubscribeStderr?: () => void;
+  private readonly signal?: AbortSignal;
+  private readonly abortHandler = () => { void this.dispose(); };
 
   private constructor(
     input: GeminiAcpSessionInput,
@@ -111,20 +133,22 @@ export class GeminiAcpSession {
     this.appSessionId = input.appSessionId;
     this.access = input.access;
     this.onEvent = input.onEvent;
+    this.signal = input.signal;
     this.providerSessionIdValue = providerSessionId;
     this.initializeTimeoutMs = input.initializeTimeoutMs ?? 10_000;
     this.requestTimeoutMs = input.requestTimeoutMs ?? 30_000;
     this.cancelTimeoutMs = input.cancelTimeoutMs ?? 3_000;
+    this.elicitationBroker = new ElicitationBroker(input.appSessionId);
 
     const spawnProcess = input.processSpawner ?? spawnGeminiProcess;
     this.process = spawnProcess({
       binaryPath: input.binaryPath,
       binaryArgs: input.binaryArgs,
+      acpFlag: input.acpFlag,
       access: input.access,
       environment: input.environment,
       maxStderrBytes: input.maxStderrBytes,
     });
-
     this.protocolGuard = new NdjsonLineGuard(
       input.maxProtocolLineBytes ?? 32 * 1024 * 1024,
     );
@@ -153,6 +177,8 @@ export class GeminiAcpSession {
         new GeminiIntegrationError("process_crashed", diagnostic),
       );
     });
+    this.signal?.addEventListener("abort", this.abortHandler, { once: true });
+    if (this.signal?.aborted) this.abortHandler();
   }
 
   static async createNew(input: GeminiAcpSessionInput): Promise<GeminiAcpSession> {
@@ -162,6 +188,7 @@ export class GeminiAcpSession {
       const response = await session.withRequestTimeout(
         session.agent.request(acp.methods.agent.session.new, {
           cwd: input.access.primaryRoot,
+          additionalDirectories: [...input.access.additionalRoots],
           mcpServers: [],
           // Gemini receives multi-root access through repeated CLI flags. Its ACP
           // implementation does not currently advertise/use additionalDirectories.
@@ -169,9 +196,10 @@ export class GeminiAcpSession {
         "session/new",
       );
       session.providerSessionIdValue = response.sessionId;
-      session.modesValue = normalizeModes(response.modes);
+      session.modesValue = normalizeModes(response.modes, response.configOptions);
       session.modelsValue =
         normalizeModels(response.configOptions) ?? readLegacyModels(response);
+      session.configValue = normalizeConfigOptions(response.configOptions);
       return session;
     } catch (error) {
       await session.dispose();
@@ -181,6 +209,7 @@ export class GeminiAcpSession {
 
   static async load(input: LoadGeminiAcpSessionInput): Promise<GeminiAcpSession> {
     const session = new GeminiAcpSession(input, input.providerSessionId);
+    session.suppressReplay = true;
     try {
       await session.connectAndInitialize();
       if (!session.capabilities.loadSession) {
@@ -192,14 +221,53 @@ export class GeminiAcpSession {
       const response = await session.withRequestTimeout(
         session.agent.request(acp.methods.agent.session.load, {
           cwd: input.access.primaryRoot,
+          additionalDirectories: [...input.access.additionalRoots],
           mcpServers: [],
           sessionId: input.providerSessionId,
         }),
         "session/load",
       );
-      session.modesValue = normalizeModes(response?.modes);
+      session.modesValue = normalizeModes(response?.modes, response?.configOptions);
       session.modelsValue =
         normalizeModels(response?.configOptions) ?? readLegacyModels(response);
+      session.configValue = normalizeConfigOptions(response?.configOptions);
+      return session;
+    } catch (error) {
+      await session.dispose();
+      throw session.startupError(error);
+    }
+  }
+
+  static async resume(input: LoadGeminiAcpSessionInput): Promise<GeminiAcpSession> {
+    const session = new GeminiAcpSession(input, input.providerSessionId);
+    try {
+      await session.connectAndInitialize();
+      // Older ACP agents only expose session/load. Both restore the provider
+      // context; load may replay notifications, which must never be persisted
+      // as a second copy of the conversation.
+      session.suppressReplay = true;
+      const response = session.capabilities.session.resume
+        ? await session.withRequestTimeout(
+            session.agent.request(acp.methods.agent.session.resume, {
+              cwd: input.access.primaryRoot,
+              additionalDirectories: [...input.access.additionalRoots],
+              mcpServers: [],
+              sessionId: input.providerSessionId,
+            }),
+            "session/resume",
+          )
+        : await session.withRequestTimeout(
+            session.agent.request(acp.methods.agent.session.load, {
+              cwd: input.access.primaryRoot,
+              additionalDirectories: [...input.access.additionalRoots],
+              mcpServers: [],
+              sessionId: input.providerSessionId,
+            }),
+            "session/load",
+          );
+      session.modesValue = normalizeModes(response?.modes, response?.configOptions);
+      session.modelsValue = normalizeModels(response?.configOptions) ?? readLegacyModels(response);
+      session.configValue = normalizeConfigOptions(response?.configOptions);
       return session;
     } catch (error) {
       await session.dispose();
@@ -237,6 +305,8 @@ export class GeminiAcpSession {
       capabilities: this.capabilities,
       ...(this.modesValue ? { modes: this.modesValue } : {}),
       ...(this.modelsValue ? { models: this.modelsValue } : {}),
+      ...(this.configValue ? { config: this.configValue } : {}),
+      pendingElicitationCount: this.elicitationBroker.size,
       pendingPermissionCount: this.permissionBroker.size,
       stderr: this.process.stderrSnippet(),
     };
@@ -254,6 +324,9 @@ export class GeminiAcpSession {
     const prompt = this.toAcpPrompt(parts);
     this.stateValue = "running";
     const turn = this.runPrompt(prompt);
+    // session/load can replay its transcript after the response. Keep ignoring
+    // provider notifications until the user's next prompt starts.
+    this.suppressReplay = false;
     this.activeTurn = turn;
     try {
       return await turn;
@@ -293,6 +366,39 @@ export class GeminiAcpSession {
     this.permissionBroker.resolve(permissionId, optionId);
   }
 
+  listElicitations() {
+    return this.elicitationBroker.list();
+  }
+
+  respondToElicitation(input: import("../../shared/contracts/elicitation").RespondToElicitationInput): void {
+    this.elicitationBroker.respond(input);
+  }
+
+  async listProviderSessions(input: { cwd?: string; cursor?: string }): Promise<ListSessionsResponse> {
+    this.assertUsable();
+    if (!this.capabilitiesValue.session.list) {
+      throw new GeminiIntegrationError("capability_unsupported", "The installed Gemini CLI does not advertise ACP session/list");
+    }
+    return this.withRequestTimeout(
+      this.agent.request(acp.methods.agent.session.list, {
+        ...(input.cwd ? { cwd: input.cwd } : {}),
+        ...(input.cursor ? { cursor: input.cursor } : {}),
+      }),
+      "session/list",
+    );
+  }
+
+  async deleteProviderSession(providerSessionId: string): Promise<void> {
+    this.assertUsable();
+    if (!this.capabilitiesValue.session.delete) {
+      throw new GeminiIntegrationError("capability_unsupported", "The installed Gemini CLI does not advertise ACP session/delete");
+    }
+    await this.withRequestTimeout(
+      this.agent.request(acp.methods.agent.session.delete, { sessionId: providerSessionId }),
+      "session/delete",
+    );
+  }
+
   async setMode(modeId: string): Promise<void> {
     this.assertUsable();
     const modes = this.modesValue;
@@ -319,7 +425,7 @@ export class GeminiAcpSession {
   async setModel(modelId: string): Promise<void> {
     this.assertUsable();
     const models = this.modelsValue;
-    if (!models || !models.availableModels.some((model) => model.id === modelId)) {
+    if (!models || (!models.availableModels.some((model) => model.id === modelId) && !(models.transport === "legacy_models" && isGeminiCompatibilityModel(modelId)))) {
       throw new GeminiIntegrationError(
         "capability_unsupported",
         `Gemini did not advertise session model ${modelId}`,
@@ -337,7 +443,12 @@ export class GeminiAcpSession {
       // The legacy API answers with an empty object and sends no follow-up
       // notification, so a successful response is the only confirmation there
       // is. Record the choice locally instead of waiting for an echo.
-      this.modelsValue = { ...models, currentModelId: modelId };
+      this.modelsValue = {
+        ...models,
+        currentModelId: modelId,
+        availableModels: models.availableModels.some((model) => model.id === modelId)
+          ? models.availableModels : [...models.availableModels, { id: modelId, name: geminiModelLabel(modelId) }],
+      };
       return;
     }
 
@@ -357,6 +468,35 @@ export class GeminiAcpSession {
       );
     }
     this.modelsValue = nextModels;
+    this.configValue = normalizeConfigOptions(response.configOptions);
+    this.modesValue = normalizeModes(undefined, response.configOptions) ?? this.modesValue;
+    this.emit("config.updated", { configOptions: response.configOptions });
+  }
+
+  async setConfigOption(configId: string, value: string | boolean): Promise<void> {
+    this.assertUsable();
+    const current = this.configValue?.options.find((option) => option.id === configId);
+    if (!current) throw new GeminiIntegrationError("capability_unsupported", `Gemini did not advertise config option ${configId}`);
+    if (current.type === "boolean" && typeof value !== "boolean") {
+      throw new GeminiIntegrationError("invalid_permission_response", `Config option ${configId} requires a boolean value`);
+    }
+    if (current.type === "select" && (typeof value !== "string" || !selectOptionValues(current.options).includes(value))) {
+      throw new GeminiIntegrationError("invalid_permission_response", `Gemini did not advertise value for config option ${configId}`);
+    }
+    const response = await this.withRequestTimeout(
+      this.agent.request(acp.methods.agent.session.setConfigOption, {
+        sessionId: this.providerSessionId,
+        configId,
+        ...(typeof value === "boolean" ? { type: "boolean" as const, value } : { value }),
+      }),
+      "session/set_config_option",
+    );
+    this.configValue = normalizeConfigOptions(response.configOptions);
+    if (this.configValue) {
+      this.modesValue = normalizeModes(undefined, this.configValue.options);
+      this.modelsValue = normalizeModels(this.configValue.options);
+      this.emit("config.updated", { configOptions: this.configValue.options });
+    }
   }
 
   async authenticate(methodId: string): Promise<void> {
@@ -395,6 +535,12 @@ export class GeminiAcpSession {
       .onRequest(acp.methods.client.session.requestPermission, ({ params }) =>
         this.handlePermissionRequest(params),
       )
+      .onRequest(acp.methods.client.elicitation.create, ({ params }) => {
+        if (!("sessionId" in params) || params.sessionId !== this.providerSessionIdValue) {
+          return Promise.resolve({ action: "decline" as const });
+        }
+        return this.elicitationBroker.request(params);
+      })
       .onNotification(acp.methods.client.session.update, ({ params }) =>
         this.handleSessionNotification(params),
       );
@@ -417,8 +563,12 @@ export class GeminiAcpSession {
       this.agent.request(acp.methods.agent.initialize, {
         protocolVersion: acp.PROTOCOL_VERSION,
         // Intentionally omit fs and terminal: Gemini uses its native multi-root workspace.
-        clientCapabilities: {},
-        clientInfo: { name: "geminui", title: "GeminUI", version: "0.1.0" },
+        clientCapabilities: {
+          session: { configOptions: { boolean: {} } },
+          plan: {},
+          elicitation: { form: {}, url: {} },
+        },
+        clientInfo: { name: "geminui", title: "GeminUI", version: APP_VERSION },
       }),
       this.initializeTimeoutMs,
       "ACP initialize",
@@ -536,6 +686,7 @@ export class GeminiAcpSession {
   }
 
   private handleSessionNotification(notification: SessionNotification): void {
+    if (this.suppressReplay) return;
     if (
       this.providerSessionIdValue &&
       notification.sessionId !== this.providerSessionIdValue
@@ -550,6 +701,8 @@ export class GeminiAcpSession {
       };
     }
     if (notification.update.sessionUpdate === "config_option_update") {
+      this.configValue = normalizeConfigOptions(notification.update.configOptions);
+      this.modesValue = normalizeModes(undefined, notification.update.configOptions) ?? this.modesValue;
       const updated = normalizeModels(notification.update.configOptions);
       // A config option update that carries no model selector says nothing
       // about the models an agent reported through the legacy API, so it must
@@ -648,6 +801,17 @@ export class GeminiAcpSession {
       await settleWithin(activeTurn, Math.min(this.cancelTimeoutMs, 500));
     }
     this.permissionBroker.dispose();
+    this.elicitationBroker.dispose();
+    this.signal?.removeEventListener("abort", this.abortHandler);
+    if (this.providerSessionIdValue && this.capabilitiesValue?.session.close) {
+      try {
+        await settleWithin(this.agent.request(acp.methods.agent.session.close, {
+          sessionId: this.providerSessionIdValue,
+        }), 500);
+      } catch {
+        // Process exit is still the final resource boundary when close fails.
+      }
+    }
     this.connection?.close();
     await this.process.terminate(500);
     this.stateValue = "disposed";

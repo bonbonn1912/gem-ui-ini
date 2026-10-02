@@ -13,13 +13,18 @@ type ToolPayload = {
   kind?: string | null;
   status?: string;
   arguments?: unknown;
+  rawInput?: unknown;
+  rawOutput?: unknown;
+  content?: unknown[];
   update?: unknown;
   result?: unknown;
   error?: unknown;
   input?: unknown;
   output?: unknown;
   diff?: string;
-  locations?: Array<{ path: string; line?: number }>;
+  // ACP location entries are JSON values; validate the path/line shape before
+  // exposing them to the strongly typed timeline model.
+  locations?: unknown[];
 };
 
 export type TurnPhase =
@@ -35,6 +40,8 @@ type TimelineBase = {
   turnId: string | null;
   timestamp: string;
   seq?: number;
+  /** Stable creation order; seq tracks the latest update for replay watermarks. */
+  orderSeq?: number;
 };
 
 export type ProviderSessionHistoryEntry = {
@@ -47,6 +54,7 @@ export type MessageItem = TimelineBase & {
   kind: "message";
   role: "user" | "assistant";
   text: string;
+  contentBlocks?: unknown[];
   model?: string | null;
   turnUsage?: {
     tokens: TokenCounters;
@@ -85,6 +93,9 @@ export type ToolItem = TimelineBase & {
   status: "running" | "completed" | "failed";
   input?: unknown;
   output?: unknown;
+  rawInput?: unknown;
+  rawOutput?: unknown;
+  content?: unknown[];
   diff?: string;
   locations?: Array<{ path: string; line?: number }>;
   error?: string;
@@ -110,17 +121,21 @@ export type NoticeItem = TimelineBase & {
   detail?: string;
 };
 
+export type AgentPlanItem = TimelineBase & { kind: "plan"; plan: unknown; planId: string | null };
+
 export type TimelineItem =
   | MessageItem
   | ThoughtItem
   | ToolItem
   | PermissionItem
-  | NoticeItem;
+  | NoticeItem
+  | AgentPlanItem;
 
 export interface ChatState {
   sessionId: string | null;
   items: TimelineItem[];
   providerSessions: ProviderSessionHistoryEntry[];
+  imageSupported: boolean | null;
   lastSeq: number;
   phase: TurnPhase;
   activeTurnId: string | null;
@@ -132,11 +147,17 @@ export interface ChatState {
   usage: UsageSnapshot | null;
   modes: string[];
   models: string[];
+  currentModeId: string | null;
+  configOptions: unknown[];
+  commands: Array<{ name: string; description?: string | null }>;
+  sessionInfo: { title?: string | null; updatedAt?: string | null };
   error: string | null;
 }
 
 export type ChatAction =
   | { type: "reset"; sessionId: string | null }
+  | { type: "hydrated-snapshot"; sessionId: string; throughSeq: number; items: TimelineItem[]; state?: Partial<Pick<ChatState, "phase" | "activeTurnId" | "usage" | "modes" | "models" | "currentModeId" | "configOptions" | "commands" | "sessionInfo" | "error" | "providerSessions" | "imageSupported">> }
+  | { type: "hydrated-page"; sessionId: string; throughSeq: number; items: TimelineItem[] }
   | { type: "usage-snapshot"; snapshot: UsageSnapshot | null }
   | { type: "provider-session-history"; entry: ProviderSessionHistoryEntry }
   | { type: "events"; events: StreamEnvelope[] }
@@ -160,12 +181,17 @@ export function createChatState(sessionId: string | null = null): ChatState {
     sessionId,
     items: [],
     providerSessions: [],
+    imageSupported: null,
     lastSeq: 0,
     phase: "idle",
     activeTurnId: null,
     usage: null,
     modes: [],
     models: [],
+    currentModeId: null,
+    configOptions: [],
+    commands: [],
+    sessionInfo: {},
     error: null,
   };
 }
@@ -226,6 +252,24 @@ function payloadErrorDetail(error: unknown): string | undefined {
   }
 }
 
+function planId(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const id = record.planId ?? record.id;
+  return typeof id === "string" && id.trim() ? id : null;
+}
+
+function normalizedLocations(value: unknown): Array<{ path: string; line?: number }> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const locations = value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || !("path" in entry)) return [];
+    const record = entry as { path?: unknown; line?: unknown };
+    if (typeof record.path !== "string") return [];
+    return [{ path: record.path, ...(typeof record.line === "number" ? { line: record.line } : {}) }];
+  });
+  return locations.length ? locations : undefined;
+}
+
 function mergeTool(
   state: ChatState,
   envelope: StreamEnvelope,
@@ -243,14 +287,18 @@ function mergeTool(
     title: tool.title ?? existing?.title ?? "Werkzeug",
     toolKind: tool.kind ?? existing?.toolKind,
     status,
-    input: tool.input ?? tool.arguments ?? existing?.input,
-    output: tool.output ?? tool.result ?? tool.update ?? existing?.output,
+    input: tool.input ?? tool.rawInput ?? tool.arguments ?? existing?.input,
+    output: tool.output ?? tool.rawOutput ?? tool.result ?? tool.update ?? tool.content ?? existing?.output,
+    rawInput: tool.rawInput ?? existing?.rawInput,
+    rawOutput: tool.rawOutput ?? existing?.rawOutput,
+    content: tool.content ?? existing?.content,
     diff: tool.diff ?? existing?.diff,
-    locations: tool.locations ?? existing?.locations,
+    locations: normalizedLocations(tool.locations) ?? existing?.locations,
     error: tool.error ? payloadError(tool.error, "Werkzeug fehlgeschlagen") : existing?.error,
     turnId: envelope.turnId,
     timestamp: existing?.timestamp ?? envelope.timestamp,
     seq: envelope.seq,
+    orderSeq: existing?.orderSeq ?? envelope.seq,
   };
 
   if (existingIndex < 0) {
@@ -320,6 +368,9 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
         phase: "idle",
         modes: event.modes ?? next.modes,
         models: event.models ?? next.models,
+        imageSupported: event.capabilities?.images ?? next.imageSupported,
+        configOptions: event.configOptions ?? next.configOptions,
+        currentModeId: event.currentModeId ?? next.currentModeId,
         error: null,
       };
     }
@@ -350,8 +401,9 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
         externalContexts: event.externalContexts,
         clientRequestId: optimistic?.clientRequestId,
         turnId: envelope.turnId,
-        timestamp: envelope.timestamp,
-        seq: envelope.seq,
+      timestamp: envelope.timestamp,
+      seq: envelope.seq,
+      orderSeq: optimistic?.orderSeq ?? envelope.seq,
       };
       if (optimisticIndex >= 0) {
         const items = [...next.items];
@@ -390,20 +442,30 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
     }
     case "message.assistant.delta": {
       const id = itemId("assistant", envelope, event.messageId);
-      const fallbackIndex = next.items.findLastIndex(
-        (item) =>
-          item.kind === "message" &&
-          item.role === "assistant" &&
-          item.turnId === envelope.turnId &&
-          item.streaming,
-      );
+      const tailIndex = next.items.length - 1;
+      const tail = next.items[tailIndex];
+      if (tail?.kind === "message" && tail.role === "assistant" && tail.id === id && tail.streaming) {
+        const items = [...next.items];
+        items[tailIndex] = {
+          ...tail,
+          text: tail.text + eventText(event),
+          ...(event.contentBlocks ? { contentBlocks: [...(tail.contentBlocks ?? []), ...event.contentBlocks] } : {}),
+          seq: envelope.seq,
+        };
+        return { ...next, items, phase: "running", activeTurnId: envelope.turnId };
+      }
       const exactIndex = next.items.findIndex((item) => item.id === id);
-      const index = exactIndex >= 0 ? exactIndex : fallbackIndex;
+      const index = exactIndex;
       const delta = eventText(event);
       if (index >= 0) {
         const items = [...next.items];
         const existing = items[index] as MessageItem;
-        items[index] = { ...existing, text: existing.text + delta, seq: envelope.seq };
+        items[index] = {
+          ...existing,
+          text: existing.text + delta,
+          ...(event.contentBlocks ? { contentBlocks: [...(existing.contentBlocks ?? []), ...event.contentBlocks] } : {}),
+          seq: envelope.seq,
+        };
         return { ...next, items, phase: "running", activeTurnId: envelope.turnId };
       }
       return {
@@ -415,6 +477,7 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
             kind: "message",
             role: "assistant",
             text: delta,
+            ...(event.contentBlocks ? { contentBlocks: event.contentBlocks } : {}),
             attachments: [],
             contextAttachments: [],
             projectFiles: [],
@@ -422,6 +485,7 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
             turnId: envelope.turnId,
             timestamp: envelope.timestamp,
             seq: envelope.seq,
+            orderSeq: envelope.seq,
           },
         ],
         phase: "running",
@@ -430,12 +494,15 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
     }
     case "message.thought.delta": {
       const id = itemId("thought", envelope, event.messageId);
-      const fallbackIndex = next.items.findLastIndex(
-        (item) =>
-          item.kind === "thought" && item.turnId === envelope.turnId && item.streaming,
-      );
+      const tailIndex = next.items.length - 1;
+      const tail = next.items[tailIndex];
+      if (tail?.kind === "thought" && tail.id === id && tail.streaming) {
+        const items = [...next.items];
+        items[tailIndex] = { ...tail, text: tail.text + eventText(event), seq: envelope.seq };
+        return { ...next, items };
+      }
       const exactIndex = next.items.findIndex((item) => item.id === id);
-      const index = exactIndex >= 0 ? exactIndex : fallbackIndex;
+      const index = exactIndex;
       const delta = eventText(event);
       if (index >= 0) {
         const items = [...next.items];
@@ -455,6 +522,7 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
             turnId: envelope.turnId,
             timestamp: envelope.timestamp,
             seq: envelope.seq,
+            orderSeq: envelope.seq,
           },
         ],
       };
@@ -484,6 +552,7 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
             turnId: envelope.turnId,
             timestamp: envelope.timestamp,
             seq: envelope.seq,
+            orderSeq: envelope.seq,
           },
         ],
       };
@@ -495,7 +564,7 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
         return {
           ...item,
           status: inferredOutcome,
-          selectedOptionId: event.optionId,
+          selectedOptionId: event.optionId ?? undefined,
           seq: envelope.seq,
         };
       });
@@ -570,6 +639,7 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
             turnId: envelope.turnId,
             timestamp: envelope.timestamp,
             seq: envelope.seq,
+            orderSeq: envelope.seq,
           },
         ],
         phase: "idle",
@@ -599,6 +669,7 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
             turnId: envelope.turnId,
             timestamp: envelope.timestamp,
             seq: envelope.seq,
+            orderSeq: envelope.seq,
           },
         ],
         phase: afterAnswer ? "idle" : "error",
@@ -620,6 +691,7 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
             turnId: envelope.turnId,
             timestamp: envelope.timestamp,
             seq: envelope.seq,
+            orderSeq: envelope.seq,
           },
         ],
         phase: "disconnected",
@@ -628,14 +700,117 @@ function applyEnvelope(state: ChatState, envelope: StreamEnvelope): ChatState {
       };
     }
     case "commands.updated":
-      return next;
+      return { ...next, commands: event.commands };
+    case "mode.updated":
+      return { ...next, currentModeId: event.currentModeId };
+    case "config.updated":
+      return { ...next, configOptions: event.configOptions };
+    case "session.info.updated":
+      return { ...next, sessionInfo: { ...next.sessionInfo, ...event } };
+    case "plan.updated": {
+      const index = next.items.findIndex((item) => item.kind === "plan");
+      const planItem: AgentPlanItem = {
+        id: `plan:${planId(event.plan) ?? "default"}`,
+        kind: "plan",
+        plan: event.plan,
+        planId: planId(event.plan),
+        turnId: envelope.turnId,
+        timestamp: envelope.timestamp,
+        seq: envelope.seq,
+        orderSeq: index >= 0 ? next.items[index]!.orderSeq ?? next.items[index]!.seq : envelope.seq,
+      };
+      const items = [...next.items];
+      if (index < 0) items.push(planItem);
+      else items[index] = planItem;
+      return { ...next, items };
+    }
+    case "plan.removed":
+      return {
+        ...next,
+        items: next.items.filter((item) => item.kind !== "plan" || item.planId !== event.planId),
+      };
   }
+}
+
+/** Merge events received after a replay watermark over an older materialized
+ * item. Assistant text is fragment based, so the live tail extends the
+ * snapshot text; tool fields are a patch and retain snapshot values omitted by
+ * a partial update. */
+function mergeHydratedItem(base: TimelineItem, live: TimelineItem): TimelineItem {
+  if (base.kind === "message" && live.kind === "message" && base.role === "assistant" && live.role === "assistant") {
+    return {
+      ...base,
+      ...live,
+      orderSeq: base.orderSeq ?? base.seq,
+      text: `${base.text}${live.text}`,
+      contentBlocks: [...(base.contentBlocks ?? []), ...(live.contentBlocks ?? [])],
+      attachments: live.attachments.length ? live.attachments : base.attachments,
+      contextAttachments: live.contextAttachments.length ? live.contextAttachments : base.contextAttachments,
+      projectFiles: live.projectFiles?.length ? live.projectFiles : base.projectFiles,
+    };
+  }
+  if (base.kind === "thought" && live.kind === "thought") {
+    return { ...base, ...live, orderSeq: base.orderSeq ?? base.seq, text: `${base.text}${live.text}` };
+  }
+  if (base.kind === "tool" && live.kind === "tool") {
+    return {
+      ...base,
+      ...live,
+      orderSeq: base.orderSeq ?? base.seq,
+      input: live.input ?? base.input,
+      output: live.output ?? base.output,
+      rawInput: live.rawInput ?? base.rawInput,
+      rawOutput: live.rawOutput ?? base.rawOutput,
+      content: live.content ?? base.content,
+      locations: live.locations ?? base.locations,
+      error: live.error ?? base.error,
+    };
+  }
+  return { ...base, ...live, orderSeq: base.orderSeq ?? base.seq } as TimelineItem;
 }
 
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "reset":
       return createChatState(action.sessionId);
+    case "hydrated-snapshot":
+      if (state.sessionId !== action.sessionId) return state;
+      {
+        const existingById = new Map(state.items.map((item) => [item.id, item]));
+        const mergedSnapshot = action.items.map((item) => {
+          const live = existingById.get(item.id);
+          return live && live.seq !== undefined && live.seq > action.throughSeq
+            ? mergeHydratedItem(item, live)
+            : item;
+        });
+        const snapshotIds = new Set(action.items.map((item) => item.id));
+        const newerItems = state.items.filter((item) =>
+          item.seq === undefined || (item.seq > action.throughSeq && !snapshotIds.has(item.id)),
+        );
+      return {
+      ...state,
+          ...(action.state ?? {}),
+          items: [...mergedSnapshot, ...newerItems].sort((a, b) => (a.orderSeq ?? a.seq ?? Number.MAX_SAFE_INTEGER) - (b.orderSeq ?? b.seq ?? Number.MAX_SAFE_INTEGER)),
+          lastSeq: Math.max(state.lastSeq, action.throughSeq),
+          ...(state.lastSeq <= action.throughSeq
+            ? { phase: action.state?.phase ?? "idle", activeTurnId: action.state?.activeTurnId ?? null }
+            : {}),
+      };
+      }
+    case "hydrated-page":
+      if (state.sessionId !== action.sessionId) return state;
+      {
+        const currentById = new Map(state.items.map((item) => [item.id, item]));
+        const older = action.items.map((item) => {
+          const live = currentById.get(item.id);
+          if (!live || live.seq === undefined || live.seq <= action.throughSeq) return item;
+          return mergeHydratedItem(item, live);
+        });
+        const ids = new Set(older.map((item) => item.id));
+        const merged = [...older, ...state.items.filter((item) => !ids.has(item.id))];
+        merged.sort((a, b) => (a.orderSeq ?? a.seq ?? Number.MIN_SAFE_INTEGER) - (b.orderSeq ?? b.seq ?? Number.MIN_SAFE_INTEGER));
+        return { ...state, items: merged };
+      }
     case "usage-snapshot":
       // Restart path: the persisted snapshot must not overwrite a newer live
       // value that already arrived through the replay.
@@ -654,13 +829,49 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       };
     }
     case "events": {
-      const events = [...action.events]
+      const ordered = [...action.events]
         .filter(
           (event) =>
             event.seq > state.lastSeq &&
             (!state.sessionId || event.sessionId === state.sessionId),
         )
         .sort((a, b) => a.seq - b.seq);
+      // Persisted IPC batches frequently contain dozens of adjacent deltas for
+      // the same provider message. Fold each contiguous run before reducing so
+      // we copy the timeline once per batch instead of once per token fragment.
+      const events: StreamEnvelope[] = [];
+      for (const envelope of ordered) {
+        const previous = events.at(-1);
+        const event = envelope.event;
+        const priorEvent = previous?.event;
+        if (
+          previous && priorEvent &&
+          (event.type === "message.assistant.delta" || event.type === "message.thought.delta") &&
+          priorEvent.type === event.type &&
+          "messageId" in priorEvent && priorEvent.messageId === event.messageId &&
+          previous.turnId === envelope.turnId
+        ) {
+          const delta = eventText(priorEvent) + eventText(event);
+          events[events.length - 1] = {
+            ...envelope,
+            timestamp: previous.timestamp,
+            event: {
+              ...event,
+              delta,
+              ...("contentBlocks" in event || "contentBlocks" in priorEvent
+                ? {
+                    contentBlocks: [
+                      ...("contentBlocks" in priorEvent ? priorEvent.contentBlocks ?? [] : []),
+                      ...("contentBlocks" in event ? event.contentBlocks ?? [] : []),
+                    ],
+                  }
+                : {}),
+            },
+          };
+        } else {
+          events.push(envelope);
+        }
+      }
       return events.reduce(applyEnvelope, state);
     }
     case "optimistic-user":

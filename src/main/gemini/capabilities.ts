@@ -10,6 +10,7 @@ import type {
   SessionModel,
   SessionModeSnapshot,
   SessionModelSnapshot,
+  SessionConfigSnapshot,
 } from "./types.js";
 
 export function normalizeCapabilities(
@@ -51,8 +52,19 @@ export function normalizeCapabilities(
 
 export function normalizeModes(
   modes: SessionModeState | null | undefined,
+  configOptions?: readonly SessionConfigOption[] | null,
 ): SessionModeSnapshot | undefined {
-  if (!modes) return undefined;
+  if (!modes) {
+    const modeOption = configOptions?.find((option) => option.category === "mode" && option.type === "select");
+    if (!modeOption || modeOption.type !== "select") return undefined;
+    const availableModes = modeOption.options.flatMap((option) => "options" in option ? option.options : [option]).map((option) => ({
+      id: option.value,
+      name: option.name,
+      ...(option.description ? { description: option.description } : {}),
+    }));
+    if (!availableModes.length) return undefined;
+    return { currentModeId: modeOption.currentValue ?? availableModes[0]!.id, availableModes };
+  }
   return {
     currentModeId: modes.currentModeId,
     availableModes: modes.availableModes.map((mode) => ({
@@ -61,6 +73,12 @@ export function normalizeModes(
       ...(mode.description ? { description: mode.description } : {}),
     })),
   };
+}
+
+export function normalizeConfigOptions(
+  options: readonly SessionConfigOption[] | null | undefined,
+): SessionConfigSnapshot | undefined {
+  return options?.length ? { options: options.map((option) => ({ ...option })) } : undefined;
 }
 
 export function normalizeModels(

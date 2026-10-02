@@ -1,4 +1,10 @@
 import { z } from "zod";
+const TimelineCursorSchema = z.object({ seq: z.number().int().nonnegative(), itemId: z.string().min(1).max(300) }).strict();
+export const TimelineSnapshotInputSchema = z.object({ sessionId: z.uuid(), throughSeq: z.number().int().nonnegative().optional(), before: TimelineCursorSchema.nullable().optional(), limit: z.number().int().min(1).max(200).optional() }).strict();
+export const TimelineSnapshotResultSchema = z.object({ complete: z.boolean(), throughSeq: z.number().int().nonnegative(), items: z.array(z.record(z.string(), z.unknown())), nextBefore: TimelineCursorSchema.nullable(), hasMore: z.boolean(), state: z.record(z.string(), z.unknown()).optional() });
+export type TimelineSnapshotInput = z.infer<typeof TimelineSnapshotInputSchema>;
+export type TimelineSnapshotResult = z.infer<typeof TimelineSnapshotResultSchema>;
+import { ElicitationRequestSchema, RespondToElicitationInputSchema, type ElicitationRequest, type RespondToElicitationInput } from "./elicitation";
 
 import {
   GeminiSkillListSchema,
@@ -208,6 +214,8 @@ export const AppCapabilitiesSchema = z
     gemini: z
       .object({
         available: z.boolean(),
+        probeState: z.enum(["checking", "ready", "unavailable"]).default("unavailable"),
+        negotiated: z.boolean().optional(),
         binaryPath: FileSystemPathSchema.nullable(),
         version: z.string().trim().min(1).max(100).nullable(),
         acp: z.boolean(),
@@ -230,6 +238,11 @@ export const AppCapabilitiesSchema = z
 
 export const EmptyInputSchema = z.object({}).strict();
 
+export const ResourceProfileSchema = z.enum(["economy", "balanced", "performance"]);
+export const SetResourceProfileInputSchema = z.object({ profile: ResourceProfileSchema }).strict();
+export const ResourceProfileResultSchema = z.object({ profile: ResourceProfileSchema }).strict();
+export const ListSessionElicitationsInputSchema = z.object({ sessionId: EntityIdSchema }).strict();
+
 export const PickProjectFoldersInputSchema = z
   .object({
     allowMultiple: z.boolean().default(true),
@@ -248,6 +261,20 @@ export const UnsubscribeSessionEventsInputSchema = z
     subscriptionId: EntityIdSchema,
   })
   .strict();
+
+export const ReplaySessionEventsInputSchema = z.object({
+  subscriptionId: EntityIdSchema,
+  sessionId: EntityIdSchema,
+  afterSeq: z.int().nonnegative(),
+  throughSeq: z.int().nonnegative(),
+  limit: z.int().min(1).max(500).default(200),
+}).strict();
+
+export const ReplaySessionEventsResultSchema = z.object({
+  events: StreamEnvelopeBatchSchema,
+  nextAfterSeq: z.int().nonnegative(),
+  hasMore: z.boolean(),
+}).strict();
 
 export const OpenExternalHttpsUrlInputSchema = z
   .object({
@@ -322,6 +349,7 @@ export const SessionReconnectStateSchema = z
   .object({
     sessionId: EntityIdSchema,
     reconnected: z.boolean(),
+    persistenceError: z.string().max(2000).nullable().optional(),
     hasHistory: z.boolean(),
   })
   .strict();
@@ -335,6 +363,9 @@ export const EventSubscriptionResultSchema = z
   .object({
     subscriptionId: EntityIdSchema,
     replay: StreamEnvelopeBatchSchema,
+    replayUntilSeq: z.int().nonnegative().default(0),
+    nextAfterSeq: z.int().nonnegative().default(0),
+    hasMore: z.boolean().default(false),
     /**
      * Authoritative usage state for this session. It is delivered separately
      * from the replay so the display does not depend on the last usage event
@@ -454,9 +485,16 @@ export const IPC_CHANNELS = {
   cancelTurn: "sessions:cancel-turn",
   respondToPermission: "sessions:respond-to-permission",
   setSessionMode: "sessions:set-mode",
+  getEventBlob: "sessions:get-event-blob",
+  getTimelineSnapshot: "sessions:get-timeline-snapshot",
+  setSessionConfigOption: "sessions:set-config-option",
   setSessionModel: "sessions:set-model",
   getSessionReconnectState: "sessions:get-reconnect-state",
   searchSessions: "sessions:search",
+  listSessionElicitations: "sessions:list-elicitations",
+  respondToElicitation: "sessions:respond-to-elicitation",
+  getResourceProfile: "settings:get-resource-profile",
+  setResourceProfile: "settings:set-resource-profile",
   chooseGeminiBinary: "settings:choose-gemini-binary",
   chooseGitBinary: "settings:choose-git-binary",
   pickImages: "attachments:pick-images",
@@ -494,6 +532,7 @@ export const IPC_CHANNELS = {
   closeLinkPreviewView: "link-preview:close",
   clearLinkPreviewStorage: "link-preview:clear-storage",
   subscribeSessionEvents: "events:subscribe-session",
+  replaySessionEvents: "events:replay-session",
   unsubscribeSessionEvents: "events:unsubscribe-session",
   sessionEventBatch: "events:session-batch",
   listGitProjectRepositories: "git:list-project-repositories",
@@ -539,6 +578,7 @@ export const IPC_CHANNELS = {
   installUpdate: "app:install-update",
   appUpdateDownloadProgress: "app:update-download-progress",
   getStats: "stats:get",
+  // Other IPC channels follow below.
   exportSession: "session:export",
 } as const;
 
@@ -572,9 +612,16 @@ export const IpcRequestSchemas = {
   [IPC_CHANNELS.cancelTurn]: CancelTurnInputSchema,
   [IPC_CHANNELS.respondToPermission]: PermissionResponseSchema,
   [IPC_CHANNELS.setSessionMode]: SetSessionModeInputSchema,
+  [IPC_CHANNELS.getEventBlob]: z.object({sessionId: EntityIdSchema, blobId: z.string().min(1).max(100)}).strict(),
+  [IPC_CHANNELS.getTimelineSnapshot]: TimelineSnapshotInputSchema,
+  [IPC_CHANNELS.setSessionConfigOption]: z.object({ sessionId: EntityIdSchema, configId: z.string().min(1).max(200), value: z.union([z.string().max(2000), z.boolean()]) }).strict(),
   [IPC_CHANNELS.setSessionModel]: SetSessionModelInputSchema,
   [IPC_CHANNELS.getSessionReconnectState]: GetSessionReconnectStateInputSchema,
   [IPC_CHANNELS.searchSessions]: SearchSessionsInputSchema,
+  [IPC_CHANNELS.listSessionElicitations]: ListSessionElicitationsInputSchema,
+  [IPC_CHANNELS.respondToElicitation]: RespondToElicitationInputSchema,
+  [IPC_CHANNELS.getResourceProfile]: EmptyInputSchema,
+  [IPC_CHANNELS.setResourceProfile]: SetResourceProfileInputSchema,
   [IPC_CHANNELS.chooseGeminiBinary]: EmptyInputSchema,
   [IPC_CHANNELS.chooseGitBinary]: EmptyInputSchema,
   [IPC_CHANNELS.pickImages]: PickImagesInputSchema,
@@ -610,6 +657,7 @@ export const IpcRequestSchemas = {
   [IPC_CHANNELS.closeLinkPreviewView]: EmptyInputSchema,
   [IPC_CHANNELS.clearLinkPreviewStorage]: ClearLinkPreviewStorageInputSchema,
   [IPC_CHANNELS.subscribeSessionEvents]: SubscribeSessionEventsInputSchema,
+  [IPC_CHANNELS.replaySessionEvents]: ReplaySessionEventsInputSchema,
   [IPC_CHANNELS.unsubscribeSessionEvents]: UnsubscribeSessionEventsInputSchema,
   [IPC_CHANNELS.listGitProjectRepositories]: ListGitProjectRepositoriesInputSchema,
   [IPC_CHANNELS.getGitProjectStatus]: GetGitProjectStatusInputSchema,
@@ -676,9 +724,16 @@ export const IpcResponseSchemas = {
   [IPC_CHANNELS.cancelTurn]: VoidResultSchema,
   [IPC_CHANNELS.respondToPermission]: VoidResultSchema,
   [IPC_CHANNELS.setSessionMode]: AppSessionSchema,
+  [IPC_CHANNELS.getEventBlob]: z.unknown(),
+  [IPC_CHANNELS.getTimelineSnapshot]: TimelineSnapshotResultSchema,
+  [IPC_CHANNELS.setSessionConfigOption]: VoidResultSchema,
   [IPC_CHANNELS.setSessionModel]: AppSessionSchema,
   [IPC_CHANNELS.getSessionReconnectState]: SessionReconnectStateSchema,
   [IPC_CHANNELS.searchSessions]: SessionSearchResultSchema,
+  [IPC_CHANNELS.listSessionElicitations]: z.array(ElicitationRequestSchema).max(100),
+  [IPC_CHANNELS.respondToElicitation]: VoidResultSchema,
+  [IPC_CHANNELS.getResourceProfile]: ResourceProfileResultSchema,
+  [IPC_CHANNELS.setResourceProfile]: ResourceProfileResultSchema,
   [IPC_CHANNELS.chooseGeminiBinary]: AppCapabilitiesSchema,
   [IPC_CHANNELS.chooseGitBinary]: AppCapabilitiesSchema,
   [IPC_CHANNELS.pickImages]: z.array(AttachmentSchema).max(4),
@@ -714,6 +769,7 @@ export const IpcResponseSchemas = {
   [IPC_CHANNELS.closeLinkPreviewView]: VoidResultSchema,
   [IPC_CHANNELS.clearLinkPreviewStorage]: VoidResultSchema,
   [IPC_CHANNELS.subscribeSessionEvents]: EventSubscriptionResultSchema,
+  [IPC_CHANNELS.replaySessionEvents]: ReplaySessionEventsResultSchema,
   [IPC_CHANNELS.unsubscribeSessionEvents]: VoidResultSchema,
   [IPC_CHANNELS.listGitProjectRepositories]: GitRepositoryListSchema,
   [IPC_CHANNELS.getGitProjectStatus]: GitProjectStatusSchema,
@@ -762,12 +818,15 @@ export type AppCapabilities = z.infer<typeof AppCapabilitiesSchema>;
 export type SubscribeSessionEventsInput = z.input<
   typeof SubscribeSessionEventsInputSchema
 >;
+export type ReplaySessionEventsInput = z.input<typeof ReplaySessionEventsInputSchema>;
 export type OpenExternalHttpsUrlInput = z.input<
   typeof OpenExternalHttpsUrlInputSchema
 >;
 
 export interface GemUiDesktopApi {
   getCapabilities(): Promise<AppCapabilities>;
+  getResourceProfile(): Promise<{ profile: z.infer<typeof ResourceProfileSchema> }>;
+  setResourceProfile(input: { profile: z.infer<typeof ResourceProfileSchema> }): Promise<{ profile: z.infer<typeof ResourceProfileSchema> }>;
   app: {
     checkForUpdates(): Promise<AppUpdateInfo>;
     downloadUpdate(input: DownloadUpdateInput): Promise<DownloadUpdateResult>;
@@ -817,10 +876,15 @@ export interface GemUiDesktopApi {
     cancel(input: CancelTurnInput): Promise<VoidResult>;
     respondToPermission(input: PermissionResponse): Promise<VoidResult>;
     setMode(input: SetSessionModeInput): Promise<AppSession>;
+    getEventBlob(input: { sessionId: string; blobId: string }): Promise<unknown>;
+    getTimelineSnapshot(input: TimelineSnapshotInput): Promise<TimelineSnapshotResult>;
+    setConfigOption(input: { sessionId: string; configId: string; value: string | boolean }): Promise<void>;
     setModel(input: SetSessionModelInput): Promise<AppSession>;
     getReconnectState(
       input: GetSessionReconnectStateInput,
     ): Promise<SessionReconnectState>;
+    listElicitations(input: { sessionId: string }): Promise<ElicitationRequest[]>;
+    respondToElicitation(input: RespondToElicitationInput): Promise<VoidResult>;
     search(input: SearchSessionsInput): Promise<SessionSearchResult>;
     export(input: ExportSessionInput): Promise<ExportSessionResult>;
   };
@@ -975,7 +1039,7 @@ export interface GemUiDesktopApi {
   };
   subscribeSessionEvents(
     input: SubscribeSessionEventsInput,
-    callback: (events: StreamEnvelope[]) => void,
+    callback: (events: StreamEnvelope[], metadata?: { replay: boolean; error?: string }) => void,
     onUsageSnapshot?: (snapshot: UsageSnapshot | null) => void,
   ): Promise<() => void>;
   openExternalHttpsUrl(url: string): Promise<VoidResult>;

@@ -3,7 +3,7 @@ import { access as fsAccess, chmod, mkdtemp, mkdir, realpath, rm, symlink, write
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { ProjectAccess } from "../../src/shared";
 import type { GeminiCapabilityService } from "../../src/main/capability-service";
@@ -211,6 +211,30 @@ describe("GitService integration", () => {
       area: "unstaged",
     });
     expect(binaryDiff.state).toBe("binary");
+  });
+
+  it("keeps a shared status scan alive when one waiter aborts and limits a burst to one follow-up", async () => {
+    let accessReads = 0;
+    let releaseFirstScan!: () => void;
+    const projects = {
+      getCurrentAccess: async () => {
+        accessReads += 1;
+        if (accessReads === 3) return new Promise<ProjectAccess>((resolve) => { releaseFirstScan = () => resolve(access); });
+        return access;
+      },
+    } as unknown as ProjectService;
+    const service = new GitService(projects, { gitBinaryPath: binaryPath } as GeminiCapabilityService);
+    const input = { projectId: access.projectId, expectedRootRevision: 1 };
+    const controller = new AbortController();
+    const abortedWaiter = service.getProjectStatus(input, controller.signal);
+    const survivingWaiter = service.getProjectStatus(input);
+    await vi.waitFor(() => expect(accessReads).toBeGreaterThanOrEqual(3));
+    controller.abort();
+    releaseFirstScan();
+    await expect(abortedWaiter).rejects.toMatchObject({ name: "AbortError" });
+    await expect(survivingWaiter).resolves.toMatchObject({ projectId: access.projectId });
+    // Two caller validations, one active scan and one coalesced follow-up.
+    expect(accessReads).toBe(4);
   });
 
   it("shows staged content in a repository without a first commit", async () => {

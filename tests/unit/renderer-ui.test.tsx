@@ -22,6 +22,7 @@ const capabilities: AppCapabilities = {
   platform: "darwin",
   gemini: {
     available: true,
+    probeState: "ready",
     binaryPath: "/usr/local/bin/gemini",
     version: "0.56.0",
     acp: true,
@@ -112,6 +113,8 @@ function createApi(options: {
   const activeProj = options.project ?? project;
   const api: GemUiDesktopApi = {
     getCapabilities: vi.fn().mockResolvedValue(capabilities),
+    getResourceProfile: vi.fn().mockResolvedValue({ profile: "balanced" }),
+    setResourceProfile: vi.fn().mockResolvedValue({ profile: "balanced" }),
     app: {
       checkForUpdates: vi.fn().mockResolvedValue({
         currentVersion: "0.5.0",
@@ -174,7 +177,10 @@ function createApi(options: {
       sendPrompt: vi.fn().mockResolvedValue({ turnId: "turn-1" }),
       cancel: vi.fn().mockResolvedValue(undefined),
       respondToPermission: vi.fn().mockResolvedValue(undefined),
+      getEventBlob: vi.fn().mockResolvedValue(null),
+      getTimelineSnapshot: vi.fn().mockResolvedValue({ complete: true, throughSeq: 0, items: [], nextBefore: null, hasMore: false }),
       setMode: vi.fn().mockImplementation(async (input) => ({ ...session, mode: input.modeId })),
+      setConfigOption: vi.fn().mockResolvedValue(undefined),
       setModel: vi.fn().mockImplementation(async (input) => ({ ...session, model: input.modelId })),
       getReconnectState: vi.fn().mockResolvedValue({
         sessionId: session.id,
@@ -187,6 +193,8 @@ function createApi(options: {
         results: [],
       }),
       export: vi.fn().mockResolvedValue({ canceled: false, filePath: "/tmp/chat.pdf" }),
+      listElicitations: vi.fn().mockResolvedValue([]),
+      respondToElicitation: vi.fn().mockResolvedValue(undefined),
     },
     attachments: {
       pickImages: vi.fn().mockResolvedValue([]),
@@ -441,6 +449,7 @@ function populatedContextList(overBudget = false): ContextAttachmentList {
           sha256: "a".repeat(64),
           extractionState: "ready",
           extractedChars: 5_000,
+          extractionTruncated: false,
           pageCount: null,
           extractionError: null,
           renderable: false,

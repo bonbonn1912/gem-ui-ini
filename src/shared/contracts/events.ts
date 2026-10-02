@@ -29,6 +29,9 @@ const SessionReadyEventSchema = z
     providerSessionId: z.string().trim().min(1).max(500).nullable().optional(),
     modes: z.array(z.string().trim().min(1).max(100)).optional().default([]),
     models: z.array(z.string().trim().min(1).max(200)).optional().default([]),
+    configOptions: z.array(JsonValueSchema).optional(),
+    currentModeId: z.string().max(200).optional(),
+    capabilities: z.object({ images: z.boolean() }).optional(),
   })
   .strict();
 
@@ -50,6 +53,7 @@ const UserMessageEventSchema = z
   .object({
     type: z.literal("message.user"),
     messageId: EntityIdSchema,
+    providerMessageId: z.string().trim().min(1).max(500).optional(),
     text: z.string().max(200_000),
     attachmentIds: z.array(EntityIdSchema).max(4),
     contextAttachments: z.array(z.object({
@@ -74,7 +78,9 @@ const AssistantDeltaEventSchema = z
   .object({
     type: z.literal("message.assistant.delta"),
     messageId: EntityIdSchema,
+    providerMessageId: z.string().trim().min(1).max(500).optional(),
     delta: z.string().min(1).max(1_000_000),
+    contentBlocks: z.array(JsonValueSchema).max(100).optional(),
   })
   .strict();
 
@@ -82,7 +88,9 @@ const ThoughtDeltaEventSchema = z
   .object({
     type: z.literal("message.thought.delta"),
     messageId: EntityIdSchema,
+    providerMessageId: z.string().trim().min(1).max(500).optional(),
     delta: z.string().min(1).max(1_000_000),
+    contentBlocks: z.array(JsonValueSchema).max(100).optional(),
   })
   .strict();
 
@@ -93,6 +101,9 @@ const ToolStartedEventSchema = z
     title: z.string().trim().min(1).max(500),
     kind: z.string().trim().min(1).max(100).nullable(),
     arguments: JsonValueSchema.nullable(),
+    rawInput: JsonValueSchema.optional(),
+    content: z.array(JsonValueSchema).max(500).optional(),
+    locations: z.array(JsonValueSchema).max(500).optional(),
   })
   .strict();
 
@@ -100,8 +111,14 @@ const ToolUpdatedEventSchema = z
   .object({
     type: z.literal("tool.updated"),
     toolCallId: z.string().trim().min(1).max(500),
+    title: z.string().max(500).optional(),
+    kind: z.string().max(100).nullable().optional(),
     status: z.string().trim().min(1).max(100),
     update: JsonValueSchema.nullable(),
+    rawInput: JsonValueSchema.optional(),
+    rawOutput: JsonValueSchema.optional(),
+    content: z.array(JsonValueSchema).max(500).optional(),
+    locations: z.array(JsonValueSchema).max(500).optional(),
   })
   .strict();
 
@@ -109,7 +126,13 @@ const ToolCompletedEventSchema = z
   .object({
     type: z.literal("tool.completed"),
     toolCallId: z.string().trim().min(1).max(500),
+    title: z.string().max(500).optional(),
+    kind: z.string().max(100).nullable().optional(),
     result: JsonValueSchema.nullable(),
+    rawInput: JsonValueSchema.optional(),
+    rawOutput: JsonValueSchema.optional(),
+    content: z.array(JsonValueSchema).max(500).optional(),
+    locations: z.array(JsonValueSchema).max(500).optional(),
   })
   .strict();
 
@@ -117,7 +140,13 @@ const ToolFailedEventSchema = z
   .object({
     type: z.literal("tool.failed"),
     toolCallId: z.string().trim().min(1).max(500),
+    title: z.string().max(500).optional(),
+    kind: z.string().max(100).nullable().optional(),
     error: AppErrorSchema,
+    rawInput: JsonValueSchema.optional(),
+    rawOutput: JsonValueSchema.optional(),
+    content: z.array(JsonValueSchema).max(500).optional(),
+    locations: z.array(JsonValueSchema).max(500).optional(),
   })
   .strict();
 
@@ -143,7 +172,7 @@ const PermissionResolvedEventSchema = z
   .object({
     type: z.literal("permission.resolved"),
     requestId: z.string().trim().min(1).max(500),
-    optionId: z.string().trim().min(1).max(500),
+    optionId: z.string().trim().min(1).max(500).nullable(),
   })
   .strict();
 
@@ -302,6 +331,7 @@ export const AvailableCommandSchema = z
   .object({
     name: z.string().trim().min(1).max(200),
     description: z.string().trim().min(1).max(2_000).nullable(),
+    inputHint: z.string().max(2_000).nullable().optional(),
   })
   .strict();
 
@@ -311,6 +341,32 @@ const CommandsUpdatedEventSchema = z
     commands: z.array(AvailableCommandSchema).max(500),
   })
   .strict();
+
+const ModeUpdatedEventSchema = z.object({
+  type: z.literal("mode.updated"),
+  currentModeId: z.string().trim().min(1).max(200),
+}).strict();
+
+const ConfigUpdatedEventSchema = z.object({
+  type: z.literal("config.updated"),
+  configOptions: z.array(JsonValueSchema).max(200),
+}).strict();
+
+const SessionInfoUpdatedEventSchema = z.object({
+  type: z.literal("session.info.updated"),
+  title: z.string().max(500).nullable().optional(),
+  updatedAt: IsoTimestampSchema.nullable().optional(),
+}).strict();
+
+const PlanUpdatedEventSchema = z.object({
+  type: z.literal("plan.updated"),
+  plan: JsonValueSchema,
+}).strict();
+
+const PlanRemovedEventSchema = z.object({
+  type: z.literal("plan.removed"),
+  planId: z.string().trim().min(1).max(500),
+}).strict();
 
 const TurnCompletedEventSchema = z
   .object({
@@ -362,6 +418,11 @@ export const AgentEventSchema = z.discriminatedUnion("type", [
   PermissionResolvedEventSchema,
   UsageUpdatedEventSchema,
   CommandsUpdatedEventSchema,
+  ModeUpdatedEventSchema,
+  ConfigUpdatedEventSchema,
+  SessionInfoUpdatedEventSchema,
+  PlanUpdatedEventSchema,
+  PlanRemovedEventSchema,
   TurnCompletedEventSchema,
   TurnCancelledEventSchema,
   TurnFailedEventSchema,

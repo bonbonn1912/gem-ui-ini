@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Icon } from "./Icon";
@@ -42,8 +42,10 @@ function CodeBlock({ children }: { children?: ReactNode }) {
   );
 }
 
-export function MarkdownContent({ children, onOpenExternal }: MarkdownContentProps) {
-  const components: Components = {
+const remarkPlugins = [remarkGfm];
+
+export const MarkdownContent = memo(function MarkdownContent({ children, onOpenExternal }: MarkdownContentProps) {
+  const components = useMemo<Components>(() => ({
     a({ href, children: linkChildren }) {
       if (!href?.startsWith("https://")) {
         return <span className="unsafe-link">{linkChildren}</span>;
@@ -66,14 +68,13 @@ export function MarkdownContent({ children, onOpenExternal }: MarkdownContentPro
     pre({ children: preChildren }) {
       return <CodeBlock>{preChildren}</CodeBlock>;
     },
-  };
+  }), [onOpenExternal]);
 
   return (
     <div className="markdown">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} skipHtml>
+      <ReactMarkdown remarkPlugins={remarkPlugins} components={components} skipHtml>
         {children}
       </ReactMarkdown>
     </div>
   );
-}
-
+});

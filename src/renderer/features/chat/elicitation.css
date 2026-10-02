@@ -1,0 +1,8 @@
+.elicitation-overlay { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; background: #0007; padding: 24px; }
+.elicitation-dialog { width: min(540px, 100%); max-height: 85vh; overflow: auto; background: var(--bg-primary, #202026); color: var(--text-primary, #eee); border: 1px solid #8885; border-radius: 14px; padding: 24px; }
+.elicitation-dialog p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.elicitation-field { display: flex; flex-direction: column; gap: 5px; margin: 14px 0; }
+.elicitation-field input:not([type=checkbox]), .elicitation-field select { padding: 8px; border-radius: 6px; border: 1px solid #8888; background: transparent; color: inherit; }
+.elicitation-field input[type=checkbox] { align-self: flex-start; }
+.elicitation-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.elicitation-actions button { padding: 8px 12px; }

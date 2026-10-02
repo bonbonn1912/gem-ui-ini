@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../../components/Icon";
 import type {
   AppProject,
@@ -43,10 +43,15 @@ export function FileViewer({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [wrapLines, setWrapLines] = useState(false);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(600);
+  const codeViewportRef = useRef<HTMLDivElement>(null);
+  const requestGeneration = useRef(0);
 
   const handleClose = onBack || onClose;
 
   const loadFile = useCallback(async () => {
+    const generation = ++requestGeneration.current;
     setLoading(true);
     setError(null);
     try {
@@ -56,14 +61,16 @@ export function FileViewer({
         rootId: file.rootId,
         relativePath: file.relativePath,
       });
+      if (generation !== requestGeneration.current) return;
       setData(result);
     } catch (err) {
+      if (generation !== requestGeneration.current) return;
       setError(
         err instanceof Error ? err.message : "Datei konnte nicht geladen werden.",
       );
       setData(null);
     } finally {
-      setLoading(false);
+      if (generation === requestGeneration.current) setLoading(false);
     }
   }, [project.id, project.rootRevision, file.rootId, file.relativePath]);
 
@@ -88,6 +95,10 @@ export function FileViewer({
     const language = data.language || detectLanguage(file.displayName || file.relativePath);
     return highlightCode(data.content, language);
   }, [data, file.displayName, file.relativePath]);
+  const virtualize = highlightedLines.length > 500 && !wrapLines;
+  const firstVisibleLine = virtualize ? Math.max(0, Math.floor(scrollTop / 20) - 20) : 0;
+  const visibleLineCount = virtualize ? Math.ceil(viewportHeight / 20) + 40 : highlightedLines.length;
+  const visibleLines = highlightedLines.slice(firstVisibleLine, firstVisibleLine + visibleLineCount);
 
   const handleCopy = async () => {
     if (!data?.content || data.binary) return;
@@ -255,10 +266,15 @@ export function FileViewer({
         )}
 
         {!loading && !error && !data?.binary && (
-          <div
+            <div
+            ref={codeViewportRef}
+            onScroll={(event) => {
+              setScrollTop(event.currentTarget.scrollTop);
+              setViewportHeight(event.currentTarget.clientHeight);
+            }}
             className={`file-viewer-code-wrapper ${
               wrapLines ? "file-viewer-code-wrapper--wrap" : ""
-            }`}
+            } ${virtualize ? "file-viewer-code-wrapper--virtual" : ""}`}
             tabIndex={0}
             role="region"
             aria-label="Quellcode"
@@ -269,7 +285,10 @@ export function FileViewer({
               </div>
             )}
             <div className="file-viewer-lines">
-              {highlightedLines.map((lineTokens, index) => (
+              {virtualize && <div aria-hidden="true" style={{ height: firstVisibleLine * 20, flexShrink: 0 }} />}
+              {visibleLines.map((lineTokens, visibleIndex) => {
+                const index = firstVisibleLine + visibleIndex;
+                return (
                 <div key={index} className="file-viewer-line">
                   <span className="file-viewer-line-number" aria-hidden="true">
                     {index + 1}
@@ -288,7 +307,8 @@ export function FileViewer({
                     </code>
                   </span>
                 </div>
-              ))}
+              );})}
+              {virtualize && <div aria-hidden="true" style={{ height: Math.max(0, highlightedLines.length - firstVisibleLine - visibleLines.length) * 20, flexShrink: 0 }} />}
             </div>
           </div>
         )}

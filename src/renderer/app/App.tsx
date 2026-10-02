@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from "react";
 import { Icon } from "../components/Icon";
 import {
   Composer,
@@ -15,7 +15,7 @@ import {
   ReconnectHistoryBanner,
   ReconnectHistoryModal,
 } from "../features/chat/ReconnectHistoryDialog";
-import { chatReducer, createChatState, type TurnPhase } from "../features/chat/reducer";
+import { chatReducer, createChatState, type ChatState, type TimelineItem, type TurnPhase } from "../features/chat/reducer";
 import { ChangesPanel } from "../features/git/ChangesPanel";
 import type { DiffSelection } from "../features/git/DiffViewer";
 import {
@@ -30,15 +30,19 @@ import { Sidebar } from "../features/sessions/Sidebar";
 import { SessionExportDialog } from "../features/sessions/SessionExportDialog";
 import { TodosPanel } from "../features/todos/TodosPanel";
 import { useTodos } from "../features/todos/useTodos";
-import { GitLabPanel, type ReviewDelivery } from "../features/gitlab/GitLabPanel";
-import { JiraIssueView } from "../features/jira/JiraIssueView";
+import type { ReviewDelivery } from "../features/gitlab/GitLabPanel";
 import { useJiraIssue } from "../features/jira/useJiraIssue";
-import { ExplorerPanel, FileViewer } from "../features/explorer";
-import { McpPanel } from "../features/mcp/McpPanel";
-import { SkillsPanel } from "../features/skills/SkillsPanel";
-import { StatisticsView } from "../features/stats/StatisticsView";
 import { debugLogger } from "../features/debug/debug-logger";
-import { DebugLogModal } from "../features/debug/DebugLogModal";
+
+const LazyGitLabPanel = lazy(() => import("../features/gitlab/GitLabPanel").then((module) => ({ default: module.GitLabPanel })));
+const LazyJiraIssueView = lazy(() => import("../features/jira/JiraIssueView").then((module) => ({ default: module.JiraIssueView })));
+const LazyExplorerPanel = lazy(() => import("../features/explorer/ExplorerPanel").then((module) => ({ default: module.ExplorerPanel })));
+const LazyFileViewer = lazy(() => import("../features/explorer/FileViewer").then((module) => ({ default: module.FileViewer })));
+const LazyMcpPanel = lazy(() => import("../features/mcp/McpPanel").then((module) => ({ default: module.McpPanel })));
+const LazySkillsPanel = lazy(() => import("../features/skills/SkillsPanel").then((module) => ({ default: module.SkillsPanel })));
+const LazyStatisticsView = lazy(() => import("../features/stats/StatisticsView").then((module) => ({ default: module.StatisticsView })));
+const LazyDebugLogModal = lazy(() => import("../features/debug/DebugLogModal").then((module) => ({ default: module.DebugLogModal })));
+const LazyElicitationDialog = lazy(() => import("../features/chat/ElicitationDialog").then((module) => ({ default: module.ElicitationDialog })));
 import {
   generateSessionTitleFromPrompt,
   type AppCapabilities,
@@ -416,12 +420,27 @@ export function App() {
   });
   const [debugModalOpen, setDebugModalOpen] = useState(false);
   const [debugErrorCount, setDebugErrorCount] = useState(0);
+  const [resourceProfile, setResourceProfile] = useState<"economy" | "balanced" | "performance">("balanced");
+  const bootstrapGeneration = useRef(0);
 
   useEffect(() => {
+    let current = true;
+    window.gemUi?.getResourceProfile?.().then(({ profile }) => {
+      if (current) setResourceProfile(profile);
+    }).catch(() => undefined);
+    return () => { current = false; };
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-resource-profile", resourceProfile);
+  }, [resourceProfile]);
+
+  useEffect(() => {
+    debugLogger.setVerboseDiagnostics(debugMode);
     return debugLogger.subscribe((logs) => {
       setDebugErrorCount(logs.filter((l) => l.level === "error").length);
     });
-  }, []);
+  }, [debugMode]);
 
   useEffect(() => {
     const unsubscribe = window.gemUi?.jira?.onLog?.((entry) => {
@@ -434,6 +453,7 @@ export function App() {
 
   const toggleDebugMode = useCallback((enabled: boolean) => {
     setDebugMode(enabled);
+    debugLogger.setVerboseDiagnostics(enabled);
     try {
       localStorage.setItem("geminui:debug-mode", enabled ? "true" : "false");
     } catch {
@@ -445,6 +465,7 @@ export function App() {
   const [uiError, setUiError] = useState<UiError | null>(null);
   const [fatalError, setFatalError] = useState<string | null>(null);
   const [livePreviewUrl, setLivePreviewUrl] = useState<string | null>(null);
+  const [persistenceError, setPersistenceError] = useState<string | null>(null);
   const [reconnectedSessions, setReconnectedSessions] = useState<Record<string, boolean>>({});
   const [sessionHistoryModes, setSessionHistoryModes] = useState<Record<string, "compressed" | "fresh">>({});
   const [composerDraft, setComposerDraft] = useState<ComposerDraft | null>(null);
@@ -458,6 +479,9 @@ export function App() {
   } | null>(null);
   const [planTurnBySession, setPlanTurnBySession] = useState<Record<string, string>>({});
   const [chat, dispatch] = useReducer(chatReducer, null, () => createChatState());
+  const [timelinePaging, setTimelinePaging] = useState<{ sessionId: string | null; throughSeq: number; cursor: { seq: number; itemId: string } | null; hasMore: boolean; loading: boolean }>({ sessionId: null, throughSeq: 0, cursor: null, hasMore: false, loading: false });
+  const activeSessionIdRef = useRef<string | null>(activeSessionId);
+  activeSessionIdRef.current = activeSessionId;
   const gitStatusRef = useRef<GitProjectStatus | null>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const gitToolBaselinesRef = useRef(new Map<string, ReadonlyMap<string, string>>());
@@ -580,25 +604,41 @@ export function App() {
   const closeProjectDialog = useCallback(() => setProjectDialogOpen(false), []);
 
   const bootstrap = useCallback(async () => {
+    const generation = ++bootstrapGeneration.current;
     setBooting(true);
     setFatalError(null);
     try {
       if (!window.gemUi) throw new Error("Die sichere Desktop-Brücke ist nicht verfügbar.");
-      const [nextCapabilities, nextProjects] = await Promise.all([
+      const [initialCapabilities, nextProjects] = await Promise.all([
         window.gemUi.getCapabilities(),
         window.gemUi.projects.list(),
       ]);
-      setCapabilities(nextCapabilities);
+      if (generation !== bootstrapGeneration.current) return;
+      setCapabilities(initialCapabilities);
       setProjects(nextProjects);
       setActiveProjectId((current) =>
         current && nextProjects.some((project) => project.id === current)
           ? current
           : nextProjects.find((project) => !project.archived)?.id ?? null,
       );
-    } catch (error) {
-      setFatalError(messageFrom(error));
-    } finally {
+      // Show the actual workspace while the binary probe continues. A slow
+      // antivirus scan should not keep existing projects and chats hidden.
       setBooting(false);
+      let nextCapabilities = initialCapabilities;
+      const probeDeadline = Date.now() + 30_000;
+      while (
+        (nextCapabilities.gemini as AppCapabilities["gemini"] & { probeState?: string }).probeState === "checking" &&
+        Date.now() < probeDeadline && generation === bootstrapGeneration.current
+      ) {
+        await new Promise((resolve) => window.setTimeout(resolve, 250));
+        nextCapabilities = await window.gemUi.getCapabilities();
+      }
+      if (generation !== bootstrapGeneration.current) return;
+      setCapabilities(nextCapabilities);
+    } catch (error) {
+      if (generation === bootstrapGeneration.current) setFatalError(messageFrom(error));
+    } finally {
+      if (generation === bootstrapGeneration.current) setBooting(false);
     }
   }, []);
 
@@ -644,6 +684,15 @@ export function App() {
   const toggleTheme = () => {
     setTheme((current) => (current === "dark" ? "light" : "dark"));
   };
+
+  const changeResourceProfile = useCallback((profile: "economy" | "balanced" | "performance") => {
+    const previous = resourceProfile;
+    setResourceProfile(profile);
+    void window.gemUi.setResourceProfile({ profile }).catch((error) => {
+      setResourceProfile(previous);
+      showError("Ressourcenprofil konnte nicht gespeichert werden", error);
+    });
+  }, [resourceProfile, showError]);
 
   useEffect(() => {
     const workspace = workspaceRef.current;
@@ -698,14 +747,23 @@ export function App() {
 
   useEffect(() => {
     dispatch({ type: "reset", sessionId: activeSessionId });
+    setTimelinePaging({ sessionId: activeSessionId, throughSeq: 0, cursor: null, hasMore: false, loading: false });
     if (!activeSessionId) return;
     let current = true;
     let unsubscribe: (() => void) | undefined;
-    window.gemUi.subscribeSessionEvents(
-      { sessionId: activeSessionId, afterSeq: 0 },
-      (events) => {
+    let subscriptionStarted = false;
+    const subscribeFrom = (afterSeq: number) => {
+      if (subscriptionStarted || !current) return;
+      subscriptionStarted = true;
+      void window.gemUi.subscribeSessionEvents(
+      { sessionId: activeSessionId, afterSeq },
+      (events, metadata) => {
         if (!current) return;
         dispatch({ type: "events", events });
+        if (metadata?.error) {
+          setPersistenceError(metadata.error);
+        }
+        if (metadata?.replay) return;
         for (const envelope of events) {
           const { event } = envelope;
           if (event.type === "tool.failed" || event.type === "turn.failed") {
@@ -776,25 +834,88 @@ export function App() {
       .catch((error) => {
         if (current) showError("Live-Verbindung fehlgeschlagen", error);
       });
+    };
+    const installSnapshot = (snapshot: Awaited<ReturnType<typeof window.gemUi.sessions.getTimelineSnapshot>>) => {
+      if (!current || !snapshot.complete) return false;
+      const snapshotState = snapshot.state as (Partial<Omit<ChatState, "sessionId" | "items" | "lastSeq" | "imageSupported">> & {
+        capabilities?: { images?: boolean };
+      }) | undefined;
+      const { capabilities: snapshotCapabilities, ...hydrationState } = snapshotState ?? {};
+      dispatch({
+        type: "hydrated-snapshot",
+        sessionId: activeSessionId,
+        throughSeq: snapshot.throughSeq,
+        items: snapshot.items as unknown as TimelineItem[],
+        state: snapshotState && {
+          ...hydrationState,
+          ...(typeof snapshotCapabilities?.images === "boolean" ? { imageSupported: snapshotCapabilities.images } : {}),
+        },
+      });
+      setTimelinePaging({ sessionId: activeSessionId, throughSeq: snapshot.throughSeq, cursor: snapshot.nextBefore, hasMore: snapshot.hasMore, loading: false });
+      return true;
+    };
+    void (async () => {
+      let snapshot: Awaited<ReturnType<typeof window.gemUi.sessions.getTimelineSnapshot>> | null = null;
+      try {
+        snapshot = await window.gemUi.sessions.getTimelineSnapshot({ sessionId: activeSessionId, limit: 100 });
+        if (installSnapshot(snapshot)) {
+          subscribeFrom(snapshot.throughSeq);
+          return;
+        }
+      } catch (error) {
+        showError("Verlauf konnte nicht geladen werden", error);
+      }
+      // Keep this subscription on raw replay until it closes. Replacing it
+      // midway would merge complete replay text with the same snapshot prefix.
+      // The next session opening can use the completed background projection.
+      if (current) subscribeFrom(0);
+    })();
     return () => {
       current = false;
       unsubscribe?.();
     };
   }, [activeSessionId, showError]);
 
+  const loadOlderTimelinePage = useCallback(async () => {
+    const page = timelinePaging;
+    if (!page.sessionId || page.sessionId !== activeSessionId || !page.hasMore || !page.cursor || page.loading) return;
+    setTimelinePaging((current) => ({ ...current, loading: true }));
+    try {
+      const older = await window.gemUi.sessions.getTimelineSnapshot({ sessionId: page.sessionId, throughSeq: page.throughSeq, before: page.cursor, limit: 100 });
+      if (activeSessionIdRef.current !== page.sessionId) return;
+      if (older.complete) {
+        dispatch({ type: "hydrated-page", sessionId: page.sessionId, throughSeq: older.throughSeq, items: older.items as unknown as TimelineItem[] });
+        setTimelinePaging({ ...page, cursor: older.nextBefore, hasMore: older.hasMore, loading: false });
+      } else {
+        setTimelinePaging((current) => ({ ...current, loading: false }));
+      }
+    } catch (error) {
+      setTimelinePaging((current) => ({ ...current, loading: false }));
+      showError("Ältere Nachrichten konnten nicht geladen werden", error);
+    }
+  }, [activeSessionId, showError, timelinePaging]);
+
   useEffect(() => {
+    setPersistenceError(null);
     if (!activeSessionId) return;
     let current = true;
-    window.gemUi.sessions.getReconnectState?.({ sessionId: activeSessionId })
-      .then((state) => {
-        if (!current) return;
-        if (state?.reconnected && state?.hasHistory) {
-          setReconnectedSessions((prev) => ({ ...prev, [activeSessionId]: true }));
-        }
-      })
-      .catch(() => {});
+    const refresh = () => {
+      if (document.hidden) return;
+      window.gemUi.sessions.getReconnectState({ sessionId: activeSessionId })
+        .then((state) => {
+          if (!current) return;
+          setPersistenceError(state.persistenceError ?? null);
+          if (state.reconnected && state.hasHistory) {
+            setReconnectedSessions((prev) => ({ ...prev, [activeSessionId]: true }));
+          }
+        })
+        .catch(() => {});
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 1_500);
     return () => {
       current = false;
+      window.clearInterval(timer);
     };
   }, [activeSessionId]);
 
@@ -828,6 +949,10 @@ export function App() {
 
   const createSession = async () => {
     if (!activeProjectId || creatingSessionRef.current) return;
+    if (!capabilities?.gemini.available || !capabilities.gemini.acp) {
+      showError("Gemini CLI ist noch nicht verfügbar", new Error("Wähle eine Gemini-CLI-Binary mit ACP, bevor du eine neue Session startest."));
+      return;
+    }
     creatingSessionRef.current = true;
     setCreatingSession(true);
     try {
@@ -983,6 +1108,14 @@ export function App() {
       setSessions((current) => current.map((session) => session.id === sessionId ? updated : session));
     } catch (error) {
       showError("Gemini-Modell konnte nicht geändert werden", error);
+    }
+  };
+
+  const setSessionConfigOption = async (sessionId: string, configId: string, value: string | boolean) => {
+    try {
+      await window.gemUi.sessions.setConfigOption({ sessionId, configId, value });
+    } catch (error) {
+      showError("Sessioneinstellung konnte nicht geändert werden", error);
     }
   };
 
@@ -1423,28 +1556,23 @@ export function App() {
     );
   }
   if (!capabilities) return null;
-  if (!capabilities.gemini.available || !capabilities.gemini.acp) {
-    return (
-      <OnboardingScreen
-        capabilities={capabilities}
-        onRetry={() => void bootstrap()}
-        onPickGemini={window.gemUi.settings?.pickGeminiBinary || window.gemUi.settings?.chooseGeminiBinary
-          ? () => {
-              const picker = window.gemUi.settings.pickGeminiBinary ?? window.gemUi.settings.chooseGeminiBinary;
-              void picker?.()
-                .then((next) => {
-                  if (next) setCapabilities(next);
-                  else void bootstrap();
-                })
-                .catch((error) => setFatalError(messageFrom(error)));
-            }
-          : undefined}
-      />
-    );
-  }
 
   return (
     <div className="app-shell">
+      {(!capabilities.gemini.available || !capabilities.gemini.acp) && (
+        <div className="runtime-capability-banner" role="status">
+          <Icon name={capabilities.gemini.probeState === "checking" ? "clock" : "warning"} size={15} />
+          <span>{capabilities.gemini.probeState === "checking"
+            ? "Gemini CLI wird geprüft. Vorhandene Projekte und Chats bleiben verfügbar."
+            : "Gemini CLI mit ACP wurde nicht gefunden. Vorhandene Chats bleiben verfügbar; neue Anfragen sind pausiert."}</span>
+          {capabilities.gemini.probeState !== "checking" && <button type="button" onClick={() => void bootstrap()}>Erneut prüfen</button>}
+          <button type="button" onClick={() => {
+            const picker = window.gemUi.settings.pickGeminiBinary ?? window.gemUi.settings.chooseGeminiBinary;
+            void picker().then((next) => next ? setCapabilities(next) : void bootstrap()).catch((error) => showError("Gemini CLI konnte nicht gewählt werden", error));
+          }}>Gemini auswählen</button>
+        </div>
+      )}
+      {activeSession && <Suspense fallback={null}><LazyElicitationDialog sessionId={activeSession.id} api={window.gemUi} /></Suspense>}
       <Sidebar
         open={sidebarOpen}
         capabilities={capabilities}
@@ -1468,12 +1596,12 @@ export function App() {
       <section className="main-pane">
         {statsOpen ? (
           <div className="chat-workspace stats-workspace">
-            <StatisticsView
+            <Suspense fallback={<LoadingScreen />}><LazyStatisticsView
               projects={projects}
               activeProject={activeProject}
               onEnableProjectStats={(projectId) => toggleProjectStats(projectId, true)}
               onClose={() => setStatsOpen(false)}
-            />
+            /></Suspense>
             <PanelRail
               items={railItems}
               activeId={rightPanel}
@@ -1489,6 +1617,8 @@ export function App() {
               onToggleTheme={toggleTheme}
               onToggleStats={() => setStatsOpen(false)}
               onToggleLogs={() => setDebugModalOpen((prev) => !prev)}
+              resourceProfile={resourceProfile}
+              onResourceProfileChange={changeResourceProfile}
             />
           </div>
         ) : !projects.length ? (
@@ -1500,14 +1630,14 @@ export function App() {
             style={{ "--right-panel-width": `${rightPanelWidth}px` } as CSSProperties}
           >
             {viewingProjectFile ? (
-              <FileViewer
+              <Suspense fallback={<LoadingScreen />}><LazyFileViewer
                 project={activeProject}
                 file={viewingProjectFile}
                 onClose={() => setViewingProjectFile(null)}
                 onAddToContext={(entry) => {
                   setPendingProjectFileRefs((cur) => [...(cur ?? []), entry]);
                 }}
-              />
+              /></Suspense>
             ) : (
               <div className="project-empty-host">
                 <button type="button" className="icon-button mobile-empty-menu" onClick={() => setSidebarOpen(true)} aria-label="Seitenleiste öffnen"><Icon name="menu" size={19} /></button>
@@ -1535,7 +1665,7 @@ export function App() {
                 onChooseGit={() => void gitState.chooseGit()}
               />
             ) : rightPanel === "explorer" ? (
-              <ExplorerPanel
+              <Suspense fallback={<LoadingScreen />}><LazyExplorerPanel
                 open={rightPanel === "explorer"}
                 project={activeProject}
                 onClose={() => setRightPanel("none")}
@@ -1543,7 +1673,7 @@ export function App() {
                 onAddProjectFileReferences={(entries) => {
                   setPendingProjectFileRefs(entries);
                 }}
-              />
+              /></Suspense>
             ) : attachmentsOpen ? (
               <AttachmentsPanel
                 open={attachmentsOpen}
@@ -1574,11 +1704,11 @@ export function App() {
                 onOpenExternal={openExternal}
               />
             ) : rightPanel === "skills" ? (
-              <SkillsPanel projectId={activeProject.id} onClose={() => setRightPanel("none")} />
+              <Suspense fallback={<div className="panel-loading">Panel wird geladen …</div>}><LazySkillsPanel projectId={activeProject.id} onClose={() => setRightPanel("none")} /></Suspense>
             ) : rightPanel === "mcp" ? (
-              <McpPanel projectId={activeProject.id} onClose={() => setRightPanel("none")} />
+              <Suspense fallback={<div className="panel-loading">Panel wird geladen …</div>}><LazyMcpPanel projectId={activeProject.id} onClose={() => setRightPanel("none")} /></Suspense>
             ) : rightPanel === "gitlab" && gitlabEnabled ? (
-              <GitLabPanel
+              <Suspense fallback={<div className="panel-loading">Panel wird geladen …</div>}><LazyGitLabPanel
                 projectId={activeProject.id}
                 rootRevision={activeProject.rootRevision}
                 activeSession={null}
@@ -1589,7 +1719,7 @@ export function App() {
                 }}
                 onOpenExternal={openExternal}
                 onOpenSettings={() => setProjectSettingsOpen(true)}
-              />
+              /></Suspense>
             ) : null}
             {rightPanelOpen && <RightPanelResizeHandle width={rightPanelWidth} onChange={setRightPanelWidth} />}
             <PanelRail
@@ -1607,6 +1737,8 @@ export function App() {
                 setDebugModalOpen(false);
               }}
               onToggleLogs={() => setDebugModalOpen((prev) => !prev)}
+              resourceProfile={resourceProfile}
+              onResourceProfileChange={changeResourceProfile}
             />
           </div>
         ) : activeProject && activeSession ? (
@@ -1628,6 +1760,7 @@ export function App() {
                 onEditProject={() => setProjectSettingsOpen(true)}
                 onSetMode={(mode) => void setSessionMode(activeSession.id, mode)}
                 onSetModel={(model) => void setSessionModel(activeSession.id, model)}
+                onSetConfigOption={(configId, value) => void setSessionConfigOption(activeSession.id, configId, value)}
               />
               {activeSession.status === "roots_changed" && <RootChangeBanner />}
               {Boolean(reconnectedSessions[activeSession.id]) && (
@@ -1635,11 +1768,20 @@ export function App() {
                   onChoose={(mode) => handleChooseReconnectMode(activeSession.id, mode)}
                 />
               )}
+              {persistenceError && (
+                <div className="event-persistence-banner" role="alert">
+                  Verlauf konnte nicht dauerhaft gespeichert werden: {persistenceError}
+                </div>
+              )}
               <Timeline
+                sessionId={activeSession.id}
                 items={chat.items}
                 sessionTitle={activeSession.title}
                 gitPreviewGroups={gitPreviewGroups}
                 awaitingAnswer={awaitingAnswer}
+                hasOlderItems={timelinePaging.sessionId === activeSession.id && timelinePaging.hasMore}
+                loadingOlderItems={timelinePaging.loading}
+                onLoadOlderItems={() => void loadOlderTimelinePage()}
                 onOpenExternal={openExternal}
                 onOpenGitDiff={openGitDiff}
                 onRespondToPermission={(request, option) => void respondToPermission(request, option)}
@@ -1650,7 +1792,8 @@ export function App() {
                 projectId={activeProject.id}
                 rootRevision={activeProject.rootRevision}
                 phase={effectivePhase}
-                imagesSupported={capabilities.gemini.images}
+                disabled={!capabilities.gemini.available || !capabilities.gemini.acp}
+                imagesSupported={chat.imageSupported ?? capabilities.gemini.images}
                 contextAttachmentCount={contextAttachments.included.length}
                 contextEstimatedTokens={contextAttachments.list?.estimatedTotalTokens ?? 0}
                 contextOverBudget={contextAttachments.list?.overBudget ?? false}
@@ -1659,6 +1802,7 @@ export function App() {
                 pendingProjectFileRefs={pendingProjectFileRefs}
                 externalContexts={pendingExternalContexts}
                 sessionMode={activeSession.mode}
+                commands={chat.commands}
                 hasPendingPlan={hasPendingPlan}
                 onDraftApplied={() => setComposerDraft(null)}
                 onProjectFileRefsApplied={() => setPendingProjectFileRefs(null)}
@@ -1674,17 +1818,17 @@ export function App() {
               />
             </div>
             {viewingProjectFile && (
-              <FileViewer
+              <Suspense fallback={<LoadingScreen />}><LazyFileViewer
                 project={activeProject}
                 file={viewingProjectFile}
                 onClose={() => setViewingProjectFile(null)}
                 onAddToContext={(entry) => {
                   setPendingProjectFileRefs((cur) => [...(cur ?? []), entry]);
                 }}
-              />
+              /></Suspense>
             )}
             {rightPanel === "explorer" ? (
-              <ExplorerPanel
+              <Suspense fallback={<div className="panel-loading">Dateien werden geladen …</div>}><LazyExplorerPanel
                 open={rightPanel === "explorer"}
                 project={activeProject}
                 onClose={() => setRightPanel("none")}
@@ -1692,7 +1836,7 @@ export function App() {
                 onAddProjectFileReferences={(entries) => {
                   setPendingProjectFileRefs(entries);
                 }}
-              />
+              /></Suspense>
             ) : changesOpen ? (
               <ChangesPanel
                 key={`${activeProject.id}:${activeProject.rootRevision}`}
@@ -1740,11 +1884,11 @@ export function App() {
                 onOpenExternal={openExternal}
               />
             ) : rightPanel === "skills" ? (
-              <SkillsPanel projectId={activeProject.id} onClose={() => setRightPanel("none")} />
+              <Suspense fallback={<div className="panel-loading">Panel wird geladen …</div>}><LazySkillsPanel projectId={activeProject.id} onClose={() => setRightPanel("none")} /></Suspense>
             ) : rightPanel === "mcp" ? (
-              <McpPanel projectId={activeProject.id} onClose={() => setRightPanel("none")} />
+              <Suspense fallback={<div className="panel-loading">Panel wird geladen …</div>}><LazyMcpPanel projectId={activeProject.id} onClose={() => setRightPanel("none")} /></Suspense>
             ) : rightPanel === "gitlab" && gitlabEnabled ? (
-              <GitLabPanel
+              <Suspense fallback={<div className="panel-loading">Panel wird geladen …</div>}><LazyGitLabPanel
                 projectId={activeProject.id}
                 rootRevision={activeProject.rootRevision}
                 activeSession={activeSession}
@@ -1753,13 +1897,13 @@ export function App() {
                 onSendExternalContextPrompt={deliverReviewContext}
                 onOpenExternal={openExternal}
                 onOpenSettings={() => setProjectSettingsOpen(true)}
-              />
+              /></Suspense>
             ) : null}
             {/* The issue covers the workspace instead of replacing the chat
                 view, so an unsent draft in the composer survives a look at
                 Jira. Everything but the panel rail is behind it. */}
             {rightPanel === "jira" && jiraIssue && (
-              <JiraIssueView
+              <Suspense fallback={<div className="panel-loading">Jira wird geladen …</div>}><LazyJiraIssueView
                 issue={jiraIssue}
                 projectId={activeProject?.id}
                 sessionId={activeSessionId}
@@ -1770,7 +1914,7 @@ export function App() {
                   handToComposer(text);
                   setRightPanel("none");
                 }}
-              />
+              /></Suspense>
             )}
             {rightPanelOpen && <RightPanelResizeHandle width={rightPanelWidth} onChange={setRightPanelWidth} />}
             <PanelRail
@@ -1788,6 +1932,8 @@ export function App() {
                 setDebugModalOpen(false);
               }}
               onToggleLogs={() => setDebugModalOpen((prev) => !prev)}
+              resourceProfile={resourceProfile}
+              onResourceProfileChange={changeResourceProfile}
             />
           </div>
         ) : null}
@@ -1833,10 +1979,10 @@ export function App() {
       )}
 
       {debugMode && (
-        <DebugLogModal
+        <Suspense fallback={null}><LazyDebugLogModal
           open={debugModalOpen}
           onClose={() => setDebugModalOpen(false)}
-        />
+        /></Suspense>
       )}
 
       {uiError && (
