@@ -18,10 +18,10 @@ test("replays more than 1000 events and releases subscription listeners", async 
     await expect(page).toHaveTitle("GeminUI");
     await page.waitForFunction(() => typeof window.gemUi === "object");
     await application.evaluate(async ({ app }, fixture) => {
-      const { createRequire } = await import("node:module");
-      const path = await import("node:path");
-      const require = createRequire(path.join(app.getAppPath(), "package.json"));
-      const Database = require("better-sqlite3");
+      const { createRequire } = require("node:module");
+      const path = require("node:path");
+      const requireFromApp = createRequire(path.join(app.getAppPath(), "package.json"));
+      const Database = requireFromApp("better-sqlite3");
       const db = new Database(path.join(app.getPath("userData"), "data", "gem-ui.sqlite3"));
       db.pragma("foreign_keys = ON");
       try {
