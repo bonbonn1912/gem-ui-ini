@@ -18,10 +18,13 @@ test("replays more than 1000 events and releases subscription listeners", async 
     await expect(page).toHaveTitle("GeminUI");
     await page.waitForFunction(() => typeof window.gemUi === "object");
     await application.evaluate(async ({ app }, fixture) => {
-      const { createRequire } = require("node:module");
-      const path = require("node:path");
-      const requireFromApp = createRequire(path.join(app.getAppPath(), "package.json"));
-      const Database = requireFromApp("better-sqlite3");
+      // Playwright serializes this callback into Electron's main context.
+      // Dynamic imports in a transformed test can become require() calls,
+      // but that context has no CommonJS require binding (notably on Windows).
+      const { createRequire } = process.getBuiltinModule("module");
+      const path = process.getBuiltinModule("path");
+      const loadModule = createRequire(path.join(app.getAppPath(), "package.json"));
+      const Database = loadModule("better-sqlite3");
       const db = new Database(path.join(app.getPath("userData"), "data", "gem-ui.sqlite3"));
       db.pragma("foreign_keys = ON");
       try {
