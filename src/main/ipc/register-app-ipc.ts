@@ -215,16 +215,25 @@ export function registerAppIpc(options: RegisterAppIpcOptions): () => void {
     ),
   );
   register(IPC_CHANNELS.pickProjectFolders, async (input) => {
-    const allowMultiple = (input as { allowMultiple: boolean }).allowMultiple;
-    const result = await dialog.showOpenDialog(options.mainWindow, {
+    const allowMultiple = (input as { allowMultiple?: boolean }).allowMultiple ?? true;
+    // `createDirectory` is a macOS-only affordance. Passing it to the Windows
+    // native picker can leave the dialog waiting without ever showing a usable
+    // folder selection window. Keep the Windows property set minimal.
+    const properties: Array<"openDirectory" | "multiSelections" | "createDirectory"> = [
+      "openDirectory",
+    ];
+    if (process.platform === "darwin") properties.push("createDirectory");
+    if (allowMultiple) properties.push("multiSelections");
+
+    const dialogOptions = {
       title: "Projektordner auswählen",
       buttonLabel: "Ordner übernehmen",
-      properties: [
-        "openDirectory",
-        "createDirectory",
-        ...(allowMultiple ? (["multiSelections"] as const) : []),
-      ],
-    });
+      properties,
+    };
+    const owner = options.mainWindow.isDestroyed() ? undefined : options.mainWindow;
+    const result = owner
+      ? await dialog.showOpenDialog(owner, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions);
     if (result.canceled) return [];
     if (result.filePaths.length > 6) {
       throw new Error(

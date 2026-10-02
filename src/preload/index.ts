@@ -166,7 +166,7 @@ const desktopApi: GemUiDesktopApi = {
     getApprovalPolicy: (input) =>
       ipcRenderer.invoke(IPC_CHANNELS.getProjectApprovalPolicy, input),
     pickFolders: () =>
-      ipcRenderer.invoke(IPC_CHANNELS.pickProjectFolders, {}),
+      ipcRenderer.invoke(IPC_CHANNELS.pickProjectFolders, { allowMultiple: true }),
     create: (input) => ipcRenderer.invoke(IPC_CHANNELS.createProject, input),
     rename: (input) => ipcRenderer.invoke(IPC_CHANNELS.renameProject, input),
     setArchived: (input) =>
